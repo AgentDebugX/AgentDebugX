@@ -1,0 +1,13 @@
+{
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "base_urls": {},
+  "trajectory_dir": "results/input_trajectory",
+  "output_dir": "results/debugger_results",
+  "trial_name": "claude-sonnet-4-5-20250929_50steps",
+  "workers": 1,
+  "skip_existing": true,
+  "rca_thinking_budget": 16000,
+  "rca_max_tokens": 16000,
+  "rca_max_turns": 60
+}
