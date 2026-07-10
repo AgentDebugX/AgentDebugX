@@ -1,0 +1,36 @@
+{
+  "trace_id": "trace_sample",
+  "task_id": "sample-001",
+  "goal": "Summarize the latest AgentDebug paper",
+  "framework": "custom-react-agent",
+  "started_at": "2026-05-15T00:00:00Z",
+  "ended_at": "2026-05-15T00:00:05Z",
+  "metadata": {},
+  "events": [
+    {
+      "event_id": "evt_1",
+      "trace_id": "trace_sample",
+      "agent_name": "planner",
+      "event_type": "plan",
+      "module": "planning",
+      "step_index": 1,
+      "timestamp": "2026-05-15T00:00:01Z",
+      "input": "Find the latest AgentDebug paper",
+      "output": "Search the web for AgentDebug",
+      "metadata": {},
+      "artifacts": []
+    },
+    {
+      "event_id": "evt_2",
+      "trace_id": "trace_sample",
+      "agent_name": "search",
+      "event_type": "tool.result",
+      "module": "action",
+      "step_index": 2,
+      "timestamp": "2026-05-15T00:00:02Z",
+      "error": "JSON schema validation failed: missing parameter query",
+      "metadata": {},
+      "artifacts": []
+    }
+  ]
+}

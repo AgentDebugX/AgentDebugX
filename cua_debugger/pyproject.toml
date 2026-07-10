@@ -1,0 +1,32 @@
+[project]
+name = "cua-agent-debugger"
+version = "0.1.0"
+description = "Root-cause analysis and annotation tooling for computer-use agent trajectories"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "anthropic",
+    "backoff",
+    "chromadb",
+    "langchain-core",
+    "langchain-chroma",
+    "langchain-openai",
+    "matplotlib",
+    "numpy",
+    "openai",
+    "pandas",
+    "pillow",
+    "pydantic",
+    "pytest",
+    "python-dotenv",
+    "scikit-learn",
+    "streamlit",
+    "streamlit-adjustable-columns",
+    "together",
+    "tqdm",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

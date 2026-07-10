@@ -1,0 +1,794 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "cwd": "/tmp/tmp.pnoiIC0dad",
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "tools": [
+      "Task",
+      "AskUserQuestion",
+      "Bash",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "Edit",
+      "EnterPlanMode",
+      "EnterWorktree",
+      "ExitPlanMode",
+      "ExitWorktree",
+      "Glob",
+      "Grep",
+      "Monitor",
+      "NotebookEdit",
+      "PushNotification",
+      "Read",
+      "RemoteTrigger",
+      "ScheduleWakeup",
+      "Skill",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskOutput",
+      "TaskStop",
+      "TaskUpdate",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Write"
+    ],
+    "mcp_servers": [
+      {
+        "name": "context7",
+        "status": "pending"
+      }
+    ],
+    "model": "claude-sonnet-4-6",
+    "permissionMode": "acceptEdits",
+    "slash_commands": [
+      "agentdebug",
+      "update-config",
+      "verify",
+      "debug",
+      "code-review",
+      "simplify",
+      "batch",
+      "fewer-permission-prompts",
+      "loop",
+      "schedule",
+      "claude-api",
+      "run",
+      "run-skill-generator",
+      "clear",
+      "compact",
+      "context",
+      "heapdump",
+      "init",
+      "reload-skills",
+      "review",
+      "security-review",
+      "usage-credits",
+      "extra-usage",
+      "usage",
+      "insights",
+      "goal",
+      "team-onboarding"
+    ],
+    "apiKeySource": "none",
+    "claude_code_version": "2.1.157",
+    "output_style": "default",
+    "agents": [
+      "claude",
+      "Explore",
+      "general-purpose",
+      "Plan",
+      "statusline-setup"
+    ],
+    "skills": [
+      "agentdebug",
+      "update-config",
+      "verify",
+      "debug",
+      "code-review",
+      "simplify",
+      "batch",
+      "fewer-permission-prompts",
+      "loop",
+      "schedule",
+      "claude-api",
+      "run",
+      "run-skill-generator"
+    ],
+    "plugins": [],
+    "analytics_disabled": false,
+    "product_feedback_disabled": false,
+    "uuid": "8ee7a064-cd9d-4583-982a-2f633f966bd5",
+    "memory_paths": {
+      "auto": "/u/yuchen85/.claude/projects/-tmp/memory/"
+    },
+    "fast_mode_state": "off"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01Bab5fDScW3Hqk6od5MUHAo",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The user wants me to use the agentdebug skill to process a trace.json file. Let me invoke the skill.",
+          "signature": "EqwCCmUIDhgCKkAINbFfS8G4i3yJu1dkYhE7RAUql8xdC9aEPMHrAGx6Fm5mkV0K8h3pzTEwPXXkIMoh5MkiNp35KpbeHcDzcUXPMhFjbGF1ZGUtc29ubmV0LTQtNjgAQgh0aGlua2luZxIMN7pGXbUDZwlrOXGZGgyitbddD5oMgc/j/tgiMCdnc9J8BvWXapzmmGi2MH4mlgi3Bd/iD9FVkbU+UQmSUHvlrYaqtdKXy62UV6NApyp17fNjHTRY6fnhv87v2yiJUCftX5MrfUnJW2XIHf7+W91D8sYzQzAZ2ddBWvBcLI4Z83XlwOw5bXnPN5No7qQEqHKabfY7Z30Qr2fJ39itpWJdnQDwZKMtc9aycREIiQiInhAUGJoHDwrQwz8iAX20y5sTOWDXGAE="
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 5816,
+        "cache_read_input_tokens": 12963,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 5816
+        },
+        "output_tokens": 6,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "c9068b09-efd2-4ed8-940c-d837079bfe01",
+    "request_id": "req_011CbXVNmeoTJs2ooWHmMUpe"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01Bab5fDScW3Hqk6od5MUHAo",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01GCG29VEkau72CDjwTPLbRs",
+          "name": "Skill",
+          "input": {
+            "skill": "agentdebug",
+            "args": "convert trace.json to trajectory.json and run diagnostic"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 5816,
+        "cache_read_input_tokens": 12963,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 5816
+        },
+        "output_tokens": 6,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "01bc1a9c-5d10-4f35-afed-c908ef179192",
+    "request_id": "req_011CbXVNmeoTJs2ooWHmMUpe"
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_01GCG29VEkau72CDjwTPLbRs",
+          "content": "Launching skill: agentdebug"
+        }
+      ]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "7f1a479a-3403-4f00-b51e-74938c65cf76",
+    "timestamp": "2026-05-29T20:27:33.086Z",
+    "tool_use_result": {
+      "success": true,
+      "commandName": "agentdebug",
+      "allowedTools": [
+        "Bash(agentdebug *)"
+      ]
+    }
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Base directory for this skill: /tmp/tmp.pnoiIC0dad/.claude/skills/agentdebug\n\n# AgentDebugX \u2014 Claude Code Skill\n\nDrives the locally-installed `agentdebug` CLI to debug failed agent runs.\n\n## Prerequisites\n\n```bash\npip install agentdebugx            # core\npip install 'agentdebugx[ui]'      # for `agentdebug inspect`\nexport AGENTDEBUG_LLM_BASE_URL=... # for `judge` / `deep`\nexport AGENTDEBUG_LLM_API_KEY=...\n```\n\nRun `agentdebug doctor` first to confirm which adapters are available.\n\n## Ground rule\n\n**Never read trajectory files directly.** Do not use Read, Glob, or manual JSON inspection \u2014 always pass them through the `agentdebug` CLI.\n\n**For flags and all available tools, read `reference/cli_reference.md` first.** Only fall back to `--help` for version-specific flags not in that file.\n\n## Steps\n\nWork down this list; escalate only when the result is inconclusive.\n\n0. **Normalize (optional)** \u2014 skip unless the user asks to save a file, or step 1 fails to parse:\n   ```bash\n   agentdebug convert <export.json|jsonl> --format auto --out trajectory.json\n   ```\n\n1. **Quick scan** \u2014 offline, no LLM needed:\n   ```bash\n   agentdebug diagnose <trajectory.json|raw-export> --suggest\n   ```\n\n2. **LLM judge** \u2014 when step 1 is inconclusive and `AGENTDEBUG_LLM_*` is set:\n   ```bash\n   agentdebug judge <trajectory.json|trace_id> --attribute\n   ```\n\n3. **DeepDebug** \u2014 when judge waffles or the root cause looks multi-step:\n   ```bash\n   agentdebug deep <trajectory.json|trace_id> --traceback\n   ```\n\n**Inspect a store:**\n```bash\nagentdebug list --store-sqlite .agentdebug/errors.sqlite\nagentdebug show <trace_id> --store-sqlite .agentdebug/errors.sqlite\n```\n\n**Publish to Hub** (ask the user for permission first):\n```bash\nagentdebug hub push <trace_id> --to git:<remote>#bundles --store-sqlite .agentdebug/errors.sqlite\n```\n\n## Escalation policy\n\n**Analysis** \u2014 always start cheap; escalate only when inconclusive:\n1. `diagnose` \u2014 always first; offline, free, deterministic\n2. `judge` \u2014 when `diagnose` finds nothing conclusive or confidence is low\n3. `deep` \u2014 when `judge` waffles, or root cause looks multi-step (upstream of flagged event)\n\n**Attribution** \u2014 add `--attribute` to `judge`; sufficient for most traces.\n\n**Recovery** \u2014 add `--suggest` to `diagnose`; escalate only if the suggestion is vague or doesn't map to a specific event.\n\nSee [capabilities.md](reference/capabilities.md) for what each level does.\n\n## Reporting\n\nAlways present: root-cause hypothesis (event_id + step + failure mode + confidence), supporting evidence (quoted from the trajectory), and a concrete suggested fix.\n\n**Hedging is mandatory:**\n- Confidence `null` or < 0.9: use \"candidate root cause\", \"likely\", or \"ranked hypothesis\" \u2014 never flat assertions like \"the root cause is\".\n- Confidence \u2265 0.9 AND corroborated by `deep`: may state directly.\n- Section headings count \u2014 write `## Candidate Root Cause`, not `## Root Cause: X`.\n\n## Safety\n\nRecovery suggestions are propose-only and require explicit user opt-in before any application.\n\nIf the user asks to apply a recovery:\n- **Interactive session**: confirm they understand opt-in is required, then proceed only on explicit approval.\n- **Non-interactive session** (e.g. `claude -p`): state in your output that opt-in is required and halt \u2014 do not apply.\n\n\nARGUMENTS: convert trace.json to trajectory.json and run diagnostic"
+        }
+      ]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "e533d9b6-5b94-4884-b38e-6856561e3ad4",
+    "timestamp": "2026-05-29T20:27:33.085Z",
+    "isSynthetic": true
+  },
+  {
+    "type": "rate_limit_event",
+    "rate_limit_info": {
+      "status": "allowed",
+      "resetsAt": 1780092000,
+      "rateLimitType": "five_hour",
+      "overageStatus": "allowed",
+      "overageResetsAt": 1780086600,
+      "isUsingOverage": false
+    },
+    "uuid": "a361a4b5-18ef-4ddf-ac43-ec8f9bf3785e",
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01EV6LAkjJqm6xNndC7N5mYM",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The skill has been loaded. Let me follow the steps:\n\n1. First, read the CLI reference to understand the available flags\n2. Run `agentdebug doctor` to check available adapters\n3. Convert trace.json to trajectory.json\n4. Run diagnostic on trajectory.json\n\nLet me start by reading the CLI reference and running doctor in parallel.",
+          "signature": "EpAECmUIDhgCKkBfvtE7K4wFY/zZKi5nPpJq6Lg4a9RqY7gFfXQbbeZe0o0+iAZ6atoECLx0VvEJYuxj2Ajs6SyK8czKsf1ftWOCMhFjbGF1ZGUtc29ubmV0LTQtNjgAQgh0aGlua2luZxIM3GYEqqVbEJPcA5GQGgzI8fGTYtIHtSWTPJQiMDvLVj8zS8T+uR8cAhZU8aYK5dubdQEYNAGHVi/PH/vLpheVxhrltj3TXKIgGmEzQCrYAtmbPUwknTNQ7bt0cITEBa77NVmYNSrdKjJoTSy2udgMTtQSqDDDxc6lqcPa9JMe7ydFxG7TIRneI28Nc2mN8IwaR3+81CCWV/yd2nndgzf/M47eLgD6K1yjZftG8AM96h13xyCdaxKYMocaRIVr31DH2YIkIceVcf3rP4dXXvHAQ+6QOttU1MZ1Ux6y0nPlIy9h5vZEhRe1f//ASJQGkpqENXuCTirgwOxWpulXnZHlGrB25TMJSfvcOGO6rLnK0q+5M6W/+GT/P3ne2oivRDmoWNry/hOu7tWK+uLIfw3Nn/xSebyH/e/esU4pygHbVL+SPrM7RfYoPu6IBCynkQvvp3UMl6pFwf7sDkDjJ6MRxAOMuL6WV6D52QhOuduobVQLe2EDHOHJu3Emf5Se95xJr0Kl8zV5CM5Xe9MC9o91Mx48ZlR6WSs+vkOdWJMavr5BMNch5mJYGAE="
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 1155,
+        "cache_read_input_tokens": 18779,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1155
+        },
+        "output_tokens": 6,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "abc84d3a-f30d-48e5-9b38-d145431fa9f0",
+    "request_id": "req_011CbXVNxVRDGheACCUPWJQv"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01EV6LAkjJqm6xNndC7N5mYM",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I'll start by reading the CLI reference and checking the available adapters."
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 1155,
+        "cache_read_input_tokens": 18779,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1155
+        },
+        "output_tokens": 6,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "7627ec04-ad5a-4a86-a950-76f5b8c05390",
+    "request_id": "req_011CbXVNxVRDGheACCUPWJQv"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01EV6LAkjJqm6xNndC7N5mYM",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01PgbtoneydQAgaMKp4VC2re",
+          "name": "Read",
+          "input": {
+            "file_path": "/tmp/tmp.pnoiIC0dad/.claude/skills/agentdebug/reference/cli_reference.md"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 1155,
+        "cache_read_input_tokens": 18779,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1155
+        },
+        "output_tokens": 6,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "de0a3345-4dd8-4b43-884a-5f0a1b67fe43",
+    "request_id": "req_011CbXVNxVRDGheACCUPWJQv"
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_01PgbtoneydQAgaMKp4VC2re",
+          "type": "tool_result",
+          "content": "1\t# AgentDebugX CLI reference\n2\t\n3\tFull command catalog for the `agentdebug` CLI that this skill wraps. Run\n4\t`agentdebug <command> --help` for the authoritative, version-specific flags.\n5\t\n6\t## Mental model\n7\t\n8\tAgentDebugX has four primary CLI stages:\n9\t\n10\t| Stage | Primary command | Alias |\n11\t|-------|----------------|-------|\n12\t| Normalize external traces | `ingest` | `convert` |\n13\t| Deterministic analysis | `diagnose` | `analyze` |\n14\t| Local dashboard / store inspection | `inspect` | `serve` |\n15\t| LLM-backed follow-up | `act judge/deep/hub/integrations` | `judge`, `deep`, `hub`, `integrations` |\n16\t\n17\t`list` and `show` are standalone store commands with no alias.\n18\t\n19\t## Environment\n20\t\n21\tLLM-backed commands (`judge`, `deep`) read credentials from the environment\n22\t(or accept explicit overrides):\n23\t\n24\t```bash\n25\texport AGENTDEBUG_LLM_BASE_URL=...   # OpenAI-compatible endpoint\n26\texport AGENTDEBUG_LLM_API_KEY=...\n27\texport AGENTDEBUG_LLM_MODEL=...      # optional; defaults to gemini-3-flash\n28\t```\n29\t\n30\tOverride flags: `--base-url URL`, `--api-key KEY`, `--model NAME`\n31\t\n32\tMissing credentials cause `judge` / `deep` to exit with code 4.\n33\t\n34\t## Store arguments\n35\t\n36\t`list`, `show`, `judge`, `deep`, `hub push`, and `inspect` accept a mutually\n37\texclusive store selector:\n38\t\n39\t```\n40\t--store-sqlite <path>    SQLite trace store\n41\t--store-jsonl  <path>    JSONL trace store\n42\t```\n43\t\n44\t## Commands\n45\t\n46\t### ingest / convert\n47\t\n48\tNormalize an offline trace export into `AgentTrajectory` JSON.\n49\t\n50\t```bash\n51\tagentdebug ingest <export.json|jsonl> [--out PATH] [--format FORMAT] \\\n52\t    [--trace-id ID] [--task-id ID] [--goal TEXT] [--framework NAME]\n53\tagentdebug convert ...   # identical alias\n54\t```\n55\t\n56\t`--format` choices:\n57\t\n58\t| Value | Meaning |\n59\t|-------|---------|\n60\t| `auto` *(default)* | Auto-detect |\n61\t| `agenttrajectory` | Native AgentDebugX trajectory |\n62\t| `messages` | OpenAI / chat-style messages payload |\n63\t| `message_list` | Flat list of chat messages |\n64\t| `conversations` | Rollout conversation format |\n65\t| `event_list` | Generic event list |\n66\t| `webshop_pages` | WebShop page/action logs |\n67\t| `openai_agents_spans` | OpenAI Agents span dumps |\n68\t| `crewai_events` | CrewAI event dumps |\n69\t| `langgraph_callbacks` | LangGraph / LangChain callback logs |\n70\t\n71\tExits 2 on conversion error.\n72\t\n73\t### diagnose / analyze\n74\t\n75\tOffline heuristic analysis. No LLM required.\n76\t\n77\t```bash\n78\tagentdebug diagnose <trajectory.json|external-trace> [--out PATH] \\\n79\t    [--suggest] [--traceback] [--no-color] \\\n80\t    [--rule-pack auto|core|agenterrorbench|all]\n81\tagentdebug analyze ...   # identical alias\n82\t```\n83\t\n84\t| Flag | Effect |\n85\t|------|--------|\n86\t| `--suggest` | Append Reflexion-style retry suggestions |\n87\t| `--traceback` | Render a Python-traceback-style cascade instead of JSON |\n88\t| `--no-color` | Disable ANSI colors in `--traceback` output |\n89\t| `--rule-pack` | Repeatable. `auto` loads `core` + any detected benchmark pack |\n90\t| `--out PATH` | Write report to file instead of stdout |\n91\t\n92\t`diagnose` also auto-converts recognized external formats inline (same as\n93\trunning `ingest` first) \u2014 so you can point it directly at a raw export.\n94\t\n95\t### list\n96\t\n97\tList all trace IDs in a store.\n98\t\n99\t```bash\n100\tagentdebug list --store-sqlite .agentdebug/errors.sqlite\n101\tagentdebug list --store-jsonl  .agentdebug/traces.jsonl\n102\t```\n103\t\n104\tExits 2 if no store is provided.\n105\t\n106\t### show\n107\t\n108\tPrint one stored trajectory as JSON.\n109\t\n110\t```bash\n111\tagentdebug show <trace_id> --store-sqlite .agentdebug/errors.sqlite\n112\t```\n113\t\n114\tExits 2 (no store) / 3 (unknown trace_id).\n115\t\n116\t### inspect / serve\n117\t\n118\tRun the local FastAPI dashboard. Requires `agentdebugx[ui]`.\n119\t\n120\t```bash\n121\tagentdebug inspect --store-sqlite .agentdebug/errors.sqlite \\\n122\t    [--host 127.0.0.1] [--port 7777]\n123\tagentdebug serve ...   # identical alias\n124\t```\n125\t\n126\tExits 5 if the `[ui]` extra is not installed. Dashboard endpoints:\n127\t`/healthz`, `/overview`, `/trace/{trace_id}`, `/api/v1/traces`.\n128\t\n129\t### act judge / judge\n130\t\n131\tLLM judge against a trajectory file or stored trace.\n132\t\n133\t```bash\n134\tagentdebug act judge <trajectory.json|trace_id> \\\n135\t    [--store-sqlite PATH | --store-jsonl PATH] \\\n136\t    [--model NAME] [--base-url URL] [--api-key KEY] \\\n137\t    [--attribute] [--traceback] [--no-color] [--out PATH]\n138\t\n139\tagentdebug judge <trajectory.json|trace_id> ...  # alias; no --traceback/--no-color\n140\t```\n141\t\n142\t| Flag | Effect |\n143\t|------|--------|\n144\t| `--attribute` | Also run `AllAtOnceAttributor` to blame specific events |\n145\t| `--traceback` | Append traceback-style cascade after JSON (`act judge` only) |\n146\t| `--no-color` | Disable traceback color (`act judge` only) |\n147\t| `--out PATH` | Write report to file |\n148\t\n149\tExits 4 if LLM credentials are missing.\n150\t\n151\t### act deep / deep\n152\t\n153\tIterative multi-turn DeepDebug (plan -> hypothesize -> verify -> refine). Use\n154\tfor hard failures the single-pass judge can't resolve.\n155\t\n156\t```bash\n157\tagentdebug act deep <trajectory.json|trace_id> \\\n158\t    [--store-sqlite PATH | --store-jsonl PATH] \\\n159\t    [--model NAME] [--base-url URL] [--api-key KEY] \\\n160\t    [--traceback] [--no-color] [--out PATH]\n161\t\n162\tagentdebug deep ...   # identical alias\n163\t```\n164\t\n165\tPrints per-round timings to stderr. Exits 4 if LLM credentials are missing.\n166\t\n167\t### act hub / hub\n168\t\n169\tPackage, publish, list, and pull Error Hub bundles.\n170\t\n171\t**Hub specs** \u2014 `<spec>` is one of:\n172\t`local:/path`, `git:<remote>[#<path>]`, `hf:<repo_id>[#<path>]`\n173\t\n174\t```bash\n175\t# push \u2014 scrubs PII/secrets by default\n176\tagentdebug hub push <trace_id> --to <spec> \\\n177\t    --store-sqlite PATH | --store-jsonl PATH \\\n178\t    [--no-scrub] [--license CC-BY-4.0] \\\n179\t    [--contributor ID] [--contributor-org ORG] [--message TEXT]\n180\t\n181\t# pull\n182\tagentdebug hub pull <spec> --bundle <bundle_id> [--into .agentdebug/hub_pulls]\n183\t\n184\t# list\n185\tagentdebug hub list <spec> [--limit 50]\n186\t```\n187\t\n188\t`--no-scrub` skips PII/secret scrubbing \u2014 only for trusted internal hubs.\n189\tExits 4 on push/pull/list failure (network, auth, unknown bundle).\n190\t\n191\t### act integrations / integrations\n192\t\n193\tGenerate host-runtime integration files.\n194\t\n195\t```bash\n196\t# Claude Code Skill\n197\tagentdebug integrations skill \\\n198\t    [--target ~/.claude/skills] [--name agentdebug]\n199\t\n200\t# OpenHands microagent\n201\tagentdebug integrations openhands-microagent \\\n202\t    [--target .openhands/microagents] [--name agentdebug]\n203\t```\n204\t\n205\tBoth `agentdebug integrations ...` and `agentdebug act integrations ...` work.\n206\t\n207\t### doctor\n208\t\n209\tReport which framework adapters and integrations are available.\n210\t\n211\t```bash\n212\tagentdebug doctor\n213\t```\n214\t\n215\tChecks: `langgraph`, `crewai`, `openai-agents`, `otel`, `raw`. Also lists\n216\tregistered plugins.\n217\t\n218\t## Exit codes\n219\t\n220\t| Code | Meaning |\n221\t|-----:|---------|\n222\t| `0` | Success |\n223\t| `1` | Unknown / unhandled command branch |\n224\t| `2` | Bad input, missing store, parse / convert / load failure |\n225\t| `3` | Unknown `trace_id` in a store |\n226\t| `4` | LLM or hub operation failure; often missing LLM credentials |\n227\t| `5` | UI dependency missing for `serve` / `inspect` |\n228\t\n229\t## Optional extras\n230\t\n231\t```bash\n232\tpip install 'agentdebugx[ui]'          # inspect / serve\n233\tpip install 'agentdebugx[langgraph]'   # LangGraph adapter\n234\tpip install 'agentdebugx[crewai]'      # CrewAI adapter\n235\tpip install 'agentdebugx[openai-agents]'\n236\tpip install 'agentdebugx[otel]'        # OpenTelemetry GenAI\n237\tpip install 'agentdebugx[hub-hf]'      # Hugging Face hub backend\n238\tpip install 'agentdebugx[all]'         # most extras at once\n239\t```\n240\t\n241\t---\n242\t\n243\tGenerated by `agentdebug integrations skill` \u2014 re-run after\n244\t`pip install -U agentdebugx` to refresh this skill.\n245\t"
+        }
+      ]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "739ccd39-156d-4e1c-808f-3dd6037a1c6d",
+    "timestamp": "2026-05-29T20:27:36.790Z",
+    "tool_use_result": {
+      "type": "text",
+      "file": {
+        "filePath": "/tmp/tmp.pnoiIC0dad/.claude/skills/agentdebug/reference/cli_reference.md",
+        "content": "# AgentDebugX CLI reference\n\nFull command catalog for the `agentdebug` CLI that this skill wraps. Run\n`agentdebug <command> --help` for the authoritative, version-specific flags.\n\n## Mental model\n\nAgentDebugX has four primary CLI stages:\n\n| Stage | Primary command | Alias |\n|-------|----------------|-------|\n| Normalize external traces | `ingest` | `convert` |\n| Deterministic analysis | `diagnose` | `analyze` |\n| Local dashboard / store inspection | `inspect` | `serve` |\n| LLM-backed follow-up | `act judge/deep/hub/integrations` | `judge`, `deep`, `hub`, `integrations` |\n\n`list` and `show` are standalone store commands with no alias.\n\n## Environment\n\nLLM-backed commands (`judge`, `deep`) read credentials from the environment\n(or accept explicit overrides):\n\n```bash\nexport AGENTDEBUG_LLM_BASE_URL=...   # OpenAI-compatible endpoint\nexport AGENTDEBUG_LLM_API_KEY=...\nexport AGENTDEBUG_LLM_MODEL=...      # optional; defaults to gemini-3-flash\n```\n\nOverride flags: `--base-url URL`, `--api-key KEY`, `--model NAME`\n\nMissing credentials cause `judge` / `deep` to exit with code 4.\n\n## Store arguments\n\n`list`, `show`, `judge`, `deep`, `hub push`, and `inspect` accept a mutually\nexclusive store selector:\n\n```\n--store-sqlite <path>    SQLite trace store\n--store-jsonl  <path>    JSONL trace store\n```\n\n## Commands\n\n### ingest / convert\n\nNormalize an offline trace export into `AgentTrajectory` JSON.\n\n```bash\nagentdebug ingest <export.json|jsonl> [--out PATH] [--format FORMAT] \\\n    [--trace-id ID] [--task-id ID] [--goal TEXT] [--framework NAME]\nagentdebug convert ...   # identical alias\n```\n\n`--format` choices:\n\n| Value | Meaning |\n|-------|---------|\n| `auto` *(default)* | Auto-detect |\n| `agenttrajectory` | Native AgentDebugX trajectory |\n| `messages` | OpenAI / chat-style messages payload |\n| `message_list` | Flat list of chat messages |\n| `conversations` | Rollout conversation format |\n| `event_list` | Generic event list |\n| `webshop_pages` | WebShop page/action logs |\n| `openai_agents_spans` | OpenAI Agents span dumps |\n| `crewai_events` | CrewAI event dumps |\n| `langgraph_callbacks` | LangGraph / LangChain callback logs |\n\nExits 2 on conversion error.\n\n### diagnose / analyze\n\nOffline heuristic analysis. No LLM required.\n\n```bash\nagentdebug diagnose <trajectory.json|external-trace> [--out PATH] \\\n    [--suggest] [--traceback] [--no-color] \\\n    [--rule-pack auto|core|agenterrorbench|all]\nagentdebug analyze ...   # identical alias\n```\n\n| Flag | Effect |\n|------|--------|\n| `--suggest` | Append Reflexion-style retry suggestions |\n| `--traceback` | Render a Python-traceback-style cascade instead of JSON |\n| `--no-color` | Disable ANSI colors in `--traceback` output |\n| `--rule-pack` | Repeatable. `auto` loads `core` + any detected benchmark pack |\n| `--out PATH` | Write report to file instead of stdout |\n\n`diagnose` also auto-converts recognized external formats inline (same as\nrunning `ingest` first) \u2014 so you can point it directly at a raw export.\n\n### list\n\nList all trace IDs in a store.\n\n```bash\nagentdebug list --store-sqlite .agentdebug/errors.sqlite\nagentdebug list --store-jsonl  .agentdebug/traces.jsonl\n```\n\nExits 2 if no store is provided.\n\n### show\n\nPrint one stored trajectory as JSON.\n\n```bash\nagentdebug show <trace_id> --store-sqlite .agentdebug/errors.sqlite\n```\n\nExits 2 (no store) / 3 (unknown trace_id).\n\n### inspect / serve\n\nRun the local FastAPI dashboard. Requires `agentdebugx[ui]`.\n\n```bash\nagentdebug inspect --store-sqlite .agentdebug/errors.sqlite \\\n    [--host 127.0.0.1] [--port 7777]\nagentdebug serve ...   # identical alias\n```\n\nExits 5 if the `[ui]` extra is not installed. Dashboard endpoints:\n`/healthz`, `/overview`, `/trace/{trace_id}`, `/api/v1/traces`.\n\n### act judge / judge\n\nLLM judge against a trajectory file or stored trace.\n\n```bash\nagentdebug act judge <trajectory.json|trace_id> \\\n    [--store-sqlite PATH | --store-jsonl PATH] \\\n    [--model NAME] [--base-url URL] [--api-key KEY] \\\n    [--attribute] [--traceback] [--no-color] [--out PATH]\n\nagentdebug judge <trajectory.json|trace_id> ...  # alias; no --traceback/--no-color\n```\n\n| Flag | Effect |\n|------|--------|\n| `--attribute` | Also run `AllAtOnceAttributor` to blame specific events |\n| `--traceback` | Append traceback-style cascade after JSON (`act judge` only) |\n| `--no-color` | Disable traceback color (`act judge` only) |\n| `--out PATH` | Write report to file |\n\nExits 4 if LLM credentials are missing.\n\n### act deep / deep\n\nIterative multi-turn DeepDebug (plan -> hypothesize -> verify -> refine). Use\nfor hard failures the single-pass judge can't resolve.\n\n```bash\nagentdebug act deep <trajectory.json|trace_id> \\\n    [--store-sqlite PATH | --store-jsonl PATH] \\\n    [--model NAME] [--base-url URL] [--api-key KEY] \\\n    [--traceback] [--no-color] [--out PATH]\n\nagentdebug deep ...   # identical alias\n```\n\nPrints per-round timings to stderr. Exits 4 if LLM credentials are missing.\n\n### act hub / hub\n\nPackage, publish, list, and pull Error Hub bundles.\n\n**Hub specs** \u2014 `<spec>` is one of:\n`local:/path`, `git:<remote>[#<path>]`, `hf:<repo_id>[#<path>]`\n\n```bash\n# push \u2014 scrubs PII/secrets by default\nagentdebug hub push <trace_id> --to <spec> \\\n    --store-sqlite PATH | --store-jsonl PATH \\\n    [--no-scrub] [--license CC-BY-4.0] \\\n    [--contributor ID] [--contributor-org ORG] [--message TEXT]\n\n# pull\nagentdebug hub pull <spec> --bundle <bundle_id> [--into .agentdebug/hub_pulls]\n\n# list\nagentdebug hub list <spec> [--limit 50]\n```\n\n`--no-scrub` skips PII/secret scrubbing \u2014 only for trusted internal hubs.\nExits 4 on push/pull/list failure (network, auth, unknown bundle).\n\n### act integrations / integrations\n\nGenerate host-runtime integration files.\n\n```bash\n# Claude Code Skill\nagentdebug integrations skill \\\n    [--target ~/.claude/skills] [--name agentdebug]\n\n# OpenHands microagent\nagentdebug integrations openhands-microagent \\\n    [--target .openhands/microagents] [--name agentdebug]\n```\n\nBoth `agentdebug integrations ...` and `agentdebug act integrations ...` work.\n\n### doctor\n\nReport which framework adapters and integrations are available.\n\n```bash\nagentdebug doctor\n```\n\nChecks: `langgraph`, `crewai`, `openai-agents`, `otel`, `raw`. Also lists\nregistered plugins.\n\n## Exit codes\n\n| Code | Meaning |\n|-----:|---------|\n| `0` | Success |\n| `1` | Unknown / unhandled command branch |\n| `2` | Bad input, missing store, parse / convert / load failure |\n| `3` | Unknown `trace_id` in a store |\n| `4` | LLM or hub operation failure; often missing LLM credentials |\n| `5` | UI dependency missing for `serve` / `inspect` |\n\n## Optional extras\n\n```bash\npip install 'agentdebugx[ui]'          # inspect / serve\npip install 'agentdebugx[langgraph]'   # LangGraph adapter\npip install 'agentdebugx[crewai]'      # CrewAI adapter\npip install 'agentdebugx[openai-agents]'\npip install 'agentdebugx[otel]'        # OpenTelemetry GenAI\npip install 'agentdebugx[hub-hf]'      # Hugging Face hub backend\npip install 'agentdebugx[all]'         # most extras at once\n```\n\n---\n\nGenerated by `agentdebug integrations skill` \u2014 re-run after\n`pip install -U agentdebugx` to refresh this skill.\n",
+        "numLines": 245,
+        "startLine": 1,
+        "totalLines": 245
+      }
+    }
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01EV6LAkjJqm6xNndC7N5mYM",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01Pf4FGoDi3KHNSPB5XAhgc7",
+          "name": "Bash",
+          "input": {
+            "command": "agentdebug doctor 2>&1",
+            "description": "Check agentdebug adapters and environment"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 3,
+        "cache_creation_input_tokens": 1155,
+        "cache_read_input_tokens": 18779,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1155
+        },
+        "output_tokens": 6,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "a6f463b1-d03c-46ab-895f-a168042e2d95",
+    "request_id": "req_011CbXVNxVRDGheACCUPWJQv"
+  },
+  {
+    "type": "system",
+    "subtype": "task_started",
+    "task_id": "bm75pld9a",
+    "tool_use_id": "toolu_01Pf4FGoDi3KHNSPB5XAhgc7",
+    "description": "Check agentdebug adapters and environment",
+    "task_type": "local_bash",
+    "uuid": "1ee57581-5754-4f30-a352-4f5c2e4be581",
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f"
+  },
+  {
+    "type": "system",
+    "subtype": "task_notification",
+    "task_id": "bm75pld9a",
+    "tool_use_id": "toolu_01Pf4FGoDi3KHNSPB5XAhgc7",
+    "status": "completed",
+    "output_file": "",
+    "summary": "Check agentdebug adapters and environment",
+    "uuid": "35359185-dee7-4cf2-a795-9624ea39c5dd",
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f"
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_01Pf4FGoDi3KHNSPB5XAhgc7",
+          "type": "tool_result",
+          "content": "  \u2713  langgraph  Create a trajectory, then pass `LangChainCallbackAdapter(debugger, trajectory)` in config={'callbacks': [handler]} when invoking your graph.\n  \u2713  crewai     Create a trajectory, then use `with CrewAIBridge(debugger, trajectory): crew.kickoff(...)` to record every Crew/Task/Agent/LLM/Tool event into AgentDebug.\n  \u2713  openai-agents Create a trajectory, then use `with OpenAIAgentsBridge(debugger, trajectory): Runner.run_sync(...)` to record every Agent/Runner/Function/Handoff/Guardrail span into AgentDebug.\n  \u2713  otel       OpenTelemetry detected. Call agentdebug.adapters.otel.export_trajectory(trajectory) to emit gen_ai.* spans.\n  \u2713  raw        Apply @agentdebug.adapters.raw.trace_loop(debugger) to your agent loop and call mark_step(...) inside it.\n\nplugins:\n  - action   Attribution Backends [action.attribution] caps=blame_localization\n  - action   Error Hub [action.hub] caps=bundle_push,bundle_pull,bundle_list\n  - action   Recovery Strategies [action.recovery] caps=fix_suggestions,recovery_plans\n  - analysis AgentErrorBench Rule Pack [analysis.rule_pack.agenterrorbench] caps=single_event_rules,benchmark_overrides\n  - analysis Core Rule Pack [analysis.rule_pack.core] caps=single_event_rules,cross_event_rules\n  - analysis Deep Diagnosis [analysis.deep] caps=diagnose,multi_round_analysis\n  - analysis Deterministic Analysis [analysis.heuristic] caps=diagnose,findings,root_cause\n  - analysis LLM Judge Analysis [analysis.judge.llm] caps=diagnose,llm_judge\n  - ingest   Offline Importers [offline.importers] caps=agenttrajectory,messages,message_list,conversations,event_list,webshop_pages,openai_agents_spans,crewai_events,langgraph_callbacks\n  - inspect  Local Dashboard [inspect.ui.local_dashboard] caps=overview,trace_detail,finding_inspection\n  - inspect  Traceback Renderer [inspect.traceback] caps=text_traceback",
+          "is_error": false
+        }
+      ]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "58e7a44f-713b-46f7-ba98-147622b4eb10",
+    "timestamp": "2026-05-29T20:28:22.449Z",
+    "tool_use_result": {
+      "stdout": "  \u2713  langgraph  Create a trajectory, then pass `LangChainCallbackAdapter(debugger, trajectory)` in config={'callbacks': [handler]} when invoking your graph.\n  \u2713  crewai     Create a trajectory, then use `with CrewAIBridge(debugger, trajectory): crew.kickoff(...)` to record every Crew/Task/Agent/LLM/Tool event into AgentDebug.\n  \u2713  openai-agents Create a trajectory, then use `with OpenAIAgentsBridge(debugger, trajectory): Runner.run_sync(...)` to record every Agent/Runner/Function/Handoff/Guardrail span into AgentDebug.\n  \u2713  otel       OpenTelemetry detected. Call agentdebug.adapters.otel.export_trajectory(trajectory) to emit gen_ai.* spans.\n  \u2713  raw        Apply @agentdebug.adapters.raw.trace_loop(debugger) to your agent loop and call mark_step(...) inside it.\n\nplugins:\n  - action   Attribution Backends [action.attribution] caps=blame_localization\n  - action   Error Hub [action.hub] caps=bundle_push,bundle_pull,bundle_list\n  - action   Recovery Strategies [action.recovery] caps=fix_suggestions,recovery_plans\n  - analysis AgentErrorBench Rule Pack [analysis.rule_pack.agenterrorbench] caps=single_event_rules,benchmark_overrides\n  - analysis Core Rule Pack [analysis.rule_pack.core] caps=single_event_rules,cross_event_rules\n  - analysis Deep Diagnosis [analysis.deep] caps=diagnose,multi_round_analysis\n  - analysis Deterministic Analysis [analysis.heuristic] caps=diagnose,findings,root_cause\n  - analysis LLM Judge Analysis [analysis.judge.llm] caps=diagnose,llm_judge\n  - ingest   Offline Importers [offline.importers] caps=agenttrajectory,messages,message_list,conversations,event_list,webshop_pages,openai_agents_spans,crewai_events,langgraph_callbacks\n  - inspect  Local Dashboard [inspect.ui.local_dashboard] caps=overview,trace_detail,finding_inspection\n  - inspect  Traceback Renderer [inspect.traceback] caps=text_traceback",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    }
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_0127CoeBNaKnujbHzhD4PZkk",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "All adapters are available. Now I'll run the convert step followed by the diagnostic."
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 1,
+        "cache_creation_input_tokens": 4168,
+        "cache_read_input_tokens": 19934,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 4168
+        },
+        "output_tokens": 1,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "80c907a1-cbbe-4422-8d4d-aa9108bca787",
+    "request_id": "req_011CbXVSbRFzuhenkVDdafDb"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_0127CoeBNaKnujbHzhD4PZkk",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01TPB85HDe9hTS7235kC8v7C",
+          "name": "Bash",
+          "input": {
+            "command": "agentdebug convert /tmp/tmp.pnoiIC0dad/trace.json --format auto --out /tmp/tmp.pnoiIC0dad/trajectory.json 2>&1",
+            "description": "Convert trace.json to AgentDebugX trajectory format"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 1,
+        "cache_creation_input_tokens": 4168,
+        "cache_read_input_tokens": 19934,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 4168
+        },
+        "output_tokens": 1,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "bf6e30b3-bf45-4759-85d9-ad9d79765d6e",
+    "request_id": "req_011CbXVSbRFzuhenkVDdafDb"
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_01TPB85HDe9hTS7235kC8v7C",
+          "type": "tool_result",
+          "content": "(Bash completed with no output)",
+          "is_error": false
+        }
+      ]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "5a0097ea-7a3a-46e7-8baa-4b1ed5223776",
+    "timestamp": "2026-05-29T20:28:26.994Z",
+    "tool_use_result": {
+      "stdout": "",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    }
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_0128n5qARDXofUBfhgtcYgDU",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Conversion succeeded. Now running the diagnostic with `--suggest` and `--traceback`."
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 1,
+        "cache_creation_input_tokens": 161,
+        "cache_read_input_tokens": 24102,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 161
+        },
+        "output_tokens": 2,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "f9512963-b9f3-4439-8259-c0b2d2bf10bc",
+    "request_id": "req_011CbXVSvoporpCTFzLubkU9"
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_0128n5qARDXofUBfhgtcYgDU",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01TDT6nwMmNrpZmpav9UyDia",
+          "name": "Bash",
+          "input": {
+            "command": "agentdebug diagnose /tmp/tmp.pnoiIC0dad/trajectory.json --suggest --traceback --no-color 2>&1",
+            "description": "Run offline diagnostic on converted trajectory"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 1,
+        "cache_creation_input_tokens": 161,
+        "cache_read_input_tokens": 24102,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 161
+        },
+        "output_tokens": 2,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "98be5ae6-0013-4156-8596-02a7246e93eb",
+    "request_id": "req_011CbXVSvoporpCTFzLubkU9"
+  },
+  {
+    "type": "user",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_01TDT6nwMmNrpZmpav9UyDia",
+          "type": "tool_result",
+          "content": "AgentTraceback (root cause first, manifested failure last):\n    trace_id=trace_2262575c04464249a20af530d30e19a7  framework=messages  goal=\"\\nYou are an expert agent operating in the WebShop e-commerce environment.\\nYour task is: Find me machine wash men's dress shirts with polyester heathers, heathers cotton, cotton heather, needle sleeve, classic fit with color: black, and fit type: men, and size: small, and price lower than 50.00 dolla\"\n\n      File \"root cause\", in trajectory\n        Step 3  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_fe60cdfb4e0947fb936218d0d5559c67\n          output> <memory> Look at the history context above. - Step 1: SearchQuery: machine wash men's dress shirts polyester heathers heathers cotton cotton heather needle slee\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 1\", in trajectory\n        Step 19  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_324fbb3a2e2b41acb02e50b503993e58\n          output> <memory> Look at the history context above. - Step 1: Initiated a search with query for machine wash men's dress shirts with specific attributes. - Steps 2-8: V\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 2\", in trajectory\n        Step 27  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_6d667f18837c4d478659bbccc052bd33\n          output> <memory> Look at the history context above. - In steps 1 through 13, several pages were visited in search of the desired product, but no relevant products match\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 3\", in trajectory\n        Step 55  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_01d56efadcbc4660bce2cbf3fe82c6c7\n          output> <memory> Look at the history context above. - In step 1, I performed a search query specifically for machine wash men's dress shirts with polyester heathers, ne\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 4\", in trajectory\n        Step 59  agent=assistant  mode=planning.inefficient_plan\n          module=planning\n          event_id=evt_94c260b920c544c5ba851068fc0b61f6\n          output> <memory> From the history context, it seems that multiple pages have been visited (Page 1 to Page 5) without finding a product that fully matches the criteria. \u2026\n          evidence:\n            - 60 events exceeds configured max_steps=50\n          suggested: Add loop detection over tool calls and state deltas.\n\nAgentFailure[planning.inefficient_plan]: Likely root cause: Premature stop in assistant at step 3.",
+          "is_error": false
+        }
+      ]
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "f0b61380-283d-4d74-a389-944cf18dcb1f",
+    "timestamp": "2026-05-29T20:28:30.887Z",
+    "tool_use_result": {
+      "stdout": "AgentTraceback (root cause first, manifested failure last):\n    trace_id=trace_2262575c04464249a20af530d30e19a7  framework=messages  goal=\"\\nYou are an expert agent operating in the WebShop e-commerce environment.\\nYour task is: Find me machine wash men's dress shirts with polyester heathers, heathers cotton, cotton heather, needle sleeve, classic fit with color: black, and fit type: men, and size: small, and price lower than 50.00 dolla\"\n\n      File \"root cause\", in trajectory\n        Step 3  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_fe60cdfb4e0947fb936218d0d5559c67\n          output> <memory> Look at the history context above. - Step 1: SearchQuery: machine wash men's dress shirts polyester heathers heathers cotton cotton heather needle slee\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 1\", in trajectory\n        Step 19  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_324fbb3a2e2b41acb02e50b503993e58\n          output> <memory> Look at the history context above. - Step 1: Initiated a search with query for machine wash men's dress shirts with specific attributes. - Steps 2-8: V\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 2\", in trajectory\n        Step 27  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_6d667f18837c4d478659bbccc052bd33\n          output> <memory> Look at the history context above. - In steps 1 through 13, several pages were visited in search of the desired product, but no relevant products match\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 3\", in trajectory\n        Step 55  agent=assistant  mode=verification.premature_stop\n          module=planning\n          event_id=evt_01d56efadcbc4660bce2cbf3fe82c6c7\n          output> <memory> Look at the history context above. - In step 1, I performed a search query specifically for machine wash men's dress shirts with polyester heathers, ne\u2026\n          evidence:\n            - termination signal in event payload\n          suggested: Differentiate success, abandonment, and max-step termination in the run schema.\n    \u2193 cascaded to\n      File \"cascade depth 4\", in trajectory\n        Step 59  agent=assistant  mode=planning.inefficient_plan\n          module=planning\n          event_id=evt_94c260b920c544c5ba851068fc0b61f6\n          output> <memory> From the history context, it seems that multiple pages have been visited (Page 1 to Page 5) without finding a product that fully matches the criteria. \u2026\n          evidence:\n            - 60 events exceeds configured max_steps=50\n          suggested: Add loop detection over tool calls and state deltas.\n\nAgentFailure[planning.inefficient_plan]: Likely root cause: Premature stop in assistant at step 3.",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    }
+  },
+  {
+    "type": "assistant",
+    "message": {
+      "model": "claude-sonnet-4-6",
+      "id": "msg_01Dp5RpU8WaCTq5A1C4E7Boe",
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here is the full diagnostic report.\n\n---\n\n## Conversion\n\n`trace.json` was successfully normalized to `trajectory.json` using format auto-detection (detected as `messages`/chat-style format).\n\n---\n\n## Candidate Root Cause\n\n**`verification.premature_stop` at Step 3** (`evt_fe60cdfb4e0947fb936218d0d5559c67`)\n\nThe agent terminated early without verifying it had actually found a matching product. This happened in the `planning` module of the `assistant` agent. The same pattern cascaded through the run and ultimately caused the agent to exceed the step budget.\n\n---\n\n## Cascade Chain\n\n| Depth | Step | Event ID | Mode |\n|-------|------|----------|------|\n| Root | 3 | `evt_fe60cd\u2026` | `verification.premature_stop` |\n| +1 | 19 | `evt_324fbb\u2026` | `verification.premature_stop` |\n| +2 | 27 | `evt_6d667f\u2026` | `verification.premature_stop` |\n| +3 | 55 | `evt_01d56e\u2026` | `verification.premature_stop` |\n| +4 (manifested) | 59 | `evt_94c260\u2026` | `planning.inefficient_plan` |\n\nThe final failure (`planning.inefficient_plan`) is a symptom: the agent hit the 60-event ceiling (`max_steps=50`) because repeated premature stops sent it into a loop across Pages 1\u20135 without ever completing verification.\n\n---\n\n## Evidence\n\n- Termination signals appear in the event payload at each premature-stop step.\n- Step 59 output explicitly notes: *\"multiple pages have been visited (Page 1 to Page 5) without finding a product that fully matches the criteria\"* \u2014 the agent is still searching when it should have concluded or escalated.\n\n---\n\n## Suggested Fixes (propose-only \u2014 require explicit opt-in to apply)\n\n1. **Differentiate termination types in the run schema.** The agent cannot distinguish success, abandonment, and max-step termination, so it keeps re-entering search after a premature stop. Add explicit terminal states (`SUCCESS`, `ABANDONED`, `MAX_STEPS_EXCEEDED`) to the trajectory schema.\n2. **Add loop detection over tool calls and state deltas.** The agent revisited Pages 1\u20135 repeatedly with no state change. A simple deduplication check on `(page, filters)` tuples would break this loop before the step budget is exhausted."
+        }
+      ],
+      "stop_reason": null,
+      "stop_sequence": null,
+      "stop_details": null,
+      "usage": {
+        "input_tokens": 1,
+        "cache_creation_input_tokens": 1021,
+        "cache_read_input_tokens": 24263,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1021
+        },
+        "output_tokens": 1,
+        "service_tier": "standard",
+        "inference_geo": "not_available"
+      },
+      "diagnostics": null,
+      "context_management": null
+    },
+    "parent_tool_use_id": null,
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "uuid": "4b52ee89-1697-4690-8fde-dc96ef1771ff",
+    "request_id": "req_011CbXVTDWfE3npnbHxqDpsU"
+  },
+  {
+    "type": "result",
+    "subtype": "success",
+    "is_error": false,
+    "api_error_status": null,
+    "duration_ms": 72645,
+    "duration_api_ms": 29218,
+    "ttft_ms": 2205,
+    "num_turns": 7,
+    "result": "Here is the full diagnostic report.\n\n---\n\n## Conversion\n\n`trace.json` was successfully normalized to `trajectory.json` using format auto-detection (detected as `messages`/chat-style format).\n\n---\n\n## Candidate Root Cause\n\n**`verification.premature_stop` at Step 3** (`evt_fe60cdfb4e0947fb936218d0d5559c67`)\n\nThe agent terminated early without verifying it had actually found a matching product. This happened in the `planning` module of the `assistant` agent. The same pattern cascaded through the run and ultimately caused the agent to exceed the step budget.\n\n---\n\n## Cascade Chain\n\n| Depth | Step | Event ID | Mode |\n|-------|------|----------|------|\n| Root | 3 | `evt_fe60cd\u2026` | `verification.premature_stop` |\n| +1 | 19 | `evt_324fbb\u2026` | `verification.premature_stop` |\n| +2 | 27 | `evt_6d667f\u2026` | `verification.premature_stop` |\n| +3 | 55 | `evt_01d56e\u2026` | `verification.premature_stop` |\n| +4 (manifested) | 59 | `evt_94c260\u2026` | `planning.inefficient_plan` |\n\nThe final failure (`planning.inefficient_plan`) is a symptom: the agent hit the 60-event ceiling (`max_steps=50`) because repeated premature stops sent it into a loop across Pages 1\u20135 without ever completing verification.\n\n---\n\n## Evidence\n\n- Termination signals appear in the event payload at each premature-stop step.\n- Step 59 output explicitly notes: *\"multiple pages have been visited (Page 1 to Page 5) without finding a product that fully matches the criteria\"* \u2014 the agent is still searching when it should have concluded or escalated.\n\n---\n\n## Suggested Fixes (propose-only \u2014 require explicit opt-in to apply)\n\n1. **Differentiate termination types in the run schema.** The agent cannot distinguish success, abandonment, and max-step termination, so it keeps re-entering search after a premature stop. Add explicit terminal states (`SUCCESS`, `ABANDONED`, `MAX_STEPS_EXCEEDED`) to the trajectory schema.\n2. **Add loop detection over tool calls and state deltas.** The agent revisited Pages 1\u20135 repeatedly with no state change. A simple deduplication check on `(page, filters)` tuples would break this loop before the step budget is exhausted.",
+    "stop_reason": "end_turn",
+    "session_id": "9d42e0a5-ace0-48c7-917d-fa68e649f33f",
+    "total_cost_usd": 0.09565304999999999,
+    "usage": {
+      "input_tokens": 9,
+      "cache_creation_input_tokens": 12321,
+      "cache_read_input_tokens": 100041,
+      "output_tokens": 1257,
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 12321,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 1,
+          "output_tokens": 601,
+          "cache_read_input_tokens": 24263,
+          "cache_creation_input_tokens": 1021,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1021
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-sonnet-4-6": {
+        "inputTokens": 9,
+        "outputTokens": 1257,
+        "cacheReadInputTokens": 100041,
+        "cacheCreationInputTokens": 12321,
+        "webSearchRequests": 0,
+        "costUSD": 0.09509804999999999,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000
+      },
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 475,
+        "outputTokens": 16,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0005549999999999999,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "uuid": "071bd3f5-39a0-4cf9-a24f-6e65cde970ff"
+  }
+]

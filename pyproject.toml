@@ -1,0 +1,227 @@
+[tool.poetry]
+name = "agentdebugx"
+version = "0.3.0"
+description = "Portable error analysis, tracing, and recovery framework for agentic AI systems. Import as `agentdebug`."
+authors = ["ULab @ UIUC <ulab@illinois.edu>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://www.agentdebugx.com"
+repository = "https://github.com/AgentDebugX/AgentDebugX"
+documentation = "https://github.com/AgentDebugX/AgentDebugX"
+keywords = [
+    "llm",
+    "agents",
+    "debugging",
+    "observability",
+    "failure-analysis",
+    "agent-debugging",
+    "agentic-ai",
+    "tracing",
+    "evaluation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
+packages = [
+    { include = "agentdebug", from = "src" }
+]
+include = [
+    "LICENSE",
+    "README.md",
+    "docs/**/*",
+    "src/agentdebug/diagnose/actions/integrations/agentdebug_skill/**/*.md",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.9, <4.0"
+# Pydantic v1 and v2 both supported via runtime shims in agentdebug.models.
+pydantic = ">=1.10,<3.0"
+# httpx powers the OpenAI-compatible LLM client.
+httpx = ">=0.24,<1.0"
+
+# GUI / computer-use (OSWorld / CUA) integration — optional, installed via the `gui` extra.
+# Every entry MUST stay optional so a core install pulls none of them.
+anthropic = { version = "*", optional = true }
+backoff = { version = "*", optional = true }
+chromadb = { version = "*", optional = true }
+langchain-core = { version = "*", optional = true }
+langchain-chroma = { version = "*", optional = true }
+langchain-openai = { version = "*", optional = true }
+matplotlib = { version = "*", optional = true }
+numpy = { version = "*", optional = true }
+openai = { version = "*", optional = true }
+pandas = { version = "*", optional = true }
+pillow = { version = "*", optional = true }
+python-dotenv = { version = "*", optional = true }
+scikit-learn = { version = "*", optional = true }
+streamlit = { version = "*", optional = true }
+streamlit-adjustable-columns = { version = "*", optional = true }
+together = { version = "*", optional = true }
+tqdm = { version = "*", optional = true }
+
+# Optional integrations — install via `pip install agentdebugx[langgraph]` etc.
+[tool.poetry.extras]
+langgraph = ["langchain-core"]
+gui = [
+    "anthropic",
+    "backoff",
+    "chromadb",
+    "langchain-core",
+    "langchain-chroma",
+    "langchain-openai",
+    "matplotlib",
+    "numpy",
+    "openai",
+    "pandas",
+    "pillow",
+    "python-dotenv",
+    "scikit-learn",
+    "streamlit",
+    "streamlit-adjustable-columns",
+    "together",
+    "tqdm",
+]
+crewai = ["crewai"]
+openai-agents = ["openai-agents"]
+otel = ["opentelemetry-api", "opentelemetry-sdk"]
+ui = ["fastapi", "uvicorn"]
+hub-hf = ["huggingface_hub"]
+all = [
+    "langchain-core",
+    "crewai",
+    "openai-agents",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "fastapi",
+    "uvicorn",
+    "huggingface_hub",
+]
+
+[tool.poetry.scripts]
+agentdebug = "agentdebug.cli:main"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.6.0"
+nbmake = "^1.5.0"
+types-setuptools = "^69.0.0.0"
+ruff = "^0.3.0"
+commitizen = "^3.14.1"
+mypy = "^1.8.0"
+beartype = "^0.17.1"
+# Optional deps re-listed here so `poetry install` picks them up for dev.
+langchain-core = "*"
+opentelemetry-api = "*"
+opentelemetry-sdk = "*"
+fastapi = "*"
+uvicorn = "*"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.5"
+pytest-cov = "^7.1.0"
+pytest-mock = "^3.15.1"
+hypothesis = "^6.98.0"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+ignore_missing_imports = true
+check_untyped_defs = true
+follow_imports = "normal"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+strict_optional = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v"
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+]
+
+[tool.coverage.run]
+source = ["agentdebug"]
+omit = ["tests/*", "**/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "raise ImportError",
+    "except ImportError:",
+]
+
+[tool.codespell]
+ignore-words-list = "dout, te, indicies, astroid"
+skip = ["data", ".git", "*.pyc", "*.csv", "*.json"]
+quiet-level = 3
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = ["E203", "E266", "E501"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["S101"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+bump_message = "bump: version $current_version → $new_version"
+version_files = [
+    "pyproject.toml:version",
+    "src/agentdebug/__init__.py:__version__"
+]
+
+[[tool.poetry.source]]
+name = "torchcpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
