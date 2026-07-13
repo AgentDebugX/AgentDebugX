@@ -44,6 +44,7 @@ include = [
     "LICENSE",
     "README.md",
     "docs/**/*",
+    "src/agentdebug/py.typed",
     "src/agentdebug/**/README.md",
     "src/agentdebug/integrations/agentdebug_skill/**/*.md",
     "src/agentdebug/diagnose/detect/rules/packs/*/manifest.json",

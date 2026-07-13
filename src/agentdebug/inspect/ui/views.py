@@ -531,7 +531,7 @@ document.querySelectorAll('[data-placeholder]').forEach(button => {
 
 
 # Single-file HTML console. Plain DOM + fetch; no build step required.
-_INDEX_HTML = """<!doctype html>
+_INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
