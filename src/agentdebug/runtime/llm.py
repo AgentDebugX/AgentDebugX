@@ -70,9 +70,8 @@ class OpenAICompatClient:
 
     * OpenAI (``base_url='https://api.openai.com/v1'``)
     * LiteLLM proxy (any ``/v1`` URL)
-    * The Gemini gateway used in this repo:
-      ``https://compliant-wagner-simulations-coaches.trycloudflare.com/v1``
-      with ``model='gemini-3-flash'``
+    * Gemini or other hosted gateways exposed through an OpenAI-compatible
+      ``/v1`` endpoint, with a matching model name.
     * vLLM / Ollama with their OpenAI-compat servers
     """
 
