@@ -708,3 +708,97 @@ Rerun = checkpoint + retry directive + branch comparison / executor
 - 补全 CLI Reference，并修复旧诊断示例缺少必需 pipeline 参数的问题。
 
 - 新增 `docs/assets/logo.png`，并将 AgentDebugX logo 居中展示在 README 最顶部。
+
+## 10. 2026-07-13 17:49:58 +08
+
+本次更新为仓库增加 GitHub Actions 持续集成和发布包质量检查。
+
+### CI 工作流
+
+- 新增 `.github/workflows/ci.yml`，在以下事件中自动运行：
+  - push 到 `main`
+  - pull request
+  - 手动触发
+
+- 在 README 顶部增加 CI 状态 badge，直接展示默认分支的工作流状态。
+
+- 增加 Python `3.9`、`3.10`、`3.11`、`3.12`、`3.13` 测试矩阵。
+
+- 自动执行：
+  - 核心 Pytest 测试
+  - Python compile check
+  - Ruff 静态检查
+  - Mypy 类型检查（初期作为 advisory，不阻塞其他 CI）
+  - source distribution 和 wheel 构建
+  - Twine distribution metadata 检查
+  - wheel 安装后的 CLI 和 import smoke test
+
+### 发布包验证
+
+- 新增 `tests/check_distribution.py`，验证 wheel 必须包含：
+  - Python public package
+  - `py.typed`
+  - Diagnose component manifests
+  - Detect rule-pack manifests
+  - AgentDebugX skill documentation
+
+- 拒绝包含 `.env` 和 `.pyc` 的 wheel。
+
+### Python 兼容性
+
+- 新增 `src/agentdebug/py.typed`，使 `Typing :: Typed` 发布声明与实际包内容一致。
+
+- 为 Python 3.9 测试增加 `tomli` fallback，并由 CI 显式安装兼容依赖，保证测试矩阵覆盖项目声明支持的最低 Python 版本。
+
+## 11. 2026-07-13 18:16:51 +08
+
+本次更新系统扩充 AgentDebugX 自动化测试体系，并将核心覆盖率纳入 CI 门禁。
+
+### 核心测试
+
+- 将根测试套件从 `10` 个测试扩充到 `111` 个测试。
+
+- 新增测试模块：
+  - `test_schema_models.py`
+  - `test_storage.py`
+  - `test_ingest.py`
+  - `test_diagnose_detect.py`
+  - `test_diagnose_attribute.py`
+  - `test_diagnose_recover.py`
+  - `test_rerun.py`
+  - `test_cli_commands.py`
+  - `test_ui_routes.py`
+  - `test_ui_services.py`
+  - `test_hub.py`
+  - `test_plugins_and_compat.py`
+  - `test_llm_client.py`
+
+- 覆盖以下关键契约：
+  - Pydantic schema serialization 和 round-trip
+  - JSONL / SQLite persistence
+  - 多种外部 trace 格式导入
+  - Detect / Attribute / Recover
+  - Rerun approval、execution 和 evaluation
+  - CLI exit code、兼容命令和 secret masking
+  - FastAPI UI route 和 rerun API key persistence boundary
+  - Error Hub scrub、bundle round-trip 和 artifact path safety
+  - plugin manifest 与 legacy import compatibility
+  - OpenAI-compatible completion、tool calling、embedding 和 token fallback
+
+### 覆盖率与 CI
+
+- 核心 branch coverage 从约 `27%` 提升到 `45.38%`。
+
+- 新增独立 Coverage job，并设置 `40%` branch coverage 最低门槛。
+
+- 新增 Pydantic v1 / v2 compatibility matrix。
+
+- 新增 CUA Python `3.10` 到 `3.13` 独立测试矩阵；初期作为 advisory，避免重型 optional dependencies 阻塞核心包。
+
+### 安全修复
+
+- Error Hub bundle 现在拒绝绝对 artifact 路径和包含 `..` 的路径，防止 artifact 写出 bundle 目录。
+
+### 贡献文档
+
+- 补全 `CONTRIBUTING.md`，说明开发环境、测试分类、覆盖率命令、CUA 独立测试、质量检查和 PR 要求。

@@ -7,6 +7,7 @@
 **A local-first debugging framework for agentic AI systems: diagnose failures, attribute root causes, recover with evidence, and validate fixes through reruns.**
 
 [![PyPI](https://img.shields.io/badge/pip-agentdebugx-3775A9)](https://pypi.org/project/agentdebugx/)
+[![CI](https://github.com/AgentDebugX/AgentDebugX/actions/workflows/ci.yml/badge.svg)](https://github.com/AgentDebugX/AgentDebugX/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](pyproject.toml)
 
@@ -386,6 +387,12 @@ Run the test suite:
 python -m pytest tests -q
 ```
 
+Run the enforced branch-coverage baseline:
+
+```bash
+python -m pytest tests -q --cov=agentdebug --cov-branch --cov-fail-under=40
+```
+
 Compile-check the package:
 
 ```bash
@@ -394,6 +401,9 @@ python -m compileall -q src/agentdebug tests
 
 Build artifacts under `dist/` should not be committed. Generate them only for
 release workflows.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test organization, optional CUA
+tests, quality checks, and pull request expectations.
 
 ## License
 
