@@ -624,3 +624,85 @@ Rerun = checkpoint + retry directive + branch comparison / executor
   - 常见 API key / token 正则形态
 
 - 已确认 `dist/` 下没有剩余文件。
+
+## 9. 2026-07-13 15:36:23 +08
+
+本次调整重写项目根目录 README，使其更适合高质量开源项目首页。
+
+### Overview 资产
+
+- 新增 `docs/assets/overview.pdf`
+  - 存放完整系统总览 PDF。
+
+- 新增 `docs/assets/overview.png`
+  - 使用用户提供的高清截图作为 README 中直接展示的系统总览图。
+  - 图片分辨率为 `2472x1494`，适合 GitHub README 展示。
+
+### README 结构重写
+
+- 重写 `README.md`，新的结构包括：
+  - 项目定位和 badges
+  - System Overview
+  - Why AgentDebugX
+  - Core Capabilities
+  - Install
+  - Quick Start: Python API
+  - Quick Start: CLI
+  - CLI Reference
+  - Architecture
+  - Component Model
+  - Local UI
+  - Privacy and Safety
+  - Examples
+  - Development
+  - License
+
+- README 中直接展示：
+
+  ```text
+  docs/assets/overview.png
+  ```
+
+- README 中保留高清 PDF 链接：
+
+  ```text
+  docs/assets/overview.pdf
+  ```
+
+### 内容调整
+
+- 强化 AgentDebugX 的开源项目定位：
+  - local-first debugging framework
+  - Diagnose + Rerun two-stage loop
+  - portable diagnostic artifacts
+  - manifest-backed component model
+  - privacy and safety boundaries
+
+- 明确两阶段结构：
+
+  ```text
+  Diagnose = Detect -> Attribute -> Recover
+  Rerun    = checkpoint -> retry directive -> branch execution -> evaluation
+  ```
+
+- 更新 Local UI 描述，反映 `inspect/ui/server.py` 已拆分为：
+  - `app.py`
+  - `routes.py`
+  - `views.py`
+  - `services.py`
+  - `branch_store.py`
+
+- 将 README 顶部的 Website、GitHub 和 Demo Video 文本链接改为紧凑的彩色入口卡片。
+
+- 移除 System Overview 图片下方单独展示的 PDF 链接，完整 PDF 仍保留在 Detailed References 中。
+
+- 扩充 Quick Start: CLI，覆盖无需 UI 的完整命令行工作流：
+  - 外部 trace 导入与格式归一化
+  - 本地确定性 Diagnose
+  - LLM 配置与增强诊断
+  - Rerun 配置生成
+  - SQLite / JSONL trace 查询
+  - Error Hub 与 host runtime integrations
+  - 可选 Local UI 启动方式
+
+- 补全 CLI Reference，并修复旧诊断示例缺少必需 pipeline 参数的问题。
