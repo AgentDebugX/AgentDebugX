@@ -1,14 +1,16 @@
 """Core AgentDebugX primitives."""
 
-from agentdebug.core.events import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
-from agentdebug.core.llm import (
+"""Backward-compatible aggregate import path for schema/runtime APIs."""
+
+from agentdebug.runtime.events import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
+from agentdebug.runtime.llm import (
     CompletionResult,
     EmbeddingClient,
     LLMClient,
     OpenAICompatClient,
     extract_json_block,
 )
-from agentdebug.core.models import (
+from agentdebug.schema.models import (
     AgentEvent,
     AgentTrajectory,
     Artifact,
@@ -25,8 +27,8 @@ from agentdebug.core.models import (
     trajectory_from_json,
     utc_now,
 )
-from agentdebug.core.storage import JsonlTraceStore, SQLiteTraceStore, TraceStore
-from agentdebug.core.taxonomy import SEED_FAILURE_MODES, get_failure_mode
+from agentdebug.runtime.storage import JsonlTraceStore, SQLiteTraceStore, TraceStore
+from agentdebug.schema.taxonomy import SEED_FAILURE_MODES, get_failure_mode
 
 __all__ = [
     'AgentEvent',

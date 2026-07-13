@@ -1,0 +1,11 @@
+{
+  "id": "attribute.step_by_step",
+  "stage": "attribute",
+  "name": "Step-by-step attributor",
+  "description": "LLM attribution by inspecting candidate steps incrementally.",
+  "entrypoint": "agentdebug.diagnose.attribute.attribution:StepByStepAttributor",
+  "capabilities": ["blame_localization", "llm", "stepwise"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "linear_llm_calls",
+  "enabled_by_default": false
+}

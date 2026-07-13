@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
 
-from agentdebug.core.models import AgentEvent, AgentTrajectory, EventType
+from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
 from agentdebug.ingest.adapters.importers import ConversionError
 
 ROLE_RE = re.compile(r"role=<MessageRole\.[^:]+: '([^']+)'>")

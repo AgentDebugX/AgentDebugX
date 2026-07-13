@@ -14,31 +14,30 @@ The PyPI distribution is ``agentdebugx`` while the import path remains
 import sys
 
 import agentdebug.core as _core_pkg
-import agentdebug.core.events as _core_events_mod
-import agentdebug.core.llm as _core_llm_mod
-import agentdebug.core.models as _core_models_mod
-import agentdebug.core.plugins as _core_plugins_pkg
-import agentdebug.core.storage as _core_storage_mod
-import agentdebug.core.taxonomy as _core_taxonomy_mod
+import agentdebug.runtime as _core_events_mod
+import agentdebug.runtime as _core_llm_mod
+import agentdebug.schema as _core_models_mod
+import agentdebug.runtime.plugins as _core_plugins_pkg
+import agentdebug.runtime as _core_storage_mod
+import agentdebug.schema as _core_taxonomy_mod
 import agentdebug.diagnose as _diagnose_pkg
-import agentdebug.diagnose.analyzers as _diagnose_analyzers_mod
+import agentdebug.diagnose.attribute as _diagnose_attribute_pkg
+import agentdebug.diagnose.attribute.attribution as _diagnose_attribution_mod
+import agentdebug.diagnose.attribute.deep_memory as _diagnose_deep_memory_mod
+import agentdebug.diagnose.attribute.deepdebug as _diagnose_deep_mod
+import agentdebug.diagnose.detect as _diagnose_detect_pkg
+import agentdebug.diagnose.detect.analyzers as _diagnose_analyzers_mod
+import agentdebug.diagnose.detect.detectors as _diagnose_detectors_mod
+import agentdebug.diagnose.detect.judge as _diagnose_judges_mod
+import agentdebug.diagnose.pipeline as _diagnose_pipeline_mod
+import agentdebug.diagnose.recover as _diagnose_recover_pkg
+import agentdebug.diagnose.recover.recovery as _diagnose_recovery_mod
 import agentdebug.diagnose.actions as _diagnose_actions_pkg
-import agentdebug.diagnose.actions.attribution as _diagnose_attribution_mod
-import agentdebug.diagnose.actions.hub as _diagnose_hub_pkg
-import agentdebug.diagnose.actions.integrations as _diagnose_integrations_pkg
-import agentdebug.diagnose.actions.integrations.claude_skill as _diagnose_claude_skill_mod
-import agentdebug.diagnose.actions.integrations.debug_skill as _diagnose_debug_skill_mod
-import agentdebug.diagnose.actions.integrations.openhands as _diagnose_openhands_mod
-import agentdebug.diagnose.actions.recovery as _diagnose_recovery_mod
-import agentdebug.diagnose.deep as _diagnose_deep_mod
-import agentdebug.diagnose.deep_memory as _diagnose_deep_memory_mod
-import agentdebug.diagnose.detectors as _diagnose_detectors_mod
-import agentdebug.diagnose.judges as _diagnose_judges_mod
-import agentdebug.diagnose.rules as _diagnose_rules_pkg
-import agentdebug.diagnose.rules.agenterrorbench as _diagnose_rule_agenterrorbench_mod
-import agentdebug.diagnose.rules.base as _diagnose_rule_base_mod
-import agentdebug.diagnose.rules.core as _diagnose_rule_core_mod
-import agentdebug.diagnose.rules.registry as _diagnose_rule_registry_mod
+import agentdebug.diagnose.detect.rules as _diagnose_rules_pkg
+import agentdebug.diagnose.detect.rules.agenterrorbench as _diagnose_rule_agenterrorbench_mod
+import agentdebug.diagnose.detect.rules.base as _diagnose_rule_base_mod
+import agentdebug.diagnose.detect.rules.core as _diagnose_rule_core_mod
+import agentdebug.diagnose.detect.rules.registry as _diagnose_rule_registry_mod
 import agentdebug.ingest as _ingest_pkg
 import agentdebug.ingest.adapters as _ingest_adapters_pkg
 import agentdebug.ingest.adapters.base as _ingest_adapter_base_mod
@@ -54,10 +53,18 @@ import agentdebug.inspect as _inspect_pkg
 import agentdebug.inspect.traceback as _inspect_traceback_mod
 import agentdebug.inspect.ui as _inspect_ui_pkg
 import agentdebug.inspect.ui.server as _inspect_ui_server_mod
-import agentdebug.diagnose.actions.hub.backend_base as _diagnose_hub_backend_base_mod
-import agentdebug.diagnose.actions.hub.backends as _diagnose_hub_backends_mod
-import agentdebug.diagnose.actions.hub.bundle as _diagnose_hub_bundle_mod
-import agentdebug.diagnose.actions.hub.scrub as _diagnose_hub_scrub_mod
+import agentdebug.hub as _hub_pkg
+import agentdebug.hub.backend_base as _hub_backend_base_mod
+import agentdebug.hub.backends as _hub_backends_mod
+import agentdebug.hub.bundle as _hub_bundle_mod
+import agentdebug.hub.scrub as _hub_scrub_mod
+import agentdebug.integrations as _integrations_pkg
+import agentdebug.integrations.claude_skill as _claude_skill_mod
+import agentdebug.integrations.debug_skill as _debug_skill_mod
+import agentdebug.integrations.openhands as _openhands_mod
+import agentdebug.rerun as _rerun_pkg
+import agentdebug.runtime as _runtime_pkg
+import agentdebug.schema as _schema_pkg
 
 from agentdebug.diagnose.actions import (
     AllAtOnceAttributor,
@@ -138,6 +145,7 @@ from agentdebug.diagnose import (
     default_detectors,
     run_detectors,
 )
+from agentdebug.diagnose.pipeline import DiagnosePipeline, DiagnosePipelineResult
 from agentdebug.ingest import (
     AgentDebug,
     ConversionError,
@@ -148,7 +156,7 @@ from agentdebug.ingest import (
     write_converted_trajectory,
 )
 from agentdebug.inspect import CascadeFrame, build_app, build_cascade, format_traceback, serve
-from agentdebug.core.plugins import (
+from agentdebug.runtime.plugins import (
     PluginProvider,
     PluginSpec,
     PluginType,
@@ -159,7 +167,7 @@ from agentdebug.core.plugins import (
     register_inspect_plugin,
     register_plugin,
 )
-from agentdebug.diagnose.rules import (
+from agentdebug.diagnose.detect.rules import (
     EventRule,
     RuleMatch,
     TrajectoryRule,
@@ -198,6 +206,8 @@ __all__ = [
     'Detector',
     'DetectorConfig',
     'DiagnosticReport',
+    'DiagnosePipeline',
+    'DiagnosePipelineResult',
     'EmbeddingClient',
     'EnsembleAttributor',
     'EventBus',
@@ -286,6 +296,7 @@ _COMPAT_MODULE_ALIASES = {
     'agentdebug.analyzers': _diagnose_analyzers_mod,
     'agentdebug.detectors': _diagnose_detectors_mod,
     'agentdebug.judges': _diagnose_judges_mod,
+    'agentdebug.pipeline': _diagnose_pipeline_mod,
     'agentdebug.deep': _diagnose_deep_mod,
     'agentdebug.deep_memory': _diagnose_deep_memory_mod,
     'agentdebug.attribution': _diagnose_attribution_mod,
@@ -304,21 +315,27 @@ _COMPAT_MODULE_ALIASES = {
     'agentdebug.rules.core': _diagnose_rule_core_mod,
     'agentdebug.rules.registry': _diagnose_rule_registry_mod,
     'agentdebug.rules.agenterrorbench': _diagnose_rule_agenterrorbench_mod,
-    'agentdebug.hub': _diagnose_hub_pkg,
-    'agentdebug.hub.backend_base': _diagnose_hub_backend_base_mod,
-    'agentdebug.hub.backends': _diagnose_hub_backends_mod,
-    'agentdebug.hub.bundle': _diagnose_hub_bundle_mod,
-    'agentdebug.hub.scrub': _diagnose_hub_scrub_mod,
-    'agentdebug.integrations': _diagnose_integrations_pkg,
-    'agentdebug.integrations.claude_skill': _diagnose_claude_skill_mod,
-    'agentdebug.integrations.debug_skill': _diagnose_debug_skill_mod,
-    'agentdebug.integrations.openhands': _diagnose_openhands_mod,
+    'agentdebug.hub': _hub_pkg,
+    'agentdebug.hub.backend_base': _hub_backend_base_mod,
+    'agentdebug.hub.backends': _hub_backends_mod,
+    'agentdebug.hub.bundle': _hub_bundle_mod,
+    'agentdebug.hub.scrub': _hub_scrub_mod,
+    'agentdebug.integrations': _integrations_pkg,
+    'agentdebug.integrations.claude_skill': _claude_skill_mod,
+    'agentdebug.integrations.debug_skill': _debug_skill_mod,
+    'agentdebug.integrations.openhands': _openhands_mod,
     'agentdebug.ui': _inspect_ui_pkg,
     'agentdebug.ui.server': _inspect_ui_server_mod,
     'agentdebug.core': _core_pkg,
+    'agentdebug.schema': _schema_pkg,
+    'agentdebug.runtime': _runtime_pkg,
     'agentdebug.ingest': _ingest_pkg,
     'agentdebug.diagnose': _diagnose_pkg,
+    'agentdebug.diagnose.detect': _diagnose_detect_pkg,
+    'agentdebug.diagnose.attribute': _diagnose_attribute_pkg,
+    'agentdebug.diagnose.recover': _diagnose_recover_pkg,
     'agentdebug.inspect': _inspect_pkg,
+    'agentdebug.rerun': _rerun_pkg,
     'agentdebug.act': _diagnose_actions_pkg,
     'agentdebug.plugins': _core_plugins_pkg,
 }

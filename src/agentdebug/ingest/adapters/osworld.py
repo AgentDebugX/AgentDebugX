@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from agentdebug.core.models import (
+from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
     Artifact,

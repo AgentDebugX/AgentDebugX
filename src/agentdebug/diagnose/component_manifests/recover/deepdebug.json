@@ -1,0 +1,11 @@
+{
+  "id": "recover.deepdebug",
+  "stage": "recover",
+  "name": "DeepDebug recovery",
+  "description": "Use DeepDebug's localized evidence-backed fix as the retry directive.",
+  "entrypoint": "agentdebug.diagnose.recover.recovery:DeepDebugRecovery",
+  "capabilities": ["fix_suggestions", "retry_directive", "zero_extra_llm"],
+  "dependencies": [],
+  "cost_profile": "free_after_deepdebug",
+  "enabled_by_default": true
+}
