@@ -1,0 +1,11 @@
+{
+  "id": "recover.reflexion",
+  "stage": "recover",
+  "name": "Reflexion recovery",
+  "description": "Emit Reflexion-style retry hints from diagnostic findings.",
+  "entrypoint": "agentdebug.diagnose.recover.recovery:ReflexionSuggestion",
+  "capabilities": ["fix_suggestions", "reflection", "zero_llm"],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": false
+}

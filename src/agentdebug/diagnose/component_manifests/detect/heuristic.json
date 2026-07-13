@@ -1,0 +1,11 @@
+{
+  "id": "detect.heuristic",
+  "stage": "detect",
+  "name": "Heuristic detector",
+  "description": "Local deterministic diagnosis using configured rule packs.",
+  "entrypoint": "agentdebug.diagnose.detect.analyzers:HeuristicAnalyzer",
+  "capabilities": ["diagnose", "findings", "root_cause", "zero_llm"],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": true
+}

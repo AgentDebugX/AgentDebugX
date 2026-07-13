@@ -1,0 +1,11 @@
+{
+  "id": "attribute.all_at_once",
+  "stage": "attribute",
+  "name": "All-at-once attributor",
+  "description": "Single whole-trace LLM attribution pass.",
+  "entrypoint": "agentdebug.diagnose.attribute.attribution:AllAtOnceAttributor",
+  "capabilities": ["blame_localization", "llm", "whole_trace"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "one_llm_call",
+  "enabled_by_default": false
+}

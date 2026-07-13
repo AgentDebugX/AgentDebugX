@@ -1,0 +1,11 @@
+{
+  "id": "detect.llm_judge",
+  "stage": "detect",
+  "name": "LLM judge detector",
+  "description": "LLM-backed step-level failure labeling against the shared failure taxonomy.",
+  "entrypoint": "agentdebug.diagnose.detect.judge:LLMJudgeAnalyzer",
+  "capabilities": ["diagnose", "findings", "taxonomy_labels", "llm"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "one_llm_call_per_chunk",
+  "enabled_by_default": false
+}

@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-from agentdebug.core.gui_taxonomy import gui_failure_mode_for_code
-from agentdebug.core.models import (
+from agentdebug.runtime.gui_taxonomy import gui_failure_mode_for_code
+from agentdebug.schema import (
     AgentTrajectory,
     DiagnosticReport,
     FailureFinding,

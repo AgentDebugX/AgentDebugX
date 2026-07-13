@@ -1,7 +1,7 @@
 """Core AgentDebugX primitives."""
 
-from agentdebug.core.events import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
-from agentdebug.core.models import (
+from agentdebug.runtime import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
+from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
     Artifact,
@@ -17,8 +17,8 @@ from agentdebug.core.models import (
     trajectory_from_json,
     utc_now,
 )
-from agentdebug.core.storage import JsonlTraceStore, SQLiteTraceStore, TraceStore
-from agentdebug.core.taxonomy import SEED_FAILURE_MODES, get_failure_mode
+from agentdebug.runtime import JsonlTraceStore, SQLiteTraceStore, TraceStore
+from agentdebug.schema import SEED_FAILURE_MODES, get_failure_mode
 
 __all__ = [
     'AgentEvent',

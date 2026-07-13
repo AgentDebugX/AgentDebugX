@@ -5,9 +5,9 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Any, Literal, Optional, Type, Union
 
-from agentdebug.core.models import AgentEvent, AgentTrajectory, DiagnosticReport, EventType, utc_now
-from agentdebug.core.storage import JsonlTraceStore, TraceStore
-from agentdebug.diagnose.analyzers import HeuristicAnalyzer
+from agentdebug.schema import AgentEvent, AgentTrajectory, DiagnosticReport, EventType, utc_now
+from agentdebug.runtime import JsonlTraceStore, TraceStore
+from agentdebug.diagnose.detect import HeuristicAnalyzer
 
 
 class AgentDebug:

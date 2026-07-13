@@ -1,0 +1,11 @@
+{
+  "id": "attribute.heuristic",
+  "stage": "attribute",
+  "name": "Heuristic attributor",
+  "description": "Zero-cost attribution that selects the earliest strongest finding.",
+  "entrypoint": "agentdebug.diagnose.attribute.attribution:HeuristicAttributor",
+  "capabilities": ["blame_localization", "zero_llm"],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": true
+}

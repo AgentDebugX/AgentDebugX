@@ -1,0 +1,17 @@
+{
+  "id": "gui",
+  "name": "GUI taxonomy rule pack",
+  "stage": "detect",
+  "description": "Selectable GUI taxonomy pack for OSWorld/computer-use RCA. Detection is LLM-assigned, so this pack surfaces taxonomy modes without deterministic rules.",
+  "entrypoint": "agentdebug.diagnose.detect.rules.packs.gui.rules",
+  "capabilities": [
+    "taxonomy_modes",
+    "gui",
+    "zero_llm"
+  ],
+  "dependencies": [
+    "cua_debugger"
+  ],
+  "cost_profile": "free",
+  "enabled_by_default": false
+}
