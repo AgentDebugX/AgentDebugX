@@ -2,49 +2,84 @@
 
 # AgentDebugX
 
-**Failure attribution and recovery for LLM agents — from a trace to a root cause to a fix.**
+**A local-first debugging framework for agentic AI systems: diagnose failures, attribute root causes, recover with evidence, and validate fixes through reruns.**
 
 [![PyPI](https://img.shields.io/badge/pip-agentdebugx-3775A9)](https://pypi.org/project/agentdebugx/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](pyproject.toml)
 
-[Website](https://www.agentdebugx.com) · [GitHub](https://github.com/AgentDebugX/AgentDebugX) · [Demo video](https://youtu.be/ztni6w0o_l8)
+<a href="https://www.agentdebugx.com"><img src="https://img.shields.io/badge/WEBSITE-208B57?style=for-the-badge&logo=googlechrome&logoColor=white" alt="AgentDebugX website"></a>
+<a href="https://github.com/AgentDebugX/AgentDebugX"><img src="https://img.shields.io/badge/GITHUB-24292F?style=for-the-badge&logo=github&logoColor=white" alt="AgentDebugX GitHub repository"></a>
+<a href="https://youtu.be/ztni6w0o_l8"><img src="https://img.shields.io/badge/DEMO_VIDEO-EA4335?style=for-the-badge&logo=youtube&logoColor=white" alt="AgentDebugX demo video"></a>
 
 </div>
 
 ---
 
-When an LLM-agent run fails, the visible crash is usually a downstream symptom of an
-earlier decision — a dropped constraint, a stale memory read, a lost handoff. Tracing
-tools show *what* happened; they leave you to work out *which* step was responsible,
-*why*, and *what to change*.
+AgentDebugX turns failed agent runs into structured, auditable debugging
+artifacts. It ingests a live or exported trajectory, detects visible failure
+signals, attributes them to responsible steps or agents, proposes recovery
+actions, and prepares controlled reruns so fixes can be validated instead of
+guessed.
 
-**AgentDebugX** is a self-hostable debugging layer that closes that gap. Point it at a
-live run or an exported log and it returns a typed diagnosis: the responsible step, a
-taxonomy-grounded explanation with evidence, and a concrete fix you can rerun — all in a
-local web console, a CLI, or an agentic skill your own agents can invoke.
+The project is designed for researchers and engineers building complex LLM
+agents: multi-agent systems, tool-using agents, computer-use agents, benchmark
+runners, and local agent development workflows. AgentDebugX is local-first by
+default: traces stay on your machine, sharing is opt-in, and recovery execution
+is gated by explicit policy or human approval.
 
-Everything runs on your machine. No account, no hosted service, no data leaves your host.
+## System Overview
 
-## Highlights
+<p align="center">
+  <img src="docs/assets/overview.png" alt="AgentDebugX system overview" width="900">
+</p>
 
-- **DeepDebug** — a multi-turn, tool-using diagnosis agent that reads the whole trace,
-  re-investigates along its structure (cascade walk / bisect), cross-examines its own
-  hypotheses, and returns an auditable verdict with one concrete fix.
-- **Cost-staged attribution** — free deterministic detectors → a single LLM-judge pass →
-  a family of localizers (all-at-once, step-by-step, binary-search) that trade cost for
-  resolution.
-- **End-to-end recovery** — turn a diagnosis into a rerun-ready fix (Reflexion, CRITIC,
-  Self-Refine, AutoManual, saga-rollback recoverers), gated behind explicit human/policy
-  approval.
-- **Portable trace schema** — one framework-agnostic format with runtime adapters
-  (LangGraph, CrewAI, OpenAI Agents SDK, OpenTelemetry, raw ReAct) and offline importers.
-- **Local console** — a no-build single-page app served straight from the wheel; aligns
-  the agent's own trace with AgentDebugX's error trace, row by row.
-- **Error Hub** — package scrubbed failure bundles (trace + diagnosis + fix) as CI
-  fixtures or a shareable cross-team corpus that doubles as DeepDebug's long-term memory.
-- **Computer-use agents** — an OSWorld importer and a GUI root-cause mode reason over the
-  screenshot-and-action channel, not just text.
+AgentDebugX follows the two-stage loop used by the project paper:
+
+```text
+Diagnose = Detect -> Attribute -> Recover
+Rerun    = checkpoint -> retry directive -> branch execution -> evaluation
+```
+
+`Diagnose` explains what failed and why. `Rerun` tests whether the proposed
+recovery actually improves the agent behavior.
+
+## Why AgentDebugX
+
+Tracing tools show what happened. AgentDebugX focuses on the debugging step that
+usually comes next:
+
+- Which earlier decision caused the visible failure?
+- Which agent, tool call, memory read, handoff, or GUI action was responsible?
+- What evidence supports that diagnosis?
+- What concrete recovery should be tried?
+- Did the rerun branch improve the outcome?
+
+The output is a portable diagnostic report that can be inspected in a local UI,
+used by a CLI workflow, stored in an Error Hub bundle, or invoked from an
+agentic skill.
+
+## Core Capabilities
+
+- **Portable trace schema**: framework-agnostic trajectory, event, finding, and
+  diagnostic report models.
+- **Ingest adapters**: normalize raw JSON, LangGraph, CrewAI, OpenAI Agents SDK,
+  OpenTelemetry, GAIA/Open Deep Research, OSWorld, and other exported traces.
+- **Detect**: deterministic analyzers, manifest-backed rule packs, LLM judge
+  mode, GUI-aware signals, and taxonomy induction support.
+- **Attribute**: heuristic attribution, all-at-once analysis, step-by-step
+  localization, binary search, counterfactual attribution, MOE localization,
+  and DeepDebug.
+- **Recover**: Reflexion, CRITIC, Self-Refine, AutoManual, DeepDebug recovery,
+  and saga rollback style strategies.
+- **Rerun**: auditable rerun plans, checkpoint selection, retry directives,
+  executor protocol, branch comparison, and local proxy evaluation.
+- **Local inspection UI**: no-build FastAPI dashboard for traces, reports,
+  saved cases, debug branches, and rerun-from-event workflows.
+- **Error Hub**: scrubbed, shareable failure bundles for regression tests,
+  benchmark corpora, and team debugging memory.
+- **Agent integrations**: generate host-runtime assets such as debugging skills
+  for external agent tools.
 
 ## Install
 
@@ -52,129 +87,312 @@ Everything runs on your machine. No account, no hosted service, no data leaves y
 pip install agentdebugx
 ```
 
-Optional extras (install only what you need):
+Optional extras:
 
 ```bash
-pip install "agentdebugx[ui]"        # local web console (FastAPI + Uvicorn)
-pip install "agentdebugx[langgraph]" # LangGraph adapter
-pip install "agentdebugx[gui]"       # computer-use / OSWorld GUI RCA
-pip install "agentdebugx[all]"       # every optional integration
+pip install "agentdebugx[ui]"             # local FastAPI dashboard
+pip install "agentdebugx[langgraph]"      # LangGraph adapter
+pip install "agentdebugx[crewai]"         # CrewAI adapter
+pip install "agentdebugx[openai-agents]"  # OpenAI Agents SDK adapter
+pip install "agentdebugx[otel]"           # OpenTelemetry ingest
+pip install "agentdebugx[gui]"            # computer-use / OSWorld GUI tooling
+pip install "agentdebugx[all]"            # all optional integrations
 ```
 
-The package is imported as `agentdebug`:
+The package is installed as `agentdebugx` and imported as `agentdebug`:
 
 ```python
 import agentdebug
 ```
 
-## Quick start (library)
+## Quick Start: Python API
 
-Instrument a run with one context manager and analyze it in place:
+Record a trajectory and analyze it locally:
 
 ```python
 from agentdebug import AgentDebug, EventType
 
-dbg = AgentDebug()
-with dbg.trace(goal="Book a refundable NYC→SFO flight", framework="my-agent") as t:
-    t.record(EventType.PLAN, agent_name="planner",
-             output="search cheapest fares")          # drops the 'refundable' constraint
-    t.record(EventType.TOOL_RESULT, agent_name="browser", step_index=3,
-             error="Checkout failed: refund_policy required")
-    report = t.analyze()
+debugger = AgentDebug()
+
+with debugger.trace(
+    goal="Book a refundable NYC to SFO flight",
+    framework="my-agent",
+) as trace:
+    trace.record(
+        EventType.PLAN,
+        agent_name="planner",
+        step_index=1,
+        output="Search for the cheapest fares.",
+    )
+    trace.record(
+        EventType.TOOL_RESULT,
+        agent_name="browser",
+        step_index=3,
+        error="Checkout failed: refund_policy is required.",
+    )
+
+    report = trace.analyze()
 
 print(report.summary)
 for finding in report.findings:
-    print(finding.failure_mode_id, finding.step_index, finding.confidence)
+    print(finding.failure_mode.mode_id, finding.step_index, finding.evidence)
 ```
 
-The report names the **responsible** step (the planner at step 0), not just the visible
-crash (the browser at step 3).
+The report localizes the responsible upstream step rather than only reporting
+the final visible error.
 
-## Quick start (local console)
+## Quick Start: CLI
+
+The CLI supports the complete Diagnose -> Rerun workflow. The web console is
+optional and is not required for trace conversion, diagnosis, attribution,
+recovery planning, or rerun preparation.
+
+### 1. Normalize an external trace
+
+AgentDebugX can auto-detect common JSON and JSONL exports:
+
+```bash
+agentdebug ingest raw_trace.json --format auto --out trace.json
+```
+
+Use `--format` when the source is known, for example `messages`,
+`openai_agents_spans`, `crewai_events`, `langgraph_callbacks`, `claude_code`,
+or `osworld`.
+
+### 2. Run a fully local diagnosis
+
+The deterministic pipeline does not require an API key:
+
+```bash
+agentdebug diagnose trace.json \
+  --mode heuristic \
+  --attributor heuristic \
+  --recovery reflexion \
+  --out report.json
+```
+
+Render the same diagnosis as a cascade-oriented traceback:
+
+```bash
+agentdebug diagnose trace.json \
+  --mode heuristic \
+  --attributor heuristic \
+  --recovery reflexion \
+  --traceback
+```
+
+### 3. Enable LLM-backed diagnosis
+
+Save an OpenAI-compatible endpoint once:
+
+```bash
+agentdebug config set-llm \
+  --base-url "https://<openai-compatible-host>/v1" \
+  --api-key "<secret>" \
+  --model "<model>"
+```
+
+Then select the diagnosis, attribution, and recovery implementations
+explicitly:
+
+```bash
+agentdebug diagnose trace.json \
+  --mode judge \
+  --attributor all-at-once \
+  --recovery self-refine \
+  --out report.json
+```
+
+Environment variables can be used instead of saved configuration:
+
+```bash
+export AGENTDEBUG_LLM_BASE_URL="https://<openai-compatible-host>/v1"
+export AGENTDEBUG_LLM_API_KEY="<secret>"
+export AGENTDEBUG_LLM_MODEL="<model>"
+```
+
+Use `agentdebug config show` to inspect masked configuration and
+`agentdebug config doctor` to test the configured endpoint.
+
+### 4. Prepare the Rerun stage
+
+Turn the diagnostic report into an auditable rerun configuration:
+
+```bash
+agentdebug rerun report.json --trajectory trace.json --out rerun.json
+```
+
+### 5. Work with stored traces
+
+The CLI can query SQLite or JSONL stores created by instrumented runs or the
+local console:
+
+```bash
+agentdebug list --store-sqlite .agentdebug/traces.sqlite
+agentdebug show <trace-id> --store-sqlite .agentdebug/traces.sqlite
+agentdebug diagnose <trace-id> \
+  --store-sqlite .agentdebug/traces.sqlite \
+  --mode heuristic \
+  --attributor heuristic \
+  --recovery reflexion
+```
+
+### 6. Package and integrate debugging workflows
+
+Publish a scrubbed failure bundle to a local Error Hub:
+
+```bash
+agentdebug hub push <trace-id> \
+  --store-sqlite .agentdebug/traces.sqlite \
+  --to local:./agentdebug-hub
+```
+
+Generate a debugging skill for a supported host runtime:
+
+```bash
+agentdebug integrations skill --platform claude --target .claude/skills
+```
+
+### Optional: launch the local console
+
+Install the UI extra only when a visual inspection workflow is useful:
 
 ```bash
 pip install "agentdebugx[ui]"
-agentdebug serve            # opens the console at http://127.0.0.1:7777
+agentdebug serve \
+  --store-sqlite .agentdebug/traces.sqlite \
+  --host 127.0.0.1 \
+  --port 7777
 ```
 
-The console opens directly into the workspace — inspect traces, re-analyze any step with
-the LLM judge or DeepDebug, request a debug continuation, and rerun from a chosen step.
-It reads the same local store the library writes; nothing is uploaded.
+## CLI Reference
 
-## CLI
+| Command | Purpose |
+| --- | --- |
+| `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
+| `agentdebug diagnose` | Run detection, attribution, and recovery planning |
+| `agentdebug rerun` | Build a second-stage rerun plan from a diagnostic report |
+| `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
+| `agentdebug config` | Save, inspect, clear, and test LLM configuration |
+| `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
+| `agentdebug integrations` | Generate external runtime integration assets |
+| `agentdebug act` | Compatibility namespace for Hub and integration actions |
+| `agentdebug serve` / `agentdebug inspect` | Launch the optional local web console |
+| `agentdebug doctor` | Report optional dependency and configuration status |
+| `agentdebug analyze` | Compatibility entry point for heuristic diagnosis |
+| `agentdebug convert` | Compatibility alias for `agentdebug ingest` |
 
-The `agentdebug` CLI exposes the full pipeline:
+Run `agentdebug <command> --help` for version-specific flags.
 
-| Stage | Command | Purpose |
-|-------|---------|---------|
-| Normalize | `agentdebug ingest <export>` | Convert an external trace export into `AgentTrajectory` JSON |
-| Diagnose | `agentdebug diagnose --store-jsonl <path>` | Detectors + attribution + recovery planning |
-| Inspect | `agentdebug serve` / `inspect` | Local web console over a store |
-| Deep dive | `agentdebug act deep <trace-id>` | Run the multi-turn DeepDebug agent |
-| Recover | `agentdebug rerun --report <report.json>` | Rerun an agent from a diagnostic report |
-| Share | `agentdebug hub push / pull` | Package or fetch scrubbed Error Hub bundles |
-| Skills | `agentdebug integrations` | Emit host-runtime integrations (e.g. Claude Code skill) |
-| Health | `agentdebug doctor` | Report adapter and integration availability |
+## Architecture
 
-LLM-backed commands read credentials from the environment:
+The repository mirrors the paper-level workflow:
 
-```bash
-export AGENTDEBUG_LLM_BASE_URL=...   # any OpenAI-compatible endpoint
-export AGENTDEBUG_LLM_API_KEY=...
-export AGENTDEBUG_LLM_MODEL=...       # optional
+```text
+src/agentdebug/schema/       portable trajectory, event, report, and taxonomy contracts
+src/agentdebug/runtime/      storage, LLM clients, event bus, and plugin registry
+src/agentdebug/ingest/       live capture APIs and offline trace importers
+src/agentdebug/diagnose/     Detect -> Attribute -> Recover pipeline
+src/agentdebug/rerun/        rerun plans, requests, branch comparison, and executors
+src/agentdebug/inspect/      traceback renderer and local inspection UI
+src/agentdebug/hub/          scrubbed failure bundle packaging and backends
+src/agentdebug/integrations/ host skill and runtime integration generators
+cua_debugger/                computer-use / OSWorld GUI root-cause tooling
+examples/                    runnable examples and demo traces
+docs/                        architecture, schema, and project assets
 ```
 
-Run `agentdebug <command> --help` for the authoritative, version-specific flags.
+Detailed references:
 
-## How it works
+- [Architecture](docs/ARCHITECTURE.md)
+- [Trace schema](docs/TRACE_SCHEMA.md)
+- [System overview PDF](docs/assets/overview.pdf)
 
+## Component Model
+
+Diagnose components use manifest-backed discovery:
+
+- Detect components and rule packs declare metadata under
+  `src/agentdebug/diagnose/component_manifests/detect/` and
+  `src/agentdebug/diagnose/detect/rules/packs/`.
+- Attribute components declare metadata under
+  `src/agentdebug/diagnose/component_manifests/attribute/`.
+- Recover components declare metadata under
+  `src/agentdebug/diagnose/component_manifests/recover/`.
+
+The shared registry exposes:
+
+```python
+from agentdebug.diagnose import list_components, load_component
+
+for component in list_components():
+    print(component.id, component.stage, component.capabilities)
 ```
- capture / import ──▶ AgentTrajectory ──▶ Detect ──▶ Attribute ──▶ Recover ──▶ Rerun
-   adapters, logs        portable schema   rules,      responsible   ranked      from before/
-   (any framework)                         judge       step/agent    fixes       at/after cause
-                                             │
-                                             └── hard cases ──▶ DeepDebug (multi-turn agent)
-```
 
-A diagnosis is **layered on top of** the recorded trace, never written back into it, so
-one run can be re-analyzed by any method, compared across runs, and shared without losing
-its ground truth. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the DeepDebug
-design and [`docs/TRACE_SCHEMA.md`](docs/TRACE_SCHEMA.md) for the event schema.
+This keeps the implementation extensible without turning the CLI or UI into
+business-logic containers.
+
+## Local UI
+
+The inspection UI is a local FastAPI application with a no-build HTML/CSS/JS
+frontend. It is intentionally a surface layer:
+
+- routes live in `inspect/ui/routes.py`
+- rendering lives in `inspect/ui/views.py`
+- UI-facing services live in `inspect/ui/services.py`
+- local case and branch stores live in `inspect/ui/branch_store.py`
+- `inspect/ui/server.py` remains a compatibility import path
+
+The UI can inspect traces, save typical error cases, prepare debug
+continuations, and run rerun-from-event workflows against a user-provided local
+or OpenAI-compatible backend. API keys entered in the UI are not persisted to
+browser local storage.
+
+## Privacy and Safety
+
+AgentDebugX is local-first:
+
+- Trace capture and diagnosis run locally unless you explicitly configure an
+  external LLM endpoint.
+- Error Hub publishing is opt-in.
+- Bundle scrubbing is available before sharing traces.
+- Recovery is suggest-only by default; external execution belongs to the Rerun
+  stage and requires an executor plus explicit approval.
+
+Diagnostic findings are ranked hypotheses with evidence and confidence, not
+ground truth. Configure retention, access control, and redaction before
+collecting production traces.
 
 ## Examples
 
-The [`examples/`](examples/) directory contains runnable end-to-end scripts:
+The `examples/` directory contains runnable scripts and demo artifacts:
 
-- `basic_usage.py` — record, analyze, inspect.
-- `multi_agent_cascade.py` — upstream root-cause attribution across a handoff cascade.
-- `langgraph/`, `crewai/`, `autogen_roundrobin_deepdebug.py` — framework adapters.
-- `taxonomy_induction_demo.py` — propose new failure modes from a corpus.
-- `claude_skill_integration/` — invoke AgentDebugX as an agentic skill.
+- `basic_usage.py`
+- `multi_agent_cascade.py`
+- `langgraph/`
+- `crewai/`
+- `autogen_roundrobin_deepdebug.py`
+- `taxonomy_induction_demo.py`
+- `claude_skill_integration/`
+- `debug_skills/`
 
-## Repository layout
+## Development
 
-```
-src/agentdebug/schema/      portable trajectory, event, report, and taxonomy contracts
-src/agentdebug/runtime/     storage, LLM clients, event bus, and plugin registry
-src/agentdebug/ingest/      live capture APIs and offline trace importers
-src/agentdebug/diagnose/    Detect → Attribute → Recover pipeline and implementations
-src/agentdebug/rerun/       rerun requests, branch comparison, and executor protocols
-src/agentdebug/inspect/     traceback renderer and local web console
-src/agentdebug/hub/         scrubbed Error Hub bundle packaging and backends
-src/agentdebug/integrations/ host skill and runtime integration generators
-cua_debugger/       computer-use / OSWorld GUI root-cause tooling
-examples/           runnable usage examples
-docs/               architecture and trace-schema reference
+Run the test suite:
+
+```bash
+python -m pytest tests -q
 ```
 
-## Safety
+Compile-check the package:
 
-AgentDebugX is **local-first**: traces stay on your machine and sharing is opt-in. A
-diagnosed fix can write to the world, so recovery is **suggest-only** — application stays
-behind an explicit human or policy gate. Diagnostic labels and fixes carry confidence and
-evidence; treat them as ranked hypotheses, not ground truth. Configure redaction,
-retention, and access control before collecting production traces.
+```bash
+python -m compileall -q src/agentdebug tests
+```
+
+Build artifacts under `dist/` should not be committed. Generate them only for
+release workflows.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
