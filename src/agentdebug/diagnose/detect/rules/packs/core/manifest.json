@@ -1,0 +1,16 @@
+{
+  "id": "core",
+  "name": "Core deterministic rule pack",
+  "stage": "detect",
+  "description": "Default local rules for mechanically verifiable agent failures such as explicit errors, malformed tool calls, no-progress loops, repeated state, and premature success.",
+  "entrypoint": "agentdebug.diagnose.detect.rules.packs.core.rules",
+  "capabilities": [
+    "event_rules",
+    "trajectory_rules",
+    "zero_llm",
+    "default"
+  ],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": true
+}

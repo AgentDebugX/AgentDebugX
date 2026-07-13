@@ -18,7 +18,7 @@ import time
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, cast
 
-from agentdebug.core.models import EventType
+from agentdebug.schema import EventType
 from agentdebug.ingest.adapters.base import AdapterStatus, FrameworkAdapter
 from agentdebug.ingest.recorder import AgentDebug, TraceSession
 

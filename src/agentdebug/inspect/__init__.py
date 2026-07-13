@@ -1,6 +1,6 @@
 """Inspection entry points."""
 
-from agentdebug.core.plugins.registry import register_inspect_plugin
+from agentdebug.runtime.plugins.registry import register_inspect_plugin
 from agentdebug.inspect.traceback import CascadeFrame, build_cascade, format_traceback
 from agentdebug.inspect.ui import build_app, build_overview, render_page, serve
 

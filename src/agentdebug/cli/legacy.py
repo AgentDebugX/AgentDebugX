@@ -46,6 +46,7 @@ from agentdebug.recovery import (
     SagaRollback,
     SelfRefineLoop,
 )
+from agentdebug.rerun import RerunWorkflow
 from agentdebug.storage import JsonlTraceStore, SQLiteTraceStore, TraceStore
 
 
@@ -412,7 +413,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     _add_diagnose_args(
         p_diagnose,
         trajectory_help='Path to a trajectory or external trace file',
-        require_pipeline=True,
+        require_pipeline=False,
     )
     p_diagnose.set_defaults(handler=_cmd_diagnose)
 
@@ -699,26 +700,32 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
     report_path = Path(args.diagnostic_report)
     try:
         report_payload = json.loads(report_path.read_text(encoding='utf-8'))
+        report = _parse_diagnostic_report(report_payload)
     except (OSError, json.JSONDecodeError) as exc:
         print(f'rerun failed: could not read diagnostic report: {exc}', file=sys.stderr)
         return 2
+    except ValueError as exc:
+        print(f'rerun failed: invalid diagnostic report: {exc}', file=sys.stderr)
+        return 2
 
     trajectory_ref = args.trajectory
+    trajectory = None
     if trajectory_ref:
         try:
-            # Validate the target exists, either as a file or store trace_id.
-            _load_target_trajectory(args, command_name='rerun')
+            trajectory = _load_target_trajectory(args, command_name='rerun')
         except (OSError, ValueError) as exc:
             print(f'rerun failed: {exc}', file=sys.stderr)
             return 2
 
+    plan = RerunWorkflow.suggest_only().plan(report, trajectory)
     config = {
         'stage': 'rerun',
-        'status': 'configured',
+        'status': plan.status,
         'message': (
             'Rerun execution is intentionally separated from diagnose. '
             'Use this config as input to a rollout backend.'
         ),
+        'plan': plan.to_dict(),
         'diagnostic_report': report_payload,
         'trajectory': trajectory_ref,
         'llm': {
@@ -746,6 +753,25 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
     }
     _emit(json.dumps(config, indent=2), args.out)
     return 0
+
+
+def _parse_diagnostic_report(payload: dict[str, Any]) -> DiagnosticReport:
+    if (
+        'events' in payload
+        and 'findings' not in payload
+        and 'summary' not in payload
+        and 'report_id' not in payload
+    ):
+        raise ValueError(
+            'expected a DiagnosticReport JSON, got a trajectory-like payload'
+        )
+    validator = getattr(DiagnosticReport, 'model_validate', None)
+    try:
+        if callable(validator):
+            return validator(payload)
+        return DiagnosticReport.parse_obj(payload)
+    except Exception as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
@@ -1117,7 +1143,7 @@ def _run_diagnose_mode(
         # vendored ReAct loop drives tool calls and inspects screenshots.
         if llm is None:
             raise ValueError('gui-rca mode requires an LLM client')
-        from agentdebug.core.llm_channel import CoreLLMChannel
+        from agentdebug.runtime.llm_channel import CoreLLMChannel
         from agentdebug.diagnose.gui_rca import GuiRcaAnalyzer
 
         channel = CoreLLMChannel(llm)

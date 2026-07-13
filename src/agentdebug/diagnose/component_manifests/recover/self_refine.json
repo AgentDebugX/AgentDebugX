@@ -1,0 +1,11 @@
+{
+  "id": "recover.self_refine",
+  "stage": "recover",
+  "name": "Self-Refine recovery",
+  "description": "LLM-backed recovery strategy that refines retry guidance.",
+  "entrypoint": "agentdebug.diagnose.recover.recovery:SelfRefineLoop",
+  "capabilities": ["fix_suggestions", "llm", "self_refine"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "llm_calls",
+  "enabled_by_default": false
+}

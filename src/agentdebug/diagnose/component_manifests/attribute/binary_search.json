@@ -1,0 +1,11 @@
+{
+  "id": "attribute.binary_search",
+  "stage": "attribute",
+  "name": "Binary-search attributor",
+  "description": "LLM attribution that narrows the failure range by binary search.",
+  "entrypoint": "agentdebug.diagnose.attribute.attribution:BinarySearchAttributor",
+  "capabilities": ["blame_localization", "llm", "range_search"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "logarithmic_llm_calls",
+  "enabled_by_default": false
+}

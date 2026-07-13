@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, cast
 
 from agentdebug.ingest.adapters.base import AdapterStatus, FrameworkAdapter
-from agentdebug.core.models import AgentTrajectory, EventType
+from agentdebug.schema import AgentTrajectory, EventType
 from agentdebug.ingest.recorder import AgentDebug
 
 

@@ -154,8 +154,14 @@ The [`examples/`](examples/) directory contains runnable end-to-end scripts:
 ## Repository layout
 
 ```
-src/agentdebug/     core package: schema, detectors, judge, attribution, DeepDebug,
-                    recovery, Error Hub, CLI, and the local web console (inspect/ui/)
+src/agentdebug/schema/      portable trajectory, event, report, and taxonomy contracts
+src/agentdebug/runtime/     storage, LLM clients, event bus, and plugin registry
+src/agentdebug/ingest/      live capture APIs and offline trace importers
+src/agentdebug/diagnose/    Detect → Attribute → Recover pipeline and implementations
+src/agentdebug/rerun/       rerun requests, branch comparison, and executor protocols
+src/agentdebug/inspect/     traceback renderer and local web console
+src/agentdebug/hub/         scrubbed Error Hub bundle packaging and backends
+src/agentdebug/integrations/ host skill and runtime integration generators
 cua_debugger/       computer-use / OSWorld GUI root-cause tooling
 examples/           runnable usage examples
 docs/               architecture and trace-schema reference

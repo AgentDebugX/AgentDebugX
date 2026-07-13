@@ -1,0 +1,11 @@
+{
+  "id": "attribute.counterfactual",
+  "stage": "attribute",
+  "name": "Counterfactual attributor",
+  "description": "Attribution backend for counterfactual-style localization.",
+  "entrypoint": "agentdebug.diagnose.attribute.attribution:CounterfactualAttributor",
+  "capabilities": ["blame_localization", "llm", "counterfactual"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "llm_calls",
+  "enabled_by_default": false
+}

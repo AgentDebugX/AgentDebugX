@@ -1,8 +1,8 @@
 """Diagnosis entry points."""
 
-from agentdebug.core.plugins.registry import register_analysis_plugin
-from agentdebug.diagnose.analyzers import HeuristicAnalyzer
-from agentdebug.diagnose.detectors import (
+from agentdebug.runtime.plugins.registry import register_analysis_plugin
+from agentdebug.diagnose.detect import HeuristicAnalyzer
+from agentdebug.diagnose.detect import (
     Detector,
     DetectorConfig,
     RepeatedStateDetector,
@@ -12,15 +12,24 @@ from agentdebug.diagnose.detectors import (
     default_detectors,
     run_detectors,
 )
-from agentdebug.diagnose.judges import LLMJudgeAnalyzer
-from agentdebug.diagnose.taxonomy_induction import (
+from agentdebug.diagnose.detect import LLMJudgeAnalyzer
+from agentdebug.diagnose.detect import (
     FailureObservation,
     TaxonomyInducer,
     TaxonomyProposal,
     collect_observations,
 )
+from agentdebug.diagnose.registry import (
+    DiagnoseComponentMetadata,
+    available_components,
+    get_component_metadata,
+    is_component_available,
+    list_components,
+    load_component,
+)
 
 __all__ = [
+    'DiagnoseComponentMetadata',
     'Detector',
     'DetectorConfig',
     'FailureObservation',
@@ -32,8 +41,13 @@ __all__ = [
     'TaxonomyInducer',
     'TaxonomyProposal',
     'TopicDriftDetector',
+    'available_components',
     'collect_observations',
     'default_detectors',
+    'get_component_metadata',
+    'is_component_available',
+    'list_components',
+    'load_component',
     'run_detectors',
 ]
 
