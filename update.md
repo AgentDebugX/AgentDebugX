@@ -706,3 +706,5 @@ Rerun = checkpoint + retry directive + branch comparison / executor
   - 可选 Local UI 启动方式
 
 - 补全 CLI Reference，并修复旧诊断示例缺少必需 pipeline 参数的问题。
+
+- 新增 `docs/assets/logo.png`，并将 AgentDebugX logo 居中展示在 README 最顶部。
