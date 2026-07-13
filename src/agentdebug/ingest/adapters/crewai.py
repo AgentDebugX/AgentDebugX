@@ -37,7 +37,7 @@ from types import TracebackType
 from typing import Any, List, Literal, NamedTuple, Optional, Tuple, Type
 
 from agentdebug.ingest.adapters.base import AdapterStatus, FrameworkAdapter
-from agentdebug.core.models import AgentTrajectory, EventType
+from agentdebug.schema import AgentTrajectory, EventType
 from agentdebug.ingest.recorder import AgentDebug
 
 LOG = logging.getLogger('agentdebug.adapters.crewai')

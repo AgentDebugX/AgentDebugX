@@ -1,0 +1,11 @@
+{
+  "id": "attribute.deepdebug",
+  "stage": "attribute",
+  "name": "DeepDebug",
+  "description": "Multi-turn root-cause diagnosis with global read, structure-guided probe, cross-examination, and final fix.",
+  "entrypoint": "agentdebug.diagnose.attribute.deepdebug:DeepDebugAnalyzer",
+  "capabilities": ["blame_localization", "multi_turn", "evidence", "fix_suggestion", "llm"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "multi_llm_call",
+  "enabled_by_default": false
+}

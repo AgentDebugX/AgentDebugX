@@ -1,0 +1,11 @@
+{
+  "id": "recover.saga_rollback",
+  "stage": "recover",
+  "name": "Saga rollback recovery",
+  "description": "Plan rollback/compensation guidance for side-effecting failures.",
+  "entrypoint": "agentdebug.diagnose.recover.recovery:SagaRollback",
+  "capabilities": ["fix_suggestions", "rollback", "compensation"],
+  "dependencies": ["compensator"],
+  "cost_profile": "free",
+  "enabled_by_default": false
+}

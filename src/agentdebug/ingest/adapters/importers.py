@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, cast
 
-from agentdebug.core.models import (
+from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
     EventType,

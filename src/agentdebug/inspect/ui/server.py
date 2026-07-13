@@ -23,10 +23,10 @@ from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
-from agentdebug.core.models import AgentTrajectory, DiagnosticReport, model_to_json
-from agentdebug.core.storage import JsonlTraceStore, SQLiteTraceStore, TraceStore
-from agentdebug.core.taxonomy import SEED_FAILURE_MODES
-from agentdebug.diagnose.analyzers import HeuristicAnalyzer
+from agentdebug.schema import AgentTrajectory, DiagnosticReport, model_to_json
+from agentdebug.runtime import JsonlTraceStore, SQLiteTraceStore, TraceStore
+from agentdebug.schema import SEED_FAILURE_MODES
+from agentdebug.diagnose.detect import HeuristicAnalyzer
 
 LOG = logging.getLogger('agentdebug.ui')
 CASE_DB_FILENAME = 'typical_error_cases.jsonl'
