@@ -226,7 +226,10 @@ def pack_bundle(bundle: Bundle, out_dir: Path) -> Path:
             src_path = Path(src)
             if not src_path.exists():
                 continue
-            dst = art_dir / rel
+            relative_path = Path(rel)
+            if relative_path.is_absolute() or '..' in relative_path.parts:
+                raise ValueError(f'unsafe artifact path: {rel!r}')
+            dst = art_dir / relative_path
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, dst)
             relative_artifacts[rel] = str(dst.relative_to(bundle_root))

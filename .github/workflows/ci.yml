@@ -1,0 +1,216 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: poetry.lock
+
+      - name: Install project and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[ui]"
+          python -m pip install pytest pytest-asyncio pytest-cov pytest-mock hypothesis "tomli>=2.0; python_version < '3.11'"
+
+      - name: Run core tests
+        run: python -m pytest tests -q
+
+      - name: Compile package
+        run: python -m compileall -q src/agentdebug tests
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: poetry.lock
+
+      - name: Install project and coverage dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[ui]"
+          python -m pip install pytest pytest-asyncio pytest-cov pytest-mock hypothesis
+
+      - name: Enforce core coverage baseline
+        run: >-
+          python -m pytest tests -q
+          --cov=agentdebug
+          --cov-branch
+          --cov-report=term-missing:skip-covered
+          --cov-fail-under=40
+
+  pydantic-compat:
+    name: Pydantic ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: v1
+            spec: 'pydantic>=1.10,<2'
+          - label: v2
+            spec: 'pydantic>=2,<3'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: poetry.lock
+
+      - name: Install compatibility environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install "${{ matrix.spec }}" pytest pytest-asyncio pytest-mock hypothesis
+
+      - name: Run compatibility tests
+        run: python -m pytest tests -q
+
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: poetry.lock
+
+      - name: Install Ruff
+        run: python -m pip install "ruff>=0.3,<0.4"
+
+      - name: Run Ruff
+        run: ruff check src/agentdebug tests --output-format=github
+
+  type-check:
+    name: Mypy (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: poetry.lock
+
+      - name: Install project and type-check dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install "mypy>=1.8,<2" "types-setuptools>=69"
+
+      - name: Run Mypy
+        run: mypy src/agentdebug
+
+  package:
+    name: Build and smoke-test wheel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: poetry.lock
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Validate distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Validate wheel contents
+        run: python tests/check_distribution.py dist/*.whl
+
+      - name: Smoke-test installed wheel
+        run: |
+          python -m venv /tmp/agentdebugx-smoke
+          /tmp/agentdebugx-smoke/bin/python -m pip install dist/*.whl
+          /tmp/agentdebugx-smoke/bin/agentdebug --help
+          /tmp/agentdebugx-smoke/bin/python -c "import agentdebug; print(agentdebug.__version__)"
+
+  cua-tests:
+    name: CUA tests (Python ${{ matrix.python-version }}, advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: cua_debugger/pyproject.toml
+
+      - name: Install CUA package and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ./cua_debugger
+
+      - name: Run CUA test suite
+        run: python -m pytest cua_debugger/tests -q
