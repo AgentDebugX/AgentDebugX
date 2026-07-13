@@ -506,3 +506,121 @@ Rerun = checkpoint + retry directive + branch comparison / executor
   - `python -m agentdebug.cli rerun examples/sample_trace.json`
   - 结果按预期报错：
     `expected a DiagnosticReport JSON, got a trajectory-like payload`
+
+## 7. 2026-07-13 12:29:14 +08
+
+本次调整拆分 `inspect/ui/server.py`，让 UI server 不再承载所有 API、case db、debug branch、rerun evaluation 和 LLM continuation 逻辑。
+
+### UI 模块拆分
+
+- 新增 `src/agentdebug/inspect/ui/app.py`
+  - 承载应用入口：
+    `serve()`、`store_from_path()`。
+  - 从 `routes.py` 引入 `build_app()`。
+
+- 新增 `src/agentdebug/inspect/ui/routes.py`
+  - 承载 FastAPI route registration。
+  - 保留原有 API 路径和页面路径：
+    `/`、`/overview`、`/space`、`/gui`、`/trace/{trace_id}`、
+    `/api/v1/traces`、`/api/v1/cases`、`/api/v1/taxonomy`、
+    debug continuation、debug branches、rerun-from-event 等。
+
+- 新增 `src/agentdebug/inspect/ui/views.py`
+  - 承载 HTML view rendering。
+  - 原有 no-build HTML/CSS/JS 保持原样迁移到该文件。
+  - `render_page()`、`render_space_page()`、`render_gui_page()`、`gui_embed_url()` 迁入此处。
+
+- 新增 `src/agentdebug/inspect/ui/services.py`
+  - 承载 UI 层使用的服务函数：
+    serialization、overview aggregation、debug continuation prompt context、
+    LLM completion request/response parsing、rerun local proxy evaluation。
+
+- 新增 `src/agentdebug/inspect/ui/branch_store.py`
+  - 承载本地 JSONL store：
+    `typical_error_cases.jsonl` 和 `.agentdebug/debug_branches.jsonl`。
+  - 包含 case records 和 debug branch records 的 read/append/delete/write 操作。
+
+### 兼容性
+
+- `src/agentdebug/inspect/ui/server.py` 现在变成 compatibility module。
+- 旧 import 路径继续可用：
+
+  ```python
+  from agentdebug.inspect.ui.server import build_app, build_overview, render_page, serve
+  from agentdebug.inspect.ui import build_app, render_page, serve
+  ```
+
+- `inspect/ui/__init__.py` 文档从 single-file 描述更新为 small FastAPI app。
+
+### 行为保持
+
+- 没有修改现有 UI 路由路径。
+- 没有修改前端 HTML/CSS/JS 行为。
+- 没有修改 case db 文件名和 debug branch 文件名。
+- 没有修改 `agentdebug serve` 的调用方式。
+
+### 测试与验证
+
+- 已运行并通过：
+  - `python -m pytest tests -q`
+  - `python -m compileall -q src/agentdebug tests`
+
+- 已验证旧路径 import：
+  - `agentdebug.inspect.ui.server.build_app`
+  - `agentdebug.inspect.ui.server.build_overview`
+  - `agentdebug.inspect.ui.server.render_page`
+  - `agentdebug.inspect.ui.server.serve`
+
+- 已验证 `build_app()` 能正常创建 FastAPI app，关键路由缺失数为 0。
+
+## 8. 2026-07-13 15:18:21 +08
+
+本次调整清理仓库中的 API / URL 泄漏风险和构建产物残留。
+
+### 泄漏扫描结论
+
+- 使用严格模式扫描以下敏感形态，未发现真实密钥：
+  - `sk-...`
+  - GitHub token
+  - Google API key
+  - Slack token
+  - PyPI token
+  - 之前临时实验中出现过的 `sk-master`、`trycloudflare`、`xiamiapi` 相关片段
+
+### 清理内容
+
+- 更新 `src/agentdebug/runtime/llm.py`
+  - 移除 docstring 中具体的临时 `trycloudflare.com` gateway URL。
+  - 改成通用 OpenAI-compatible `/v1` endpoint 描述。
+
+- 更新 `src/agentdebug/inspect/ui/views.py`
+  - UI 不再把 rerun backend API key 写入 browser `localStorage`。
+  - 如果旧浏览器缓存里已经有 `api_key`，下次加载会自动删除。
+  - API key 仍可在本地 UI 中临时输入并发送给本地 backend，但不会持久化在前端缓存中。
+
+- 删除已跟踪构建产物：
+  - `dist/agentdebugx-0.3.0.tar.gz`
+  - `dist/agentdebugx-0.3.0-py3-none-any.whl`
+
+### 原因
+
+- `dist/` 中的旧构建包仍包含旧源码里的临时 gateway URL。
+- 虽然该 URL 不是密钥，但开源仓库不应该保留临时实验地址。
+- `.gitignore` 已包含 `dist/`，删除已跟踪构建产物后，后续本地 build artifact 不会再被默认加入仓库。
+
+### 测试与验证
+
+- 已运行并通过：
+  - `python -m pytest tests -q`
+  - `python -m compileall -q src/agentdebug tests`
+
+- 已重新扫描并确认无命中：
+  - `trycloudflare.com`
+  - `sprint-intellectual`
+  - `reach-fruits`
+  - `sk-master`
+  - `sk-wGQ`
+  - `xiamiapi`
+  - 常见 API key / token 正则形态
+
+- 已确认 `dist/` 下没有剩余文件。
