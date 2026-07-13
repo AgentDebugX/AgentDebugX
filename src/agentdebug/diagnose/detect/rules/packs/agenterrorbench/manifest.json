@@ -1,0 +1,15 @@
+{
+  "id": "agenterrorbench",
+  "name": "AgentErrorBench rule pack",
+  "stage": "detect",
+  "description": "Benchmark-specific weak-signal rules for AgentErrorBench-style ALFWorld and WebShop trajectories.",
+  "entrypoint": "agentdebug.diagnose.detect.rules.packs.agenterrorbench.rules",
+  "capabilities": [
+    "event_rules",
+    "benchmark_overrides",
+    "zero_llm"
+  ],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": false
+}

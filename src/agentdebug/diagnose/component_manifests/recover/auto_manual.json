@@ -1,0 +1,11 @@
+{
+  "id": "recover.auto_manual",
+  "stage": "recover",
+  "name": "AutoManual recovery",
+  "description": "Distill diagnosed failures into reusable manual-style guidance.",
+  "entrypoint": "agentdebug.diagnose.recover.recovery:AutoManualRules",
+  "capabilities": ["fix_suggestions", "manual_rules"],
+  "dependencies": [],
+  "cost_profile": "free_or_optional_llm",
+  "enabled_by_default": false
+}

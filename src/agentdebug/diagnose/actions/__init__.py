@@ -1,7 +1,7 @@
 """Action-oriented advanced workflows."""
 
-from agentdebug.core.plugins.registry import register_action_plugin
-from agentdebug.diagnose.actions.attribution import (
+from agentdebug.runtime.plugins.registry import register_action_plugin
+from agentdebug.diagnose.attribute import (
     AllAtOnceAttributor,
     AttributionBudget,
     AttributionResult,
@@ -14,7 +14,7 @@ from agentdebug.diagnose.actions.attribution import (
     SBFLAttributor,
     StepByStepAttributor,
 )
-from agentdebug.diagnose.actions.hub import (
+from agentdebug.hub import (
     Bundle,
     BundleManifest,
     HubBackend,
@@ -31,7 +31,7 @@ from agentdebug.diagnose.actions.hub import (
     scrub_trajectory,
     unpack_bundle,
 )
-from agentdebug.diagnose.actions.recovery import (
+from agentdebug.diagnose.recover import (
     DEFAULT_VERIFIERS,
     AutoManualRules,
     CompensationSpec,

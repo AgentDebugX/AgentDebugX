@@ -8,7 +8,7 @@ Runtime adapters observe live framework events. Offline import adapters convert
 already-exported trace files into ``AgentTrajectory`` for post-hoc analysis.
 """
 
-from agentdebug.core.plugins.registry import register_ingest_plugin
+from agentdebug.runtime.plugins.registry import register_ingest_plugin
 from agentdebug.ingest.adapters.base import AdapterStatus, FrameworkAdapter
 from agentdebug.ingest.adapters.importers import (
     ConversionError,

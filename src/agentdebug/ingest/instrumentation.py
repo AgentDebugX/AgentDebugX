@@ -6,7 +6,7 @@ import time
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, cast
 
-from agentdebug.core.models import EventType
+from agentdebug.schema import EventType
 from agentdebug.ingest.recorder import TraceSession
 
 F = TypeVar('F', bound=Callable[..., Any])

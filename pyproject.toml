@@ -44,7 +44,10 @@ include = [
     "LICENSE",
     "README.md",
     "docs/**/*",
-    "src/agentdebug/diagnose/actions/integrations/agentdebug_skill/**/*.md",
+    "src/agentdebug/**/README.md",
+    "src/agentdebug/integrations/agentdebug_skill/**/*.md",
+    "src/agentdebug/diagnose/detect/rules/packs/*/manifest.json",
+    "src/agentdebug/diagnose/component_manifests/**/*.json",
 ]
 
 [tool.poetry.dependencies]
@@ -75,6 +78,14 @@ together = { version = "*", optional = true }
 tqdm = { version = "*", optional = true }
 
 # Optional integrations — install via `pip install agentdebugx[langgraph]` etc.
+crewai = { version = "*", optional = true }
+openai-agents = { version = "*", optional = true }
+opentelemetry-api = { version = "*", optional = true }
+opentelemetry-sdk = { version = "*", optional = true }
+fastapi = { version = "*", optional = true }
+uvicorn = { version = "*", optional = true }
+huggingface_hub = { version = "*", optional = true }
+
 [tool.poetry.extras]
 langgraph = ["langchain-core"]
 gui = [
@@ -102,7 +113,23 @@ otel = ["opentelemetry-api", "opentelemetry-sdk"]
 ui = ["fastapi", "uvicorn"]
 hub-hf = ["huggingface_hub"]
 all = [
+    "anthropic",
+    "backoff",
+    "chromadb",
     "langchain-core",
+    "langchain-chroma",
+    "langchain-openai",
+    "matplotlib",
+    "numpy",
+    "openai",
+    "pandas",
+    "pillow",
+    "python-dotenv",
+    "scikit-learn",
+    "streamlit",
+    "streamlit-adjustable-columns",
+    "together",
+    "tqdm",
     "crewai",
     "openai-agents",
     "opentelemetry-api",

@@ -1,7 +1,7 @@
 """Compatibility facade for deterministic diagnosis."""
 
-from agentdebug.diagnose.analyzers import HeuristicAnalyzer
-from agentdebug.diagnose.detectors import (
+from agentdebug.diagnose.detect import HeuristicAnalyzer
+from agentdebug.diagnose.detect import (
     Detector,
     DetectorConfig,
     RepeatedStateDetector,
@@ -11,7 +11,7 @@ from agentdebug.diagnose.detectors import (
     default_detectors,
     run_detectors,
 )
-from agentdebug.diagnose.rules import (
+from agentdebug.diagnose.detect.rules import (
     EventRule,
     RuleMatch,
     TrajectoryRule,
