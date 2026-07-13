@@ -74,8 +74,9 @@ wins on Who&When; see §7):
 | 3 | **Cross-examination** *(conditional)* | if Turns 1–2 agree → accept; else zoom both candidates ±k context windows and adjudicate | `zoom_step_context` |
 | 4 | **Diagnose & suggest** | step now fixed; write summary + quoted evidence + **one concrete fix**; verdict cannot move the step | — |
 
-Implementation: `src/agentdebug/diagnose/deep.py` (`DeepDebugAnalyzer`) over
-`src/agentdebug/diagnose/actions/moe.py` (`aao_moe_attribute`: `all_at_once` +
+Implementation: `src/agentdebug/diagnose/attribute/deepdebug.py`
+(`DeepDebugAnalyzer`) over `src/agentdebug/diagnose/attribute/moe.py`
+(`aao_moe_attribute`: `all_at_once` +
 `_cascade`/`_bisect_refine` + arbitration). Memory retrieval (step 0) feeds
 both readings and the refine turn. Turns 1–3 are the "two readings +
 arbitration" of the shipped localizer; the table above is the canonical naming.
@@ -116,11 +117,11 @@ run_react_loop`, turn-capped, old screenshots compressed to bound context):
   agent inspects the actual trajectory directory (screenshots + step files),
   resolved from `metadata['source_dir']` or screenshot artifact URIs.
 - **Tools**: `get_step_details` (text + images), lesson tools, `finish`.
-- **Model routing**: `core/llm_channel.py` presents an Anthropic-style
+- **Model routing**: `runtime/llm_channel.py` presents an Anthropic-style
   `.messages.create` seam but executes through our `OpenAICompatClient` — one
   LLM stack for both channels, vision included.
 - **Verdict mapping**: `RCAResult` → `DiagnosticReport` with the GUI taxonomy
-  (`core/gui_taxonomy.py`); infeasible-task branch handled at ingestion.
+  (`runtime/gui_taxonomy.py`); infeasible-task branch handled at ingestion.
 - CLI: `agentdebug diagnose --mode gui-rca --rule-pack gui` (+ `--format
   osworld` ingest).
 

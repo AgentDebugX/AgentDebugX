@@ -1,0 +1,11 @@
+{
+  "id": "recover.critic",
+  "stage": "recover",
+  "name": "CRITIC recovery",
+  "description": "Suggest verifier-style guards and critiques for diagnosed failures.",
+  "entrypoint": "agentdebug.diagnose.recover.recovery:CriticRecoverer",
+  "capabilities": ["fix_suggestions", "verifier_suggestions", "zero_llm"],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": false
+}
