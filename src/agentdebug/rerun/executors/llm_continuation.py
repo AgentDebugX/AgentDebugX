@@ -24,6 +24,19 @@ _ROLLOUT_PROMPT = (
     'new execution. Never include hidden chain-of-thought.'
 )
 
+_FAILURE_ONLY_METADATA_KEYS = {
+    'expected_outcome',
+    'expected_root_cause_agent',
+    'expected_root_cause_event_id',
+    'expected_root_cause_step_index',
+    'failure_family',
+}
+
+_FAILURE_ONLY_METADATA_PREFIXES = (
+    'expected_failure_',
+    'expected_root_cause_',
+)
+
 
 @dataclass(frozen=True)
 class RolloutContext:
@@ -147,7 +160,7 @@ def trajectory_from_rollout(
         goal=source.goal,
         framework=source.framework,
         metadata={
-            **dict(source.metadata or {}),
+            **_rerun_source_metadata(source.metadata),
             'rerun_of': source.trace_id,
             'rerun_report_id': request.report_id,
             'rerun_policy': request.checkpoint.policy,
@@ -194,7 +207,30 @@ def trajectory_from_rollout(
         previous_event_id = event_id
     if not rerun.events:
         raise ValueError('rerun model returned no valid rollout events')
+    terminal_events = [
+        event for event in rerun.events
+        if event.event_type == EventType.RUN_END.value
+    ]
+    if terminal_events:
+        rerun.ended_at = terminal_events[-1].timestamp
     return rerun
+
+
+def _rerun_source_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Carry reusable context forward without stale failure expectations."""
+
+    source = dict(metadata or {})
+    fixture = source.get('fixture') is True
+    cleaned = {
+        key: value
+        for key, value in source.items()
+        if key not in _FAILURE_ONLY_METADATA_KEYS
+        and not key.startswith(_FAILURE_ONLY_METADATA_PREFIXES)
+    }
+    if fixture:
+        cleaned.pop('fixture', None)
+        cleaned.pop('scenario', None)
+    return cleaned
 
 
 def _render_events(events: list[AgentEvent], *, limit: int) -> str:

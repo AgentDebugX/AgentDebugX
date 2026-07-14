@@ -23,6 +23,13 @@ Typical strategies include:
 3. Generate candidate recovery actions or rerun directives.
 4. Preserve evidence and assumptions so the user can audit the recommendation.
 
+Self-Refine requests JSON-constrained critic and refined-action fields. Each
+stage validates `finish_reason`, JSON parsing, the required field, and sentence
+completeness. A truncated or invalid response is retried once with an expanded
+token budget; repeated failure produces deterministic guidance from the
+finding instead of exposing partial model text. Gateways that reject
+`response_format` automatically fall back to prompt-constrained JSON.
+
 ## Dependencies
 
 Template-based recovery can run locally. LLM-guided recovery requires configured
@@ -35,4 +42,3 @@ executor context supplied later by Rerun.
 - Keep recovery outputs explicit about assumptions, scope, and expected effect.
 - Do not execute external systems from Recover. Execution belongs to Rerun.
 - Preserve compatibility with existing recovery mode names.
-

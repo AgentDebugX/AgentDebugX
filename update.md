@@ -1041,3 +1041,65 @@ fix guidance 自动成为标准 retry directive，可直接交给 Rerun 阶段�
 - README 与 AgentDebug skill 文档改为以 evidence 和 provenance 表达诊断
   可信度，并明确只有 LLM Judge 输出模型自报 confidence。
 - 新增 Heuristic/DeepDebug 递归移除、LLM Judge 保留以及 UI 输出一致性测试。
+
+## 19. 2026-07-14 14:51:27 +08
+
+本次更新强化 Self-Refine recovery 的生成可靠性，避免截断或无效模型响应直接
+进入 retry directive。
+
+### Structured output
+
+- critic 阶段要求 `{"critic": "..."}`，refiner 阶段要求
+  `{"refined_action": "..."}`，两者均使用 JSON-only prompt。
+- 支持 OpenAI-compatible `response_format=json_object`，并验证 JSON 是否可
+  解析、目标字段是否存在以及文本是否为完整句子。
+- 不再拼接或保留部分模型输出；任一验证失败都视为该次调用无效。
+
+### Adaptive retry
+
+- 每个 critic/refiner 阶段最多调用两次：首次使用配置的 `max_tokens`，第二次
+  扩大到 `max(4x, +512)`，并限制在 8192 tokens。
+- `finish_reason=length`、包含 token limit 的 stop reason、无效 JSON、字段
+  缺失、明显未完成句子和 provider 异常都会触发第二次完整重生成。
+- retry prompt 明确要求从头输出完整 JSON，避免模型只续写被截断的尾部。
+
+### Compatibility and fallback
+
+- 如果网关明确不支持 `response_format`，Self-Refine 会缓存该能力并回退到
+  prompt-constrained JSON，不对后续阶段重复发送不支持的参数。
+- 两次调用均失败时，使用 finding evidence/suggestion 生成完整、可执行且带
+  side-effect 前验证的 deterministic retry action。
+- 即使 critic 和 refiner 都没有有效模型输出，也会返回 recovery proposal，
+  不再静默产生空 recovery。
+
+### Tests
+
+- 新增长度截断、JSON 字段错误、动态 token 扩容、retry prompt、
+  `response_format` 不兼容和 deterministic fallback 测试。
+
+## 20. 2026-07-14 15:25:43 +08
+
+本次更新修正 Rerun 新轨迹的 metadata 继承与结束时间语义，避免成功分支继续
+携带原失败 fixture 的标签。
+
+### Metadata normalization
+
+- 新轨迹不再继承 `expected_outcome`、`expected_root_cause_*`、
+  `expected_failure_*` 和 `failure_family` 等只描述原失败运行的 metadata。
+- 当来源明确标记 `fixture=true` 时，同时移除 `fixture` 与 `scenario`，避免将
+  测试场景身份误认为新执行结果。
+- `react_format`、业务上下文和其他正常 trace metadata 继续保留。
+- Rerun 自身的 `rerun_of`、report ID、policy、directive source、模型报告的
+  success 与 rollout summary 保持不变。
+
+### Completion timestamp
+
+- 生成事件中存在 `run.end` 时，使用最后一个 terminal event 的 timestamp
+  设置 trajectory `ended_at`。
+- 没有 `run.end` 的 continuation 视为未完成轨迹，`ended_at` 保持 `null`。
+
+### Tests
+
+- 新增失败 fixture metadata 清理、正常 metadata 保留、terminal timestamp
+  映射和无 terminal event 行为测试。
+- Rerun workflow、CLI 和 UI 聚焦测试全部通过。

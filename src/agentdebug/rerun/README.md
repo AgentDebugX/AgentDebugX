@@ -38,6 +38,13 @@ whether a recovery strategy improves the run.
 - The web console performs the same model rollout from a user-selected event and
   stores the generated branch beside the original timeline.
 
+Generated trajectories inherit reusable source context, but remove stale
+failure-only metadata such as `expected_outcome`, expected root-cause labels,
+failure-family labels, and fixture scenario markers. Business metadata and
+trace-format hints remain available. When a generated trajectory contains a
+`run.end` event, its timestamp becomes the trajectory's `ended_at`; incomplete
+rollouts without a terminal event leave `ended_at` unset.
+
 The built-in executor generates an observable model trajectory from the task,
 failed trace, and retry directive. It cannot restore arbitrary external tool
 processes from an imported log. Live LangGraph, OpenAI Agents, benchmark, or

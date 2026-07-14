@@ -80,6 +80,8 @@ available.
   final-state check, tool-result type check, handoff contract, or loop guard.
 - Use `self-refine` when the failure is ambiguous and the user has LLM
   credentials configured.
+- Self-Refine validates structured critic/action output and retries truncated
+  generations with a larger token budget before using deterministic guidance.
 - Use `auto-manual` when the user wants a persistent learned rule or manual
   entry. Treat filesystem writes as opt-in.
 - Use `saga-rollback` only for side-effecting trajectories and only as a

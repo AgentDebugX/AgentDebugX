@@ -6,14 +6,16 @@
 
 **A local-first debugging framework for agentic AI systems: diagnose failures, attribute root causes, recover with evidence, and validate fixes through reruns.**
 
-[![PyPI](https://img.shields.io/badge/pip-agentdebugx-3775A9)](https://pypi.org/project/agentdebugx/)
-[![CI](https://github.com/AgentDebugX/AgentDebugX/actions/workflows/ci.yml/badge.svg)](https://github.com/AgentDebugX/AgentDebugX/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](pyproject.toml)
-
 <a href="https://www.agentdebugx.com"><img src="https://img.shields.io/badge/WEBSITE-208B57?style=for-the-badge&logo=googlechrome&logoColor=white" alt="AgentDebugX website"></a>
 <a href="https://github.com/AgentDebugX/AgentDebugX"><img src="https://img.shields.io/badge/GITHUB-24292F?style=for-the-badge&logo=github&logoColor=white" alt="AgentDebugX GitHub repository"></a>
 <a href="https://youtu.be/ztni6w0o_l8"><img src="https://img.shields.io/badge/DEMO_VIDEO-EA4335?style=for-the-badge&logo=youtube&logoColor=white" alt="AgentDebugX demo video"></a>
+
+[![PyPI](https://img.shields.io/badge/pip-agentdebugx-3775A9)](https://pypi.org/project/agentdebugx/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](pyproject.toml)
+[![GitHub Stars](https://img.shields.io/github/stars/AgentDebugX/AgentDebugX?style=flat&logo=github&label=Stars)](https://github.com/AgentDebugX/AgentDebugX/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/AgentDebugX/AgentDebugX?style=flat&logo=github&label=Forks)](https://github.com/AgentDebugX/AgentDebugX/forks)
+
 
 </div>
 
