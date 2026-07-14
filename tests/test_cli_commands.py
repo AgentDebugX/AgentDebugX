@@ -32,6 +32,62 @@ def test_convert_compatibility_alias(tmp_path) -> None:
     assert main(['convert', str(source)]) == 0
 
 
+def test_batch_ingest_cli_processes_jsonl_records(tmp_path, capsys) -> None:
+    source = tmp_path / 'records.jsonl'
+    source.write_text(
+        '\n'.join(
+            [
+                json.dumps({'messages': [{'role': 'user', 'content': 'one'}]}),
+                json.dumps({'messages': [{'role': 'user', 'content': 'two'}]}),
+            ]
+        ),
+        encoding='utf-8',
+    )
+    output = tmp_path / 'batch'
+
+    result = main(['batch', 'ingest', str(source), '--out-dir', str(output)])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload['total'] == 2
+    assert payload['succeeded'] == 2
+    assert len(list(output.glob('*.trajectory.json'))) == 2
+
+
+def test_batch_diagnose_cli_isolates_bad_json(tmp_path, capsys) -> None:
+    source = tmp_path / 'records'
+    source.mkdir()
+    (source / 'valid.json').write_text(
+        json.dumps({'messages': [{'role': 'user', 'content': 'ok'}]}),
+        encoding='utf-8',
+    )
+    (source / 'invalid.json').write_text('{invalid}', encoding='utf-8')
+    output = tmp_path / 'diagnosed'
+
+    result = main(
+        [
+            'batch',
+            'diagnose',
+            str(source),
+            '--mode',
+            'heuristic',
+            '--attributor',
+            'none',
+            '--recovery',
+            'none',
+            '--out-dir',
+            str(output),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 3
+    assert payload['succeeded'] == 1
+    assert payload['failed'] == 1
+    assert (output / 'reports' / 'valid.report.json').exists()
+    assert (output / 'batch-summary.json').exists()
+
+
 def test_diagnose_command_supports_explicit_pipeline(
     tmp_path,
     capsys,

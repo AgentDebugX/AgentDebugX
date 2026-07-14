@@ -186,6 +186,28 @@ Rule packs for heuristic mode:
 
 `--rule-pack` is repeatable.
 
+## Batch Processing
+
+Process every JSON file in a directory recursively, or every non-empty JSON
+record in a JSONL file:
+
+```bash
+agentdebug batch ingest <directory-or-jsonl> --out-dir <trajectories>
+
+agentdebug batch diagnose <directory-or-jsonl> \
+  --mode heuristic \
+  --attributor heuristic \
+  --recovery reflexion \
+  --out-dir <run-directory>
+```
+
+`batch diagnose` writes normalized trajectories and reports separately, plus a
+`batch-summary.json` containing per-record status and errors. A partial failure
+returns exit code `3` without deleting successful outputs.
+
+Use batch mode only when each JSON file or JSONL line is an independent
+record. Use regular `ingest` when one JSONL stream represents one trajectory.
+
 ## LLM Configuration
 
 LLM-backed modes and attributors use explicit flags, saved config, or env vars:

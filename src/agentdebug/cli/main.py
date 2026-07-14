@@ -13,6 +13,7 @@ from typing import Optional, Sequence
 
 from agentdebug.cli import legacy
 from agentdebug.cli.commands import (
+    batch,
     diagnose,
     doctor,
     hub,
@@ -63,6 +64,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     legacy._add_ingest_args(p_ingest)
     p_ingest.set_defaults(handler=ingest.run)
+
+    p_batch = sub.add_parser(
+        'batch',
+        help='Process directories or independent JSONL records',
+    )
+    batch_sub = p_batch.add_subparsers(dest='batch_command', required=True)
+
+    p_batch_ingest = batch_sub.add_parser(
+        'ingest',
+        help='Normalize every JSON file or JSONL record',
+    )
+    p_batch_ingest.add_argument('input')
+    p_batch_ingest.add_argument('--out-dir', required=True)
+    p_batch_ingest.add_argument(
+        '--format', default='auto', choices=legacy._TRACE_FORMAT_CHOICES
+    )
+    p_batch_ingest.add_argument('--goal')
+    p_batch_ingest.add_argument('--framework')
+    p_batch_ingest.set_defaults(handler=batch.run)
+
+    p_batch_diagnose = batch_sub.add_parser(
+        'diagnose',
+        help='Normalize and diagnose every JSON file or JSONL record',
+    )
+    legacy._add_batch_diagnose_args(p_batch_diagnose)
+    p_batch_diagnose.add_argument('--out-dir', required=True)
+    p_batch_diagnose.add_argument(
+        '--format', default='auto', choices=legacy._TRACE_FORMAT_CHOICES
+    )
+    p_batch_diagnose.add_argument('--goal')
+    p_batch_diagnose.add_argument('--framework')
+    p_batch_diagnose.set_defaults(handler=batch.run)
 
     p_list = sub.add_parser('list', help='List trace IDs in a store')
     legacy._add_store_args(p_list)

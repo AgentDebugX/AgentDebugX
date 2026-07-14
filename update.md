@@ -1103,3 +1103,45 @@ fix guidance 自动成为标准 retry directive，可直接交给 Rerun 阶段�
 - 新增失败 fixture metadata 清理、正常 metadata 保留、terminal timestamp
   映射和无 terminal event 行为测试。
 - Rerun workflow、CLI 和 UI 聚焦测试全部通过。
+
+## 21. 2026-07-14 18:04:37 +08
+
+本次更新新增一等 batch workflow，支持批量处理目录中的 JSON 文件以及 JSONL
+中的每条独立 JSON 记录。
+
+### Batch input
+
+- `agentdebug batch ingest <input> --out-dir <dir>` 递归扫描目录内全部
+  `*.json`，每个文件作为一条独立记录。
+- JSONL 输入按非空行拆分，每行作为一条独立 JSON 记录，不再把整份数据集
+  合并成一条 trajectory。
+- 同时接受单个 JSON 文件，便于脚本统一使用 batch 接口。
+- 每条输出记录包含稳定 `batch_record_id`、source path 和 JSONL line number
+  provenance。
+
+### Batch diagnose
+
+- `agentdebug batch diagnose` 复用单条 CLI 的 Detect -> Attribute -> Recover
+  pipeline，支持 heuristic、LLM Judge、DeepDebug、attributor 和 recovery
+  现有配置。
+- 每条成功记录分别写入 `trajectories/*.trajectory.json` 与
+  `reports/*.report.json`，可以单独 inspect 或 rerun。
+- 单条与批量 diagnose 共享 `_run_diagnose_pipeline()`，避免两个入口行为
+  漂移。
+
+### Fault isolation and summary
+
+- 无效 JSON 文件、JSONL 坏行、格式识别失败和单条 diagnose 异常均只标记
+  当前 record failed，不中断其余记录。
+- 每次运行生成 `batch-summary.json`，包含 total、succeeded、failed、输出
+  路径和逐条错误。
+- 全部成功退出码为 0，部分失败为 3，输入级错误为 2；成功输出不会因部分
+  失败被删除。
+
+### Compatibility and tests
+
+- 新模块保持 Python 3.9 类型语法兼容。
+- 新增目录递归、JSONL 拆行、坏样本隔离、summary、输出布局和 CLI 端到端
+  测试。
+- 明确 JSONL 语义：每行独立记录时使用 batch；单条 trajectory 的事件流仍
+  使用普通 `agentdebug ingest`。

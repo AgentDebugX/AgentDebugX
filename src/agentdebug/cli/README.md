@@ -13,6 +13,8 @@ Primary commands:
 
 - `agentdebug diagnose` runs the Diagnose workflow.
 - `agentdebug ingest` imports traces from external formats.
+- `agentdebug batch ingest` imports directories or independent JSONL records.
+- `agentdebug batch diagnose` diagnoses a collection with failure isolation.
 - `agentdebug rerun` prepares or executes Rerun workflows.
 - `agentdebug hub` manages Error Hub bundles.
 - `agentdebug integrations` generates integration assets.
@@ -43,7 +45,7 @@ scripts may pass `--recovery none` to disable the standard recovery payload.
 2. `commands/*` modules expose workflow-specific `run(...)` handlers.
 3. `legacy.py` contains compatibility implementation that has not yet moved
    into dedicated workflow modules.
-4. Workflow modules under `diagnose/`, `ingest/`, `rerun/`, `hub/`, and
+4. Workflow modules under `batch/`, `diagnose/`, `ingest/`, `rerun/`, `hub/`, and
    `integrations/` perform the real work.
 
 ## Dependencies
