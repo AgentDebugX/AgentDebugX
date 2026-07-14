@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -239,21 +240,34 @@ def build_app(store: TraceStore) -> Any:
         event_id = str(payload.get('event_id') or '').strip()
         if not event_id:
             raise HTTPException(status_code=400, detail='event_id is required')
-        api_url = str(payload.get('api_url') or '').strip()
-        api_key = str(payload.get('api_key') or '').strip()
-        model = str(payload.get('model') or 'gpt-4o').strip() or 'gpt-4o'
+        model = str(payload.get('model') or 'live-runner').strip() or 'live-runner'
         prompt_text = str(payload.get('prompt_text') or '').strip()
-        if not api_url:
-            raise HTTPException(status_code=400, detail='api_url is required')
-        if not api_key:
-            raise HTTPException(status_code=400, detail='api_key is required')
         if not prompt_text:
             raise HTTPException(status_code=400, detail='prompt_text is required')
+        runner_url = str(os.environ.get('AGENTDEBUG_RUNNER_URL') or '').strip()
+        runner_command = str(os.environ.get('AGENTDEBUG_RERUN_COMMAND') or '').strip()
+        if not runner_url and not runner_command:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    'live rerun is not configured; set AGENTDEBUG_RUNNER_URL or '
+                    'AGENTDEBUG_RERUN_COMMAND on the UI server'
+                ),
+            )
 
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
             raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
         report = HeuristicAnalyzer().analyze(trajectory)
+        report.suggestions = [prompt_text]
+        checkpoint_policy = str(
+            os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'
+        ).strip()
+        if checkpoint_policy not in {'from_start', 'from_event'}:
+            raise HTTPException(
+                status_code=503,
+                detail='AGENTDEBUG_UI_RERUN_POLICY must be from_start or from_event',
+            )
         try:
             checkpoint = _build_debug_continuation_context(
                 trajectory,
@@ -267,48 +281,59 @@ def build_app(store: TraceStore) -> Any:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
         from agentdebug.rerun import (
-            LLMContinuationExecutor,
+            HttpLiveExecutor,
+            ProcessLiveExecutor,
             RerunWorkflow,
-            RolloutContext,
-            normalize_openai_base_url,
         )
-        from agentdebug.runtime import OpenAICompatClient
-
-        llm = OpenAICompatClient(
-            base_url=normalize_openai_base_url(api_url),
-            api_key=api_key,
-            model=model,
-            default_max_tokens=8192,
-            timeout=180.0,
-        )
-        executor = LLMContinuationExecutor(
-            llm,
-            RolloutContext(
+        if runner_url:
+            token_env = str(
+                os.environ.get('AGENTDEBUG_RUNNER_TOKEN_ENV') or ''
+            ).strip()
+            token = os.environ.get(token_env) if token_env else None
+            if token_env and not token:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f'runner token environment variable is not set: {token_env}',
+                )
+            executor = HttpLiveExecutor(
+                runner_url,
                 trajectory,
-                start_event_id=event_id,
-                prompt_override=prompt_text,
-            ),
-        )
+                token=token,
+                timeout=float(os.environ.get('AGENTDEBUG_RERUN_TIMEOUT') or 1800),
+                poll_interval=float(
+                    os.environ.get('AGENTDEBUG_RUNNER_POLL_INTERVAL') or 1
+                ),
+            )
+        else:
+            executor = ProcessLiveExecutor(
+                runner_command,
+                trajectory,
+                cwd=os.environ.get('AGENTDEBUG_RERUN_CWD'),
+                timeout=float(os.environ.get('AGENTDEBUG_RERUN_TIMEOUT') or 1800),
+            )
         try:
             workflow_result = RerunWorkflow(executor).run(
                 report,
                 trajectory,
                 execute=True,
-                checkpoint_policy='from_event',
-                checkpoint_event_id=event_id,
+                checkpoint_policy=checkpoint_policy,
+                checkpoint_event_id=(
+                    event_id if checkpoint_policy == 'from_event' else None
+                ),
             )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f'rerun request failed: {exc}') from exc
+        finally:
+            close = getattr(executor, 'close', None)
+            if callable(close):
+                close()
 
         execution = workflow_result.execution
         if execution is None:  # pragma: no cover - executor contract guard
             raise HTTPException(status_code=502, detail='rerun produced no execution')
         parsed_payload = json.loads(model_to_json(execution.trajectory))
-        response_text = str(execution.metadata.get('response_summary') or '')
-        llm_response = {
-            'usage': execution.metadata.get('usage'),
-            'finish_reason': execution.metadata.get('finish_reason'),
-        }
+        response_text = str(execution.metadata.get('summary') or '')
+        llm_response = {'execution': execution.metadata}
         branch_id = 'branch_' + datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
         generated_trace_id = execution.trajectory.trace_id
         generated_events = [
@@ -331,8 +356,10 @@ def build_app(store: TraceStore) -> Any:
             'parent_event_id': event_id,
             'checkpoint_ordinal': checkpoint.get('checkpoint_ordinal'),
             'checkpoint_step_index': checkpoint.get('checkpoint_step_index'),
+            'requested_checkpoint_policy': checkpoint_policy,
             'debug_model': model,
-            'api_url': api_url,
+            'execution_mode': execution.metadata.get('execution_mode'),
+            'tools_executed': execution.metadata.get('tools_executed'),
             'created_at': datetime.now(timezone.utc).isoformat(),
             'label': str(payload.get('label') or f'rerun from #{checkpoint.get("checkpoint_ordinal") or "?"}'),
             'run_type': 'rerun_from_event',

@@ -7197,7 +7197,6 @@ function loadDebugBackendConfig() {
 }
 function persistDebugBackendConfig() {
   const payload = {
-    api_url: document.getElementById('continuation-api-url')?.value || '',
     debug_model: document.getElementById('continuation-debug-model')?.value || defaultDebugModel()
   };
   try {
@@ -7343,18 +7342,13 @@ async function runContinuationRerun() {
     if (statusNode) statusNode.textContent = 'Missing trace/event checkpoint for backend rerun.';
     return;
   }
-  if (!pkg.api_url || !pkg.api_key) {
-    if (statusNode) statusNode.textContent = 'Please fill Rerun API URL and Rerun API Key first.';
-    notify('Fill API URL and API Key first');
-    return;
-  }
   const button = modal.querySelector('[data-run-continuation-debug]');
   const previous = button ? button.textContent : 'Run Rerun';
   if (button) {
     button.disabled = true;
     button.textContent = 'Running...';
   }
-  if (statusNode) statusNode.textContent = 'Calling backend rerun model from selected event...';
+  if (statusNode) statusNode.textContent = 'Starting configured live framework runner with the selected event diagnosis...';
   try {
     const response = await fetch('/api/v1/traces/' + encodeURIComponent(pkg.trace_id) + '/rerun-from-event', {
       method: 'POST',
@@ -7363,8 +7357,6 @@ async function runContinuationRerun() {
         event_id: pkg.event_id,
         selected_event: pkg.selected_event || selectedEventPayloadForRerun(pkg.event_id),
         note: pkg.note || '',
-        api_url: pkg.api_url,
-        api_key: pkg.api_key,
         model: pkg.prompt_config?.debug_model || defaultDebugModel(),
         prompt_text: pkg.composed_prompt,
         label: 'rerun from #' + (pkg.checkpoint_ordinal || '?'),
@@ -7380,7 +7372,8 @@ async function runContinuationRerun() {
     if (statusNode) {
       statusNode.textContent = 'Backend rerun completed and saved to ' + (result.path || 'local branch store') + '.';
     }
-    notify('Rerun completed from selected event');
+    const effectivePolicy = result?.branch?.requested_checkpoint_policy || 'from_start';
+    notify(effectivePolicy === 'from_event' ? 'Rerun completed from selected event' : 'Full-task rerun completed with selected event guidance');
     if (branch) {
       modal.classList.remove('visible');
     }
@@ -7468,9 +7461,7 @@ function showDebugContinuation(payload) {
       '<button class="continuation-close" type="button" data-close-continuation aria-label="Close">×</button></div>' +
       '<div class="continuation-body">' +
         '<div class="continuation-builder">' +
-          '<div class="composer-section"><div class="continuation-label">Rerun API URL</div><input class="composer-input" id="continuation-api-url" value="' + escapeHtml(backendConfig.api_url || '') + '" placeholder="https://.../v1/chat/completions"></div>' +
-          '<div class="composer-section"><div class="continuation-label">Rerun API Key</div><input class="composer-input" id="continuation-api-key" type="password" value="" placeholder="sk-..."></div>' +
-          '<div class="composer-section"><div class="continuation-label">Rerun Model</div><input class="composer-input" id="continuation-debug-model" value="' + escapeHtml(defaultDebugModel()) + '" placeholder="e.g. gpt-4o, qwen, local-rerun-model"></div>' +
+          '<div class="composer-section"><div class="continuation-label">Live Runner Model Label</div><input class="composer-input" id="continuation-debug-model" value="' + escapeHtml(defaultDebugModel()) + '" placeholder="configured by the server-side runner"></div>' +
           '<div class="composer-section"><div class="continuation-label">Prompt to Rerun LLM</div><textarea class="composer-textarea prompt" id="continuation-instruction">' + escapeHtml(instruction) + '</textarea></div>' +
           '<div class="composer-compact-options">' +
             '<div class="composer-section"><label class="composer-check"><input type="checkbox" id="continuation-include-report"> Error report</label></div>' +
@@ -7484,7 +7475,7 @@ function showDebugContinuation(payload) {
         '</div>' +
         '<div class="continuation-card"><div class="continuation-label">Final Prompt Preview</div><textarea class="continuation-prompt" id="continuation-final-prompt">' + escapeHtml(basePrompt) + '</textarea></div>' +
       '</div>' +
-      '<div class="continuation-inline-status" id="continuation-run-status">Ready to run rerun from this selected event.</div>' +
+      '<div class="continuation-inline-status" id="continuation-run-status">Ready to rerun with this selected event as diagnostic guidance.</div>' +
       '<div class="continuation-actions"><div class="continuation-action-group">' +
         '<button class="button primary" type="button" data-run-continuation-debug>Run Rerun</button>' +
         '<button class="button" type="button" data-copy-continuation-prompt>Copy Prompt</button>' +
@@ -7512,7 +7503,7 @@ function bindDebugContinuationModal() {
   modal.onclick = event => {
     if (event.target === modal) modal.classList.remove('visible');
   };
-  ['continuation-api-url', 'continuation-api-key', 'continuation-debug-model', 'continuation-instruction', 'continuation-include-report', 'continuation-include-cases', 'continuation-case-select', 'continuation-include-examples', 'continuation-example-select', 'continuation-include-custom', 'continuation-custom-extra'].forEach(id => {
+  ['continuation-debug-model', 'continuation-instruction', 'continuation-include-report', 'continuation-include-cases', 'continuation-case-select', 'continuation-include-examples', 'continuation-example-select', 'continuation-include-custom', 'continuation-custom-extra'].forEach(id => {
     const control = document.getElementById(id);
     if (!control) return;
     control.oninput = () => {
@@ -7549,7 +7540,7 @@ function defaultDebugModel() {
   return loadDebugBackendConfig().debug_model || 'gpt-4o';
 }
 function defaultContinuationInstruction() {
-  return 'You are the LLM responsible for rerunning this agent task from the selected checkpoint event. Treat all prior events as fixed context, start execution from this event, and return JSON only. Your top-level JSON must contain continuation_events, an array of 3 to 6 concise event objects in chronological order. Each event object must include: agent_name, event_type, module, step_index, input, output, error, and metadata. Keep input and output as short summaries, not full observations or long reasoning. Do not return prose outside the JSON block.';
+  return 'Rerun the original agent task using the configured live framework, model, tools, credentials, and environment. Use the selected event as diagnostic guidance, apply the recovery directive, and record observable execution events. Resume from the checkpoint only when the runner supports state restoration.';
 }
 function traceProblemText(traj) {
   const meta = traj?.metadata || {};
@@ -7670,10 +7661,8 @@ function currentContinuationPackage() {
       selected_typical_error_case_ids: config.selectedCaseIds,
       selected_typical_fix_example_ids: config.selectedExampleIds,
       has_custom_extra: Boolean((config.customExtra || '').trim()),
-      backend_status: 'ready: frontend can call /api/v1/traces/{trace_id}/rerun-from-event directly'
+      backend_status: 'requires server-side AGENTDEBUG_RERUN_COMMAND'
     },
-    api_url: document.getElementById('continuation-api-url')?.value || '',
-    api_key: document.getElementById('continuation-api-key')?.value || '',
     composed_prompt: currentContinuationPrompt()
   };
 }

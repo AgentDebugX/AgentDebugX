@@ -258,22 +258,71 @@ Use `agentdebug config show` to inspect masked configuration and
 
 ### 4. Execute the Rerun stage
 
-Run a fresh model rollout from the beginning of the task using the diagnosis
-as the retry directive:
+For repeated, Docker, or remote reruns, keep the application's complete Agent
+environment running as an HTTP runner service. Implement a project callback,
+then start and configure it once:
+
+```bash
+agentdebug runner serve my_project.runner:run_agent \
+  --name my-agent \
+  --framework langgraph \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --token-env MY_RUNNER_TOKEN
+
+agentdebug config set-runner my-agent \
+  --url http://127.0.0.1:8765 \
+  --token-env MY_RUNNER_TOKEN \
+  --default
+
+agentdebug config doctor-runner my-agent
+```
+
+Then run the original agent framework from the beginning of the task:
 
 ```bash
 agentdebug rerun report.json \
   --trajectory trace.json \
-  --base-url "https://<openai-compatible-host>/v1" \
-  --api-key "<secret>" \
-  --model "<model>" \
+  --out rerun.live.json
+```
+
+The service owns the framework, real model, tools, credentials, environment,
+job lifecycle, and trajectory recorder. A chat-completions URL alone is not an
+Agent environment. See `src/agentdebug/rerun/RUNNER_SPEC.md`.
+
+For local scripts and CI, the process compatibility transport remains available:
+
+```bash
+agentdebug rerun report.json \
+  --trajectory trace.json \
+  --runner-command "python path/to/project_rerun_runner.py" \
   --out rerun.json
 ```
 
-The result contains the new `AgentTrajectory`, execution metadata, and branch
-evaluation. Use `--plan-only` to create an auditable request without calling
-the model. The web console uses the same executor but can branch from a selected
-event instead of restarting from the beginning.
+Use `--plan-only` for trajectory-only uploads; the plan
+reports why real execution is unavailable and which runtime capabilities are
+missing. See `src/agentdebug/rerun/RUNNER_SPEC.md`.
+
+Export the same request as a pending actor task dataset when another system
+will perform the rollout:
+
+```bash
+agentdebug rerun report.json \
+  --trajectory trace.json \
+  --plan-only \
+  --actor-task-format jsonl \
+  --out rerun-tasks.jsonl
+```
+
+Parquet is also supported with `--actor-task-format parquet` after installing
+`pyarrow`. These rows contain actor inputs and provenance, not responses or
+training labels. See `src/agentdebug/rerun/ACTOR_TASK_SPEC.md`.
+
+For prompt experiments only, `--simulate` enables the previous LLM-generated
+trajectory flow. It returns a workflow JSON with `status=simulated`, a validated
+`hypothetical_trajectory`, and model-generated events explicitly marked as
+simulated. It executes no tools and is not evidence that the recovery fixed the
+task. See `src/agentdebug/rerun/SIMULATION_SPEC.md`.
 
 ### 5. Work with stored traces
 
@@ -326,7 +375,7 @@ agentdebug serve \
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |
 | `agentdebug batch ingest` | Normalize every JSON file or independent JSONL record |
 | `agentdebug batch diagnose` | Normalize and diagnose a JSON/JSONL collection |
-| `agentdebug rerun` | Execute a full-task model rollout from a diagnostic report |
+| `agentdebug rerun` | Execute a real framework runner or build a capability-aware plan |
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
 | `agentdebug config` | Save, inspect, clear, and test LLM configuration |
 | `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
@@ -399,9 +448,9 @@ frontend. It is intentionally a surface layer:
 - `inspect/ui/server.py` remains a compatibility import path
 
 The UI can inspect traces, save typical error cases, prepare debug
-continuations, and run rerun-from-event workflows against a user-provided local
-or OpenAI-compatible backend. API keys entered in the UI are not persisted to
-browser local storage.
+continuations, and run rerun-from-event workflows through the server-side
+`AGENTDEBUG_RERUN_COMMAND`. The browser does not accept or persist runner
+commands or model API keys.
 
 ## Privacy and Safety
 

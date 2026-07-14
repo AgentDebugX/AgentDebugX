@@ -13,7 +13,7 @@ artifacts to be surfaced (CLI/UI/PR comment) or fed back into the next run.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
 
 from agentdebug.runtime import extract_json_block
 from agentdebug.schema import (
@@ -24,6 +24,9 @@ from agentdebug.schema import (
     confidence_or_default,
     new_id,
 )
+
+if TYPE_CHECKING:
+    from agentdebug.diagnose.context import DiagnoseContext
 
 
 @dataclass
@@ -48,6 +51,15 @@ class Recoverer(Protocol):
         report: DiagnosticReport,
     ) -> List[FixProposal]:
         ...
+
+
+def suggest_from_context(
+    recoverer: Recoverer,
+    context: 'DiagnoseContext',
+) -> List[FixProposal]:
+    """Run a recoverer against the primary attribution target when available."""
+
+    return recoverer.suggest(context.trajectory, context.recovery_report)
 
 
 def _looks_like_trajectory(value: object) -> bool:
@@ -498,6 +510,7 @@ class SelfRefineLoop:
             f'({finding.failure_mode.name})\n'
             f'AT: agent={finding.agent_name}, step={finding.step_index}\n'
             f'EVIDENCE:\n{evidence_block}'
+            f'{_attribution_context_block(finding)}'
         )
         last_critic = ''
         last_refined = ''
@@ -635,6 +648,15 @@ class SelfRefineLoop:
             'Verify the corrected action against the original goal before any '
             'side-effecting tool call.'
         )
+
+
+def _attribution_context_block(finding: FailureFinding) -> str:
+    rationale = str(finding.metadata.get('attribution_rationale') or '').strip()
+    sources = [str(item) for item in finding.metadata.get('attribution_sources') or []]
+    if not rationale and not sources:
+        return ''
+    source_text = ', '.join(sources) if sources else '(unspecified)'
+    return f'\nPRIMARY ATTRIBUTION: {rationale or "(no rationale)"}\nSOURCES: {source_text}'
 
 
 class AutoManualRules:
@@ -965,5 +987,6 @@ __all__ = [
     'ReflexionSuggestion',
     'SagaRollback',
     'SelfRefineLoop',
+    'suggest_from_context',
     'VerifierSpec',
 ]

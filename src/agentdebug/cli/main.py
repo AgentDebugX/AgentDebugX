@@ -20,6 +20,7 @@ from agentdebug.cli.commands import (
     ingest,
     integrations,
     rerun,
+    runner,
     serve,
     store,
 )
@@ -115,6 +116,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     legacy._add_rerun_args(p_rerun)
     p_rerun.set_defaults(handler=rerun.run)
+
+    p_runner = sub.add_parser(
+        'runner', help='Serve an application-owned agent over the Rerun HTTP protocol'
+    )
+    runner_sub = p_runner.add_subparsers(dest='runner_command', required=True)
+    p_runner_serve = runner_sub.add_parser('serve', help='Start a persistent runner')
+    p_runner_serve.add_argument('entrypoint', help='Python callback as module:function')
+    p_runner_serve.add_argument('--name', required=True)
+    p_runner_serve.add_argument('--framework', required=True)
+    p_runner_serve.add_argument('--host', default='127.0.0.1')
+    p_runner_serve.add_argument('--port', type=int, default=8765)
+    p_runner_serve.add_argument('--token-env')
+    p_runner_serve.add_argument('--max-concurrency', type=int, default=1)
+    p_runner_serve.add_argument(
+        '--checkpoint-policy',
+        action='append',
+        choices=['from_start', 'from_root_cause', 'from_event'],
+    )
+    p_runner_serve.add_argument('--environment-restore', action='store_true')
+    p_runner_serve.set_defaults(handler=runner.run)
 
     p_doctor = sub.add_parser('doctor', help='Report adapter and integration availability')
     p_doctor.set_defaults(handler=lambda _args: doctor.run())

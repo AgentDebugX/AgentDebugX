@@ -10,6 +10,11 @@ whether a recovery strategy improves the run.
 
 ## Flow
 
+Rerun consumes a bounded diagnostic context containing Detect findings, the
+primary Attribution result, the selected Recovery proposal, and the normalized
+root-cause location. Runtime executors receive this context together with the
+approved retry directive and source trajectory.
+
 1. Build a `RerunPlan` from a source trajectory and Diagnose results.
 2. Convert the plan into a portable `RerunRequest`.
 3. Select checkpoints, rollback points, or retry directives.
@@ -28,15 +33,30 @@ whether a recovery strategy improves the run.
   default. With `execute=True`, it requires a configured executor and evaluates
   the returned branch.
 - `RerunExecutor` is the protocol implemented by runtime-specific backends.
-- `LLMContinuationExecutor` is the built-in OpenAI-compatible executor. It
-  performs a model rollout and returns a normalized `AgentTrajectory`.
+- `ProcessLiveExecutor` invokes an application-owned framework runner that owns
+  the real model, tools, credentials, and environment.
+- `HttpLiveExecutor` connects to a persistent application-owned runner, performs
+  a version/capability handshake, submits an asynchronous job, polls status,
+  requests cancellation on timeout, and validates its observed trajectory.
+- `create_http_runner_app()` wraps a project callback with the standard runner
+  API, bearer authentication, bounded concurrency, and cooperative cancellation.
+- `LLMContinuationExecutor` is simulation-only and is rejected unless the
+  caller explicitly enables simulation.
+- `SimulatedRerunExecutor` is the explicit public name for that implementation;
+  `LLMContinuationExecutor` remains as a compatibility alias.
 
 ## CLI and UI behavior
 
-- `agentdebug rerun` performs a full-task rollout from the beginning by default.
+- A configured default HTTP runner performs the normal live full-task rollout.
+- `agentdebug rerun --runner NAME` selects another persistent runner.
+- `agentdebug rerun --runner-command ...` preserves the local process transport.
 - `agentdebug rerun --plan-only` builds the request without model execution.
-- The web console performs the same model rollout from a user-selected event and
-  stores the generated branch beside the original timeline.
+- `--plan-only --actor-task-format jsonl|parquet` exports a pending actor
+  rollout task dataset for execution in a user-owned runtime.
+- `agentdebug rerun --simulate` produces a labeled non-tool simulation.
+- The web console uses the server-side `AGENTDEBUG_RERUN_COMMAND` and never
+  accepts a runner command from an HTTP request. It can instead use
+  `AGENTDEBUG_RUNNER_URL`; checkpoint rerun requires explicit server policy.
 
 Generated trajectories inherit reusable source context, but remove stale
 failure-only metadata such as `expected_outcome`, expected root-cause labels,
@@ -45,18 +65,18 @@ trace-format hints remain available. When a generated trajectory contains a
 `run.end` event, its timestamp becomes the trajectory's `ended_at`; incomplete
 rollouts without a terminal event leave `ended_at` unset.
 
-The built-in executor generates an observable model trajectory from the task,
-failed trace, and retry directive. It cannot restore arbitrary external tool
-processes from an imported log. Live LangGraph, OpenAI Agents, benchmark, or
-environment execution belongs in runtime-specific executors implementing the
-same protocol.
+Trajectory-only uploads are not executable. See `RUNNER_SPEC.md` for capability
+levels, process inputs, live execution proof, and framework integration rules.
+See `SIMULATION_SPEC.md` for the simulation prompt inputs, model JSON contract,
+retry behavior, and output artifact.
+See `ACTOR_TASK_SPEC.md` for the pending actor task schema and the boundary
+between rollout inputs and verified training data.
 
 ## Dependencies
 
-Core request construction and branch comparison are local. The built-in model
-executor needs an OpenAI-compatible endpoint, API key, and model. Framework
-executors may additionally require benchmark configuration, containers, or
-external services.
+Core request construction and capability assessment are local. Live runners
+may require model access, tool credentials, containers, benchmark state, or
+external services owned by the integrating application.
 
 ## Extension Rules
 

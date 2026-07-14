@@ -1,5 +1,6 @@
 """Diagnosis entry points."""
 
+from agentdebug.diagnose.context import DiagnoseContext
 from agentdebug.runtime.plugins.registry import register_analysis_plugin
 from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.diagnose.detect import (
@@ -29,6 +30,7 @@ from agentdebug.diagnose.registry import (
 )
 
 __all__ = [
+    'DiagnoseContext',
     'DiagnoseComponentMetadata',
     'Detector',
     'DetectorConfig',

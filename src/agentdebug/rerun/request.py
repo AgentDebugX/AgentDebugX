@@ -7,6 +7,18 @@ from typing import Any, Optional
 
 
 @dataclass(frozen=True)
+class RerunCapability:
+    """Whether the available inputs can support a real rerun."""
+
+    level: str
+    executable: bool
+    execution_mode: Optional[str] = None
+    missing: tuple[str, ...] = ()
+    available: tuple[str, ...] = ()
+    reason: str = ''
+
+
+@dataclass(frozen=True)
 class RerunCheckpoint:
     """Where a rerun should resume or branch from."""
 
@@ -35,3 +47,11 @@ class RerunRequest:
     directive: RerunDirective
     report_id: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+__all__ = [
+    'RerunCapability',
+    'RerunCheckpoint',
+    'RerunDirective',
+    'RerunRequest',
+]

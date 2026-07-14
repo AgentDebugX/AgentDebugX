@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
+    DiagnosticAuditEntry,
     DiagnosticReport,
     EventType,
     model_to_json,
@@ -36,6 +37,26 @@ def test_report_json_round_trip_preserves_findings(
 
     assert restored == diagnostic_report
     assert restored.findings[0].failure_mode.mode_id == 'test.missing_constraint'
+
+
+def test_report_json_round_trip_preserves_audit_entries(
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    diagnostic_report.audit = [
+        DiagnosticAuditEntry(
+            stage='attribute',
+            request_summary='localize the root cause',
+            response_summary='selected evt_plan',
+            duration_ms=12,
+            payload={'candidate': {'event_id': 'evt_plan'}},
+        )
+    ]
+
+    restored = report_from_json(model_to_json(diagnostic_report))
+
+    assert restored.audit[0].stage == 'attribute'
+    assert restored.audit[0].duration_ms == 12
+    assert restored.audit[0].payload['candidate']['event_id'] == 'evt_plan'
 
 
 @pytest.mark.parametrize('analyzer', ['HeuristicAnalyzer', 'DeepDebugAnalyzer'])

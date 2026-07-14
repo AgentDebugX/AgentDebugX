@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
+
 from agentdebug.diagnose.attribute.moe import analyze_aao_moe
 from agentdebug.diagnose.profiles import DeepDebugAnalyzer
 from agentdebug.runtime import CompletionResult
-from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
+from agentdebug.schema import (
+    AgentEvent,
+    AgentTrajectory,
+    EventType,
+    FailureFinding,
+    model_to_json,
+)
 
 
 class PaperFlowLLM:
@@ -93,10 +101,41 @@ def test_deepdebug_records_the_four_paper_stages() -> None:
     assert result.diagnosis is not None
     assert result.diagnosis.suggestion == result.report.suggestions[0]
     assert result.report.root_cause_event_id == 'evt_1'
+    assert result.report.attribution is not None
+    assert result.report.attribution['primary']['span_id'] == 'evt_1'
+    assert result.report.attribution['primary']['sources'] == ['deepdebug']
     assert result.report.metadata['deepdebug_stages'] == [
         round_.name for round_ in result.rounds
     ]
+    assert [entry.stage for entry in result.report.audit] == [
+        round_.name for round_ in result.rounds
+    ]
+    assert result.report.audit[1].payload['decisions'][0]['selected_half'] == 'upper'
+    assert result.report.audit[2].payload['agreed'] is True
+    assert all(entry.duration_ms >= 0 for entry in result.report.audit)
+    cli_payload = json.loads(model_to_json(result.report))
+    assert cli_payload['audit'][0]['stage'] == 'global_read'
+    assert cli_payload['audit'][1]['payload']['final_window'] == [1, 2, 3, 4]
+    assert cli_payload['audit'][2]['payload']['verdict'] == 'agreement'
     assert len(llm.calls) == 4
+
+
+def test_deepdebug_records_prior_finding_count(failure_mode) -> None:
+    trajectory = _multi_agent_trajectory()
+    prior = FailureFinding(
+        failure_mode=failure_mode,
+        event_id='evt_2',
+        agent_name='executor',
+        step_index=2,
+        evidence=['downstream symptom'],
+    )
+
+    result = DeepDebugAnalyzer(
+        llm=PaperFlowLLM(),
+        prior_findings=[prior],
+    ).analyze(trajectory)
+
+    assert result.report.metadata['prior_finding_count'] == 1
 
 
 class DuplicateStepLLM(PaperFlowLLM):
