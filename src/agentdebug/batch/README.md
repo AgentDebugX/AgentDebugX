@@ -21,4 +21,10 @@ under `reports/`, allowing any result to be inspected or rerun independently.
 
 Both commands write `batch-summary.json` with counts, paths, and per-record
 errors. A partial batch returns a non-zero CLI status after preserving all
-successful outputs.
+successful outputs; the CLI uses exit code `3` for partial success.
+
+```bash
+agentdebug batch ingest INPUT --out-dir normalized
+agentdebug batch diagnose INPUT --out-dir runs \
+  --mode judge --attributor all-at-once --recovery self-refine
+```

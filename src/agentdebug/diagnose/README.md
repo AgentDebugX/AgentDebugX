@@ -24,6 +24,10 @@ in the Error Hub, or passed into Rerun.
    directives from that target.
 5. `pipeline.py` coordinates local default execution across the three stages.
 
+DeepDebug is a profile under `profiles/`, not a fourth stage. It runs
+deterministic Detect first, consumes those findings as fallible priors, owns its
+multi-round attribution workflow, and packages its final fix through Recover.
+
 ## Components
 
 Diagnose components are registered through `diagnose/registry.py`.

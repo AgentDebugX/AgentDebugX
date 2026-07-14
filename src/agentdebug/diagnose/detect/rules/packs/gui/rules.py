@@ -9,11 +9,12 @@ branch resolves, and both return empty rule lists.
 
 from __future__ import annotations
 
-from typing import List
+from typing import TYPE_CHECKING, List
 
-from agentdebug.runtime.gui_taxonomy import list_gui_failure_modes
-from agentdebug.schema import FailureMode
 from agentdebug.diagnose.detect.rules.base import EventRule, TrajectoryRule
+
+if TYPE_CHECKING:
+    from agentdebug.schema import FailureMode
 
 
 def build_event_rules() -> List[EventRule]:
@@ -24,6 +25,9 @@ def build_trajectory_rules() -> List[TrajectoryRule]:
     return []
 
 
-def list_pack_modes() -> List[FailureMode]:
+def list_pack_modes() -> List['FailureMode']:
     """Return the GUI FailureModes this pack surfaces (for discoverability)."""
+
+    from agentdebug.runtime.gui_taxonomy import list_gui_failure_modes
+
     return list_gui_failure_modes()

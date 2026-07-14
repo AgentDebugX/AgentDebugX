@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Pattern, Tuple
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 from agentdebug.schema import AgentEvent, AgentTrajectory
 
@@ -73,7 +73,7 @@ class Scrubber:
         self,
         redactions: List[Tuple[str, Pattern[str], str]] = DEFAULT_REDACTIONS,
         *,
-        extra_redactions: List[Tuple[str, Pattern[str], str]] | None = None,
+        extra_redactions: Optional[List[Tuple[str, Pattern[str], str]]] = None,
     ) -> None:
         self.redactions = redactions + (extra_redactions or [])
 
@@ -127,7 +127,7 @@ class Scrubber:
 def scrub_trajectory(
     trajectory: AgentTrajectory,
     *,
-    extra_redactions: List[Tuple[str, Pattern[str], str]] | None = None,
+    extra_redactions: Optional[List[Tuple[str, Pattern[str], str]]] = None,
 ) -> ScrubReport:
     """Convenience wrapper: build a default Scrubber and run it in place."""
     return Scrubber(extra_redactions=extra_redactions).scrub_trajectory(trajectory)

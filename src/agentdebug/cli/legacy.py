@@ -19,9 +19,10 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 from agentdebug.analyzers import HeuristicAnalyzer
@@ -506,6 +507,8 @@ def _add_config_subcommands(parser: argparse.ArgumentParser) -> None:
     )
     p_runner.add_argument('--timeout', type=float, default=1800.0)
     p_runner.add_argument('--poll-interval', type=float, default=1.0)
+    p_runner.add_argument('--max-retries', type=int, default=3)
+    p_runner.add_argument('--retry-delay', type=float, default=0.5)
     p_runner.add_argument(
         '--insecure', action='store_true', help='Disable TLS certificate verification'
     )
@@ -1361,8 +1364,13 @@ def _runner_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
         or parsed.password
     ):
         raise ValueError('runner URL must be an absolute http:// or https:// URL')
-    if args.timeout <= 0 or args.poll_interval < 0:
-        raise ValueError('runner timeout must be positive and poll interval non-negative')
+    if (
+        args.timeout <= 0
+        or args.poll_interval < 0
+        or args.max_retries < 0
+        or args.retry_delay < 0
+    ):
+        raise ValueError('runner timeout/retry values are invalid')
     token_env = str(args.token_env or '').strip() or None
     if token_env and not token_env.replace('_', '').isalnum():
         raise ValueError('token environment variable name is invalid')
@@ -1371,6 +1379,8 @@ def _runner_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
         'token_env': token_env,
         'timeout': float(args.timeout),
         'poll_interval': float(args.poll_interval),
+        'max_retries': int(args.max_retries),
+        'retry_delay': float(args.retry_delay),
         'verify_tls': not bool(args.insecure),
     }
 
@@ -1412,6 +1422,8 @@ def _http_executor_from_config(
         token=token,
         timeout=float(config.get('timeout') or 1800),
         poll_interval=float(config.get('poll_interval') or 1),
+        max_retries=int(config.get('max_retries', 3)),
+        retry_delay=float(config.get('retry_delay', 0.5)),
         verify_tls=bool(config.get('verify_tls', True)),
     )
 

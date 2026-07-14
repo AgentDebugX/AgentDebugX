@@ -448,6 +448,7 @@ def test_http_runner_config_lifecycle(tmp_path, monkeypatch, capsys) -> None:
     assert config['default_runner'] == 'research'
     assert config['runners']['research']['url'] == 'https://runner.example'
     assert config['runners']['research']['token_env'] == 'RESEARCH_RUNNER_TOKEN'
+    assert config['runners']['research']['max_retries'] == 3
     assert 'token' not in config['runners']['research']
 
     capsys.readouterr()

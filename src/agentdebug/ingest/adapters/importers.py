@@ -15,9 +15,10 @@ LangGraph/LangChain callback logs. Framework-specific fields are preserved in
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
 from agentdebug.schema import (
     AgentEvent,

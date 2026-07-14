@@ -15,6 +15,9 @@ Supported adapter families include:
 - CrewAI
 - OpenAI Agents SDK
 - OpenTelemetry
+- Claude Code session JSONL
+- Hermes session exports
+- OpenClaw session and trajectory JSONL
 - GAIA/Open Deep Research style runs
 - OSWorld and GUI-oriented traces
 
@@ -37,4 +40,3 @@ their matching optional extras.
 - Keep normalized outputs aligned with `agentdebug.schema`.
 - Avoid leaking framework-specific objects into Diagnose.
 - Make adapter failures explicit and actionable.
-

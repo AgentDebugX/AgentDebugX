@@ -103,11 +103,18 @@ Protocol version: `1.0`.
 The client first reads capabilities and refuses unsupported protocol versions or
 checkpoint policies before submitting work.
 
+Transient connection failures, timeouts, `429`, `502`, `503`, and `504` are
+retried with bounded exponential backoff. Submission carries the same unique
+`submission_id` in the `Idempotency-Key` header and request body, so retrying a
+timed-out POST cannot create a second rollout. After receiving `run_id`, client
+timeout, network failure, or interruption triggers a best-effort cancel request.
+
 ### Capabilities
 
 ```json
 {
   "protocol_version": "1.0",
+  "submission_id": "submission_...",
   "runner": "my_project.runner",
   "framework": "langgraph",
   "live_execution": true,
@@ -139,7 +146,8 @@ diagnosed event is `from_start`, not checkpoint restoration.
 
 The service responds with HTTP 202 and a `run_id`. AgentDebugX polls until a
 terminal status, requests cooperative cancellation on timeout, then retrieves
-the result.
+the result. Repeating a submission with the same idempotency key returns the
+same job instead of executing the actor twice.
 
 ### Live Result
 
@@ -199,6 +207,7 @@ standard asynchronous HTTP job.
 - Apply authorization, network policy, rate limits, audit logs, and retention.
 - Keep human/policy approval in front of side-effecting reruns.
 - Implement cancellation checks at safe points inside long actor loops.
+- Keep submission idempotency records at least as long as clients may retry.
 
 ## Process Compatibility Transport
 
@@ -219,3 +228,13 @@ appropriate for a single runner process and development deployments. Production
 services that require restart recovery or multiple replicas should implement
 the same HTTP protocol over a durable job store/queue and route status/result
 requests by `run_id`.
+
+## Design Comparison
+
+The persistent service split follows the same useful separation seen in
+OpenTinker: lightweight HTTP clients, independently deployed environments, and
+explicit scheduler/job lifecycle. AgentDebugX additionally adopts bounded
+transient retries, cleanup on interruption, and idempotent submission. It does
+not depend on OpenTinker's Ray/GPU training scheduler, `verl`, tensor transport,
+reward-function upload, or training configuration because Rerun remains a
+framework-neutral execution protocol.
