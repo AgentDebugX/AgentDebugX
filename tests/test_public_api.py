@@ -219,7 +219,7 @@ def test_cli_help_starts() -> None:
     assert 'ingest' in result.stdout
 
 
-def test_cli_rerun_emits_second_stage_plan(tmp_path: Path) -> None:
+def test_cli_rerun_plan_only_emits_second_stage_plan(tmp_path: Path) -> None:
     from agentdebug.diagnose.pipeline import DiagnosePipeline
     from agentdebug.schema import (
         AgentEvent,
@@ -254,6 +254,7 @@ def test_cli_rerun_emits_second_stage_plan(tmp_path: Path) -> None:
             str(report_path),
             '--trajectory',
             str(trajectory_path),
+            '--plan-only',
         ],
         check=True,
         capture_output=True,
@@ -263,8 +264,10 @@ def test_cli_rerun_emits_second_stage_plan(tmp_path: Path) -> None:
 
     assert payload['stage'] == 'rerun'
     assert payload['status'] == 'planned'
+    assert payload['executed'] is False
     assert payload['plan']['request']['trace_id'] == trajectory.trace_id
-    assert payload['plan']['request']['checkpoint']['step_index'] == 2
+    assert payload['plan']['request']['checkpoint']['policy'] == 'from_start'
+    assert payload['plan']['request']['checkpoint']['step_index'] is None
     assert 'Retry after fixing' in payload['plan']['request']['directive']['text']
 
 

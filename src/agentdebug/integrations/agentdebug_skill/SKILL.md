@@ -64,14 +64,14 @@ silently inspect host-local private state to find traces.
 7. If the user wants recovery guidance, rerun or run JSON output with an
    explicit recovery mode such as:
    `agentdebug diagnose <trajectory.json> --mode heuristic --attributor heuristic --recovery reflexion --out .agentdebug/<name>.report.json`.
-8. If confidence is low and LLM credentials are configured, escalate with
+8. If deterministic evidence is weak and LLM credentials are configured, escalate with
    `agentdebug diagnose <trajectory.json> --mode judge --attributor all-at-once --recovery critic`.
 9. If the failure is multi-step, ambiguous, or judge output is weak, use
-   `agentdebug diagnose <trajectory.json> --mode deepdebug --attributor none --recovery none`.
+   `agentdebug diagnose <trajectory.json> --mode deepdebug`.
    DeepDebug performs attribution and fix guidance internally; the two `none`
    values are required only by the current CLI compatibility contract.
 10. Report the candidate root cause, step/event id, evidence, failure mode,
-   confidence, and suggested fix.
+   and suggested fix. Include confidence only when the LLM Judge emitted it.
 
 ## Ground Rules
 
@@ -83,5 +83,5 @@ silently inspect host-local private state to find traces.
   explicitly approves.
 - Recovery output is a proposal. Treat it as next-run guidance unless the user
   separately asks to implement or apply a fix.
-- If confidence is missing or below 0.9, say "candidate root cause" or "likely"
-  rather than claiming ground truth.
+- Always say "candidate root cause" or "likely" rather than claiming ground
+  truth. Heuristic and DeepDebug reports intentionally omit confidence.

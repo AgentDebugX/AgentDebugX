@@ -519,6 +519,15 @@ class SelfRefineLoop:
             pass
         if not last_critic and not last_refined:
             return None
+        fallback_action = self._fallback_action(finding)
+        if not self._looks_complete(last_refined):
+            last_refined = fallback_action
+        if not self._looks_complete(last_critic):
+            last_critic = (
+                f'The event at step {finding.step_index} introduced '
+                f'{finding.failure_mode.name.lower()}; its output must be '
+                'checked against the original task constraints before execution.'
+            )
         suggestion_text = (
             f'Self-Refine output (after {self.max_iters} iter(s)) for '
             f'{finding.failure_mode.mode_id} at step {finding.step_index}:\n\n'
@@ -555,6 +564,29 @@ class SelfRefineLoop:
         )
         text = getattr(result, 'text', '') or ''
         return str(text).strip()
+
+    @staticmethod
+    def _looks_complete(text: str) -> bool:
+        stripped = text.strip()
+        return len(stripped) >= 40 and stripped.endswith(
+            ('.', '!', '?', '"', "'", ')')
+        )
+
+    @staticmethod
+    def _fallback_action(finding: FailureFinding) -> str:
+        suggestion = (
+            finding.suggestion
+            or (finding.failure_mode.suggestion_templates[0]
+                if finding.failure_mode.suggestion_templates else '')
+        )
+        action = suggestion.strip() or 'Correct the diagnosed mistake before retrying.'
+        if not action.endswith(('.', '!', '?')):
+            action += '.'
+        return (
+            f'Before retrying step {finding.step_index}: {action} '
+            'Verify the corrected action against the original goal before any '
+            'side-effecting tool call.'
+        )
 
 
 class AutoManualRules:

@@ -106,7 +106,7 @@ class HeuristicAnalyzer:
                 event_id=event.event_id,
                 agent_name=event.agent_name,
                 step_index=event.step_index,
-                confidence=None,
+                confidence=matched.confidence,
                 evidence=matched.evidence,
                 suggestion=self._suggestion(failure_mode),
                 metadata=metadata,

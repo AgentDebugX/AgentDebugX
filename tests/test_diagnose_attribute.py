@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from agentdebug.diagnose.attribute import AllAtOnceAttributor, HeuristicAttributor
 from agentdebug.runtime import CompletionResult
-from agentdebug.schema import AgentTrajectory, FailureFinding, FailureMode
+from agentdebug.schema import AgentEvent, AgentTrajectory, FailureFinding, FailureMode
 
 
 def test_heuristic_attributor_prefers_earliest_finding(
@@ -84,3 +84,57 @@ def test_all_at_once_falls_back_on_invalid_json(
 
     assert result.method == 'heuristic'
     assert result.hypotheses[0].span_id == 'evt_plan'
+
+
+def test_all_at_once_anchors_same_step_blame_to_detector_event() -> None:
+    trajectory = AgentTrajectory(trace_id='same-step')
+    trajectory.add_event(
+        AgentEvent(
+            event_id='thought',
+            trace_id=trajectory.trace_id,
+            event_type='agent.step',
+            agent_name='agent',
+            step_index=2,
+            output='Choose invalid option.',
+        )
+    )
+    trajectory.add_event(
+        AgentEvent(
+            event_id='action',
+            trace_id=trajectory.trace_id,
+            event_type='tool.call',
+            agent_name='agent',
+            step_index=2,
+            input={'option': 'invalid'},
+        )
+    )
+    finding = FailureFinding(
+        failure_mode=FailureMode(
+            mode_id='planning.constraint_ignorance',
+            name='Constraint ignorance',
+            family='planning',
+            description='Constraint dropped.',
+        ),
+        event_id='thought',
+        agent_name='agent',
+        step_index=2,
+        evidence=['Choose invalid option.'],
+    )
+
+    class FakeLLM:
+        model = 'fake-attributor'
+
+        def complete(self, messages, **kwargs):
+            return CompletionResult(
+                text=(
+                    '{"span_id":"action","step_index":2,"agent_name":"agent",'
+                    '"confidence":0.9,"rationale":"bad execution",'
+                    '"evidence":["invalid"]}'
+                ),
+                raw={},
+            )
+
+    result = AllAtOnceAttributor(FakeLLM()).attribute(trajectory, [finding])
+
+    assert result.hypotheses[0].span_id == 'thought'
+    assert 'detector_event_anchor' in result.hypotheses[0].sources

@@ -157,3 +157,45 @@ def test_duplicate_step_uses_event_identity_and_rejects_hallucinated_evidence() 
         'constraint omitted at the initial decision'
     ]
     assert result.report.metadata['evidence_verified'] is True
+
+
+class InvalidEventLabelLLM(PaperFlowLLM):
+    def complete(self, messages, **kwargs):
+        system = str(messages[0]['content'])
+        self.calls.append(system)
+        if 'final, human-readable diagnosis' in system:
+            return CompletionResult(text='{}', raw={})
+        if 'split into UPPER and LOWER halves' in system:
+            return CompletionResult(
+                text='{"half":"upper","confidence":0.9}', raw={}
+            )
+        if 'DECISIVE ROOT-CAUSE' in system:
+            return CompletionResult(
+                text=(
+                    '{"event_id":"Step 1","agent":"planner",'
+                    '"step":1,"confidence":0.8}'
+                ),
+                raw={},
+            )
+        return CompletionResult(
+            text=(
+                '{"span_id":"evt_1","step_index":1,"agent_name":"planner",'
+                '"confidence":0.85,"rationale":"first wrong decision",'
+                '"evidence":["constraint omitted"]}'
+            ),
+            raw={},
+        )
+
+
+def test_deepdebug_normalizes_invalid_event_label_and_fills_guidance() -> None:
+    result = DeepDebugAnalyzer(llm=InvalidEventLabelLLM()).analyze(
+        _multi_agent_trajectory()
+    )
+
+    assert result.report.root_cause_event_id == 'evt_1'
+    assert result.report.metadata['evidence_verified'] is True
+    assert result.report.findings[0].evidence == [
+        'constraint omitted at the initial decision'
+    ]
+    assert result.report.findings[0].suggestion
+    assert result.report.recovery is None

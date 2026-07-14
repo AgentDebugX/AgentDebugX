@@ -190,6 +190,7 @@ class AllAtOnceAttributor:
             sources=[self.id],
         )
         blame = self._normalize_blame(trajectory, blame)
+        blame = self._prefer_supported_finding(blame, findings)
         eval_metrics = _score_against_optional_gold(trajectory, blame)
         full_generation: Dict[str, Any] = {}
         if self.save_full_generation:
@@ -212,6 +213,36 @@ class AllAtOnceAttributor:
                 'eval': eval_metrics,
                 **({'full_generation': full_generation} if full_generation else {}),
             },
+        )
+
+    @staticmethod
+    def _prefer_supported_finding(
+        blame: Blame,
+        findings: List[FailureFinding],
+    ) -> Blame:
+        """Keep attribution on the detector's exact event when steps coincide."""
+
+        candidates = [
+            finding for finding in findings
+            if finding.event_id
+            and finding.step_index == blame.step_index
+            and (
+                not blame.agent_name
+                or not finding.agent_name
+                or finding.agent_name == blame.agent_name
+            )
+        ]
+        if len(candidates) != 1 or blame.span_id == candidates[0].event_id:
+            return blame
+        finding = candidates[0]
+        return Blame(
+            span_id=finding.event_id,
+            step_index=finding.step_index,
+            agent_name=finding.agent_name or blame.agent_name,
+            confidence=blame.confidence,
+            rationale=blame.rationale,
+            evidence=list(blame.evidence),
+            sources=list(blame.sources) + ['detector_event_anchor'],
         )
 
     def _render_prompt(

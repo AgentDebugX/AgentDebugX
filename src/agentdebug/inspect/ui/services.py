@@ -8,10 +8,17 @@ from typing import Any, Dict, List, Optional, cast
 
 from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.runtime import TraceStore
-from agentdebug.schema import AgentEvent, AgentTrajectory, DiagnosticReport
+from agentdebug.schema import (
+    AgentEvent,
+    AgentTrajectory,
+    DiagnosticReport,
+    model_to_dict,
+)
 
 def _to_dict(model: Any) -> Dict[str, Any]:
     """Pydantic v1/v2 compatible serialization to dict."""
+    if isinstance(model, DiagnosticReport):
+        return model_to_dict(model)
     if hasattr(model, 'model_dump'):
         return cast(Dict[str, Any], model.model_dump(mode='json'))
     return cast(Dict[str, Any], json.loads(model.json()))
@@ -675,5 +682,4 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
         'trace_length_findings_scatter': scatter_points,
         'trace_catalog': trace_catalog,
     }
-
 

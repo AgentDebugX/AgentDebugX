@@ -105,12 +105,12 @@ combined with an independent recovery strategy. It performs global analysis,
 structure-guided localization, candidate adjudication, and fix-guidance
 generation internally.
 
-Use `--attributor none --recovery none` with `--mode deep` or
-`--mode deepdebug`. These are compatibility placeholders required by the
-current parser; they do not disable DeepDebug's internal attribution and fix
-guidance. Do not combine DeepDebug with values such as `binary-search` or
-`self-refine`, because that runs a second attachment after the DeepDebug
-workflow and makes the result's ownership ambiguous.
+With `--mode deep` or `--mode deepdebug`, the CLI automatically packages the
+profile's fix guidance through `DeepDebugRecovery`. Use `--recovery deepdebug`
+to request that packaging explicitly, or `--recovery none` to omit the
+standard recovery payload. Do not combine DeepDebug with values such as
+`binary-search` or `self-refine`, because that runs a second attachment after
+the DeepDebug workflow and makes the result's ownership ambiguous.
 
 Attributors:
 
@@ -128,6 +128,7 @@ Recovery modes:
 | Recovery | Use | LLM required |
 |---|---|---|
 | `none` | No recovery output. | No |
+| `deepdebug` | Package DeepDebug's evidence-backed fix as a retry directive. | No additional call |
 | `reflexion` | Next-run reflection hints. | No |
 | `critic` | Verifier/guard suggestions. | No |
 | `self-refine` | Critic/refiner next-action proposals. | Yes |
@@ -170,8 +171,6 @@ DeepDebug escalation:
 ```bash
 agentdebug diagnose .agentdebug/hermes.trajectory.json \
   --mode deepdebug \
-  --attributor none \
-  --recovery none \
   --traceback --no-color \
   --out .agentdebug/hermes.deep.traceback.txt
 ```
@@ -208,6 +207,23 @@ AGENTDEBUG_LLM_MODEL
 
 Default model when unset is `gemini-3-flash`. LLM-backed failures commonly
 exit with code `4` when credentials are missing.
+
+## Rerun
+
+CLI Rerun starts a fresh rollout from the beginning of the task:
+
+```bash
+agentdebug rerun REPORT \
+  --trajectory TRAJECTORY \
+  --base-url "$AGENTDEBUG_LLM_BASE_URL" \
+  --api-key "$AGENTDEBUG_LLM_API_KEY" \
+  --model "$AGENTDEBUG_LLM_MODEL" \
+  --out .agentdebug/rerun.json
+```
+
+The command calls the configured model and returns a new normalized trajectory.
+Use `--plan-only` only when execution is intentionally deferred. The web console
+can rerun from a selected event; CLI currently reruns the full task.
 
 ## Stores
 

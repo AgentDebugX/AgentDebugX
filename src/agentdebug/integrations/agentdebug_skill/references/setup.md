@@ -60,9 +60,10 @@ do need LLM credentials:
 - `--recovery self-refine`
 
 DeepDebug (`--mode deep` or `--mode deepdebug`) already includes attribution
-and fix guidance. Invoke it with the currently required compatibility
-placeholders `--attributor none --recovery none`; the separately listed LLM
-attributors and Self-Refine recovery are for regular diagnosis modes.
+and fix guidance. The CLI automatically packages its fix as a standard retry
+directive; `--recovery deepdebug` makes this explicit and `--recovery none`
+disables that payload. The separately listed LLM attributors and Self-Refine
+recovery are for regular diagnosis modes.
 
 If an LLM-backed command fails with missing credentials, explain that the local
 heuristic report still ran if it did, then offer one of these setup paths.

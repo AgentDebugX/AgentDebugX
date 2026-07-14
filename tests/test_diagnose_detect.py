@@ -23,6 +23,41 @@ def test_heuristic_analyzer_localizes_failure(
     assert report.metadata['rule_packs'] == ['core']
 
 
+def test_heuristic_prefers_structured_constraint_loss_over_later_error() -> None:
+    trajectory = AgentTrajectory(trace_id='constraint-loss', goal='Preserve policy')
+    trajectory.add_event(
+        AgentEvent(
+            event_id='decision',
+            trace_id=trajectory.trace_id,
+            event_type=EventType.AGENT_STEP,
+            agent_name='planner',
+            step_index=2,
+            output='Choose the cheapest option.',
+            metadata={
+                'dropped_constraint': 'refund_policy',
+                'decision_error': 'The refund policy was not verified.',
+            },
+        )
+    )
+    trajectory.add_event(
+        AgentEvent(
+            event_id='reflection',
+            trace_id=trajectory.trace_id,
+            event_type=EventType.REFLECTION,
+            agent_name='planner',
+            step_index=3,
+            error='Postcondition failed.',
+        )
+    )
+
+    report = HeuristicAnalyzer(rule_packs='core').analyze(trajectory)
+
+    assert report.root_cause_event_id == 'decision'
+    assert report.root_cause_step_index == 2
+    assert report.findings[0].failure_mode.mode_id == 'planning.constraint_ignorance'
+    assert report.findings[0].confidence == 0.95
+
+
 def test_repeated_tool_call_detector_positive_and_negative() -> None:
     trajectory = AgentTrajectory(trace_id='repeat-tools')
     for step in range(3):
