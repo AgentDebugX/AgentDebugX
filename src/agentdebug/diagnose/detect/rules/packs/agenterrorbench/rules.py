@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from agentdebug.schema import AgentEvent, AgentTrajectory
 from agentdebug.diagnose.detect.rules.base import RuleMatch
+from agentdebug.schema import AgentEvent, AgentTrajectory
 
 
 class AlfworldNoOpRule:

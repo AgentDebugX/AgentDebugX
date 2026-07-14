@@ -30,8 +30,8 @@ guessed.
 The project is designed for researchers and engineers building complex LLM
 agents: multi-agent systems, tool-using agents, computer-use agents, benchmark
 runners, and local agent development workflows. AgentDebugX is local-first by
-default: traces stay on your machine, sharing is opt-in, and recovery execution
-is gated by explicit policy or human approval.
+default: traces stay on your machine, sharing is opt-in, and recovery proposals
+carry explicit policy and approval metadata into the Rerun boundary.
 
 ## System Overview
 
@@ -77,8 +77,8 @@ agentic skill.
   and DeepDebug.
 - **Recover**: Reflexion, CRITIC, Self-Refine, AutoManual, DeepDebug recovery,
   and saga rollback style strategies.
-- **Rerun**: auditable rerun plans, checkpoint selection, retry directives,
-  executor protocol, branch comparison, and local proxy evaluation.
+- **Rerun**: three explicit modes for plan/export only, labeled simulation, or
+  observed execution in an application-owned process or persistent HTTP runner.
 - **Local inspection UI**: no-build FastAPI dashboard for traces, reports,
   saved cases, debug branches, and rerun-from-event workflows.
 - **Error Hub**: scrubbed, shareable failure bundles for regression tests,
@@ -288,7 +288,9 @@ agentdebug rerun report.json \
 
 The service owns the framework, real model, tools, credentials, environment,
 job lifecycle, and trajectory recorder. A chat-completions URL alone is not an
-Agent environment. See `src/agentdebug/rerun/RUNNER_SPEC.md`.
+Agent environment. Submissions are idempotent, transient failures use bounded
+retries, and unfinished remote jobs are cancelled best-effort. See
+[the runner specification](src/agentdebug/rerun/RUNNER_SPEC.md).
 
 For local scripts and CI, the process compatibility transport remains available:
 
@@ -299,9 +301,8 @@ agentdebug rerun report.json \
   --out rerun.json
 ```
 
-Use `--plan-only` for trajectory-only uploads; the plan
-reports why real execution is unavailable and which runtime capabilities are
-missing. See `src/agentdebug/rerun/RUNNER_SPEC.md`.
+Use `--plan-only` for trajectory-only uploads; the plan reports why real
+execution is unavailable and which runtime capabilities are missing.
 
 Export the same request as a pending actor task dataset when another system
 will perform the rollout:
@@ -316,13 +317,15 @@ agentdebug rerun report.json \
 
 Parquet is also supported with `--actor-task-format parquet` after installing
 `pyarrow`. These rows contain actor inputs and provenance, not responses or
-training labels. See `src/agentdebug/rerun/ACTOR_TASK_SPEC.md`.
+training labels. See
+[the actor task specification](src/agentdebug/rerun/ACTOR_TASK_SPEC.md).
 
 For prompt experiments only, `--simulate` enables the previous LLM-generated
 trajectory flow. It returns a workflow JSON with `status=simulated`, a validated
 `hypothetical_trajectory`, and model-generated events explicitly marked as
 simulated. It executes no tools and is not evidence that the recovery fixed the
-task. See `src/agentdebug/rerun/SIMULATION_SPEC.md`.
+task. See
+[the simulation specification](src/agentdebug/rerun/SIMULATION_SPEC.md).
 
 ### 5. Work with stored traces
 
@@ -376,8 +379,9 @@ agentdebug serve \
 | `agentdebug batch ingest` | Normalize every JSON file or independent JSONL record |
 | `agentdebug batch diagnose` | Normalize and diagnose a JSON/JSONL collection |
 | `agentdebug rerun` | Execute a real framework runner or build a capability-aware plan |
+| `agentdebug runner serve` | Expose an application callback through the live runner protocol |
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
-| `agentdebug config` | Save, inspect, clear, and test LLM configuration |
+| `agentdebug config` | Manage and test LLM endpoints and persistent HTTP runners |
 | `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
 | `agentdebug integrations` | Generate external runtime integration assets |
 | `agentdebug act` | Compatibility namespace for Hub and integration actions |
@@ -448,9 +452,12 @@ frontend. It is intentionally a surface layer:
 - `inspect/ui/server.py` remains a compatibility import path
 
 The UI can inspect traces, save typical error cases, prepare debug
-continuations, and run rerun-from-event workflows through the server-side
-`AGENTDEBUG_RERUN_COMMAND`. The browser does not accept or persist runner
-commands or model API keys.
+continuations, and invoke a server-controlled live runner. Set
+`AGENTDEBUG_RUNNER_URL` for the preferred persistent HTTP transport or
+`AGENTDEBUG_RERUN_COMMAND` for process compatibility. UI reruns default to a
+full `from_start` rollout; `from_event` requires runner capability plus the
+explicit server policy `AGENTDEBUG_UI_RERUN_POLICY=from_event`. The browser does
+not accept or persist runner commands, bearer tokens, or model API keys.
 
 ## Privacy and Safety
 
@@ -460,8 +467,10 @@ AgentDebugX is local-first:
   external LLM endpoint.
 - Error Hub publishing is opt-in.
 - Bundle scrubbing is available before sharing traces.
-- Recovery is suggest-only by default; external execution belongs to the Rerun
-  stage and requires an executor plus explicit approval.
+- Recovery is suggest-only. External execution belongs to Rerun and requires an
+  explicitly configured executor. Recovery approval fields are auditable
+  metadata; deployments must enforce their own authorization policy before
+  dispatch.
 
 Diagnostic findings are hypotheses with evidence and provenance, not ground
 truth. LLM Judge reports retain the model's self-reported confidence;
@@ -478,6 +487,8 @@ The `examples/` directory contains runnable scripts and demo artifacts:
 - `crewai/`
 - `autogen_roundrobin_deepdebug.py`
 - `taxonomy_induction_demo.py`
+- `http_agent_runner.py`
+- `live_rerun_runner.py`
 - `claude_skill_integration/`
 - `debug_skills/`
 

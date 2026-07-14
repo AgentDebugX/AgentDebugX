@@ -128,9 +128,8 @@ jobs:
         run: ruff check src/agentdebug tests --output-format=github
 
   type-check:
-    name: Mypy (advisory)
+    name: Mypy contracts
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
       - name: Check out repository
@@ -150,7 +149,12 @@ jobs:
           python -m pip install "mypy>=1.8,<2" "types-setuptools>=69"
 
       - name: Run Mypy
-        run: mypy src/agentdebug
+        run: >-
+          mypy
+          src/agentdebug/runtime/plugins/types.py
+          src/agentdebug/rerun/request.py
+          src/agentdebug/rerun/executors/base.py
+          src/agentdebug/diagnose/registry.py
 
   package:
     name: Build and smoke-test wheel

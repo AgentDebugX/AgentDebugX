@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar, cast
+from typing import Any, Optional, TypeVar, cast
 
-from agentdebug.schema import EventType
 from agentdebug.ingest.recorder import TraceSession
+from agentdebug.schema import EventType
 
 F = TypeVar('F', bound=Callable[..., Any])
 

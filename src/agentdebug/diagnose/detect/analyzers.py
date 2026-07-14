@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Union
+from collections.abc import Iterable
+from typing import List, Optional, Union
 
+from agentdebug.diagnose.detect.rules import (
+    load_event_rules,
+    load_trajectory_rules,
+    resolve_rule_pack_names,
+)
+from agentdebug.diagnose.detect.rules.base import EventRule, RuleMatch, TrajectoryRule
 from agentdebug.schema import (
+    SEED_FAILURE_MODES,
     AgentEvent,
     AgentTrajectory,
     DiagnosticReport,
@@ -13,13 +21,6 @@ from agentdebug.schema import (
     FailureMode,
     confidence_or_default,
 )
-from agentdebug.diagnose.detect.rules import (
-    load_event_rules,
-    load_trajectory_rules,
-    resolve_rule_pack_names,
-)
-from agentdebug.diagnose.detect.rules.base import EventRule, RuleMatch, TrajectoryRule
-from agentdebug.schema import SEED_FAILURE_MODES
 
 
 class HeuristicAnalyzer:

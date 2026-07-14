@@ -6,11 +6,12 @@ import importlib
 import json
 import secrets
 import threading
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from agentdebug.rerun.executors.http_live import HTTP_RUNNER_PROTOCOL_VERSION
@@ -57,6 +58,7 @@ class HttpRunnerCapabilities:
 @dataclass
 class _Job:
     run_id: str
+    submission_id: str
     status: str = 'queued'
     created_at: str = field(default_factory=lambda: _utc_now())
     started_at: Optional[str] = None
@@ -69,6 +71,7 @@ class _Job:
         return {
             'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
             'run_id': self.run_id,
+            'submission_id': self.submission_id,
             'status': self.status,
             'created_at': self.created_at,
             'started_at': self.started_at,
@@ -99,6 +102,7 @@ def create_http_runner_app(
         raise ValueError('max_concurrency must be positive')
 
     jobs: dict[str, _Job] = {}
+    submissions: dict[str, str] = {}
     lock = threading.RLock()
     pool = ThreadPoolExecutor(
         max_workers=capabilities.max_concurrency,
@@ -176,10 +180,35 @@ def create_http_runner_app(
     def submit(
         payload: dict[str, Any],
         authorization: Optional[str] = Header(default=None),
+        idempotency_key: Optional[str] = Header(
+            default=None, alias='Idempotency-Key'
+        ),
     ) -> dict[str, Any]:
         authorize(authorization)
         if payload.get('protocol_version') != HTTP_RUNNER_PROTOCOL_VERSION:
             raise HTTPException(status_code=400, detail='unsupported protocol_version')
+        body_submission_id = str(payload.get('submission_id') or '').strip()
+        header_submission_id = str(idempotency_key or '').strip()
+        if (
+            body_submission_id
+            and header_submission_id
+            and body_submission_id != header_submission_id
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail='Idempotency-Key does not match submission_id',
+            )
+        submission_id = header_submission_id or body_submission_id
+        if not submission_id or len(submission_id) > 200:
+            raise HTTPException(
+                status_code=400,
+                detail='a bounded Idempotency-Key is required',
+            )
+        with lock:
+            existing_run_id = submissions.get(submission_id)
+            existing_job = jobs.get(existing_run_id) if existing_run_id else None
+        if existing_job is not None:
+            return existing_job.status_payload()
         try:
             request = _request_from_payload(payload.get('request'))
             source_payload = payload.get('source_trajectory')
@@ -192,9 +221,10 @@ def create_http_runner_app(
                 detail=f'unsupported checkpoint policy: {request.checkpoint.policy}',
             )
         run_id = f'http_run_{uuid4().hex}'
-        job = _Job(run_id=run_id)
+        job = _Job(run_id=run_id, submission_id=submission_id)
         with lock:
             jobs[run_id] = job
+            submissions[submission_id] = run_id
         pool.submit(execute, job, request, source)
         return job.status_payload()
 

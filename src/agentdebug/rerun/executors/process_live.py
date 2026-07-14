@@ -7,13 +7,14 @@ import os
 import shlex
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Union
 
 from agentdebug.rerun.executors.base import LIVE_EXECUTION, RerunResult
-from agentdebug.rerun.request import RerunRequest
 from agentdebug.rerun.live_validation import parse_live_result
+from agentdebug.rerun.request import RerunRequest
 from agentdebug.schema import AgentTrajectory, model_to_json
 
 

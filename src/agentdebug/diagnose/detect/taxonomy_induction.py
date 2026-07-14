@@ -37,16 +37,17 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional
 
 from agentdebug.runtime import EmbeddingClient, LLMClient, extract_json_block
 from agentdebug.schema import (
+    SEED_FAILURE_MODES,
     DiagnosticReport,
     FailureMode,
     new_id,
 )
-from agentdebug.schema import SEED_FAILURE_MODES
 
 VALID_FAMILIES = (
     'memory',

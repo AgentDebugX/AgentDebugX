@@ -74,12 +74,23 @@ Before opening a pull request, run:
 
 ```bash
 ruff check src/agentdebug tests
-mypy src/agentdebug
+mypy \
+  src/agentdebug/runtime/plugins/types.py \
+  src/agentdebug/rerun/request.py \
+  src/agentdebug/rerun/executors/base.py \
+  src/agentdebug/diagnose/registry.py
 python -m compileall -q src/agentdebug tests
 ```
 
-Mypy is initially advisory in CI while the strict typing baseline is completed.
-Tests, Ruff, package construction, and the coverage baseline are blocking.
+Mypy strictly checks the stable plugin, Rerun protocol, and Diagnose registry
+contracts. Add newly typed modules to this blocking baseline as their dependency
+boundaries become strict. Tests, Ruff, Mypy contracts, package construction, and
+the coverage baseline are blocking.
+
+Ruff currently enforces pycodestyle, Pyflakes, comprehensions, and Bugbear. The
+repository will enable import-order and pyupgrade suites in focused cleanup
+changes; do not mix their full-tree mechanical rewrites into feature pull
+requests.
 
 ## Pull Requests
 

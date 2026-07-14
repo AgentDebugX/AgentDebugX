@@ -43,6 +43,22 @@ agentdebug diagnose TRACE \
 Use `--recovery deepdebug` to select the same packaging explicitly. Existing
 scripts may pass `--recovery none` to disable the standard recovery payload.
 
+## Rerun option contract
+
+Rerun has three explicit modes:
+
+- `--plan-only` writes an auditable request without executing an actor.
+- `--plan-only --actor-task-format jsonl|parquet` exports pending rollout inputs
+  for a user-owned actor pipeline; it does not create training labels.
+- `--simulate` asks an LLM for a labeled hypothetical trajectory and executes no
+  tools.
+- Live execution is the default when a persistent runner is configured. Select
+  one with `--runner NAME`, or use `--runner-command` for process compatibility.
+
+Configure reusable HTTP runners with `agentdebug config set-runner`, inspect
+them with `list-runners`, select a default with `use-runner`, and verify them
+with `doctor-runner`. These mode flags are intentionally mutually exclusive.
+
 ## Flow
 
 1. `main.py` builds the parser and registers command modules.
@@ -58,9 +74,11 @@ The base CLI only depends on the core AgentDebugX package. Some commands require
 optional extras:
 
 - `serve`: `agentdebugx[ui]`
+- `runner serve`: `agentdebugx[ui]`
 - `ingest` adapters: integration-specific extras such as `langgraph`, `crewai`,
   `openai-agents`, or `otel`
 - `hub` uploads: `agentdebugx[hub-hf]` when using Hugging Face backends
+- Parquet actor-task export: `pyarrow`
 
 ## Extension Rules
 

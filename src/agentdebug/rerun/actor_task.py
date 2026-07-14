@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Optional, Union
 
 from agentdebug.rerun.request import RerunRequest
 from agentdebug.schema import AgentTrajectory, DiagnosticReport, model_to_dict

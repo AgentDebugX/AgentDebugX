@@ -5,14 +5,15 @@ from __future__ import annotations
 import importlib
 import json
 from importlib.resources import files
-from typing import Iterable, List, Sequence, Union, cast
+from collections.abc import Iterable, Sequence
+from typing import List, Union, cast
 
-from agentdebug.schema import AgentTrajectory
 from agentdebug.diagnose.detect.rules.base import (
     EventRule,
     RulePackMetadata,
     TrajectoryRule,
 )
+from agentdebug.schema import AgentTrajectory
 
 RulePackSpec = Union[str, Sequence[str], None]
 

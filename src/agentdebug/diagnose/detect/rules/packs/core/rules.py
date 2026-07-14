@@ -8,10 +8,13 @@ configure one concept, a rule pack, instead of separately choosing
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import List, Optional
 
+from agentdebug.diagnose.detect.rules.base import RuleMatch
 from agentdebug.schema import (
+    SEED_FAILURE_MODES,
     AgentEvent,
     AgentTrajectory,
     EventType,
@@ -19,8 +22,6 @@ from agentdebug.schema import (
     FailureMode,
     new_id,
 )
-from agentdebug.diagnose.detect.rules.base import RuleMatch
-from agentdebug.schema import SEED_FAILURE_MODES
 
 
 @dataclass(frozen=True)

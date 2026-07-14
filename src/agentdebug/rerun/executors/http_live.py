@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 
@@ -16,6 +18,7 @@ from agentdebug.schema import AgentTrajectory, model_to_dict
 
 HTTP_RUNNER_PROTOCOL_VERSION = '1.0'
 _TERMINAL_STATUSES = {'succeeded', 'failed', 'cancelled'}
+_RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
 class HttpLiveExecutor:
@@ -33,6 +36,8 @@ class HttpLiveExecutor:
         timeout: float = 1800.0,
         poll_interval: float = 1.0,
         request_timeout: float = 30.0,
+        max_retries: int = 3,
+        retry_delay: float = 0.5,
         verify_tls: bool = True,
         client: Optional[httpx.Client] = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -48,12 +53,20 @@ class HttpLiveExecutor:
             raise ValueError(
                 'HTTP runner URL must be an absolute http(s) URL without credentials'
             )
-        if timeout <= 0 or poll_interval < 0 or request_timeout <= 0:
+        if (
+            timeout <= 0
+            or poll_interval < 0
+            or request_timeout <= 0
+            or max_retries < 0
+            or retry_delay < 0
+        ):
             raise ValueError('HTTP runner timeout values must be positive')
         self.base_url = normalized
         self.source = source
         self.timeout = timeout
         self.poll_interval = poll_interval
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self.sleep = sleep
         headers = {'Accept': 'application/json'}
         if token:
@@ -66,8 +79,7 @@ class HttpLiveExecutor:
         self._owns_client = client is None
 
     def capabilities(self) -> dict[str, Any]:
-        response = self.client.get(f'{self.base_url}/v1/capabilities')
-        response.raise_for_status()
+        response = self._request('GET', '/v1/capabilities')
         payload = _json_object(response, 'runner capabilities')
         if payload.get('protocol_version') != HTTP_RUNNER_PROTOCOL_VERSION:
             raise ValueError(
@@ -90,40 +102,50 @@ class HttpLiveExecutor:
     def run(self, request: RerunRequest) -> RerunResult:
         capabilities = self.capabilities()
         _validate_checkpoint_support(capabilities, request)
-        submitted = self.client.post(
-            f'{self.base_url}/v1/reruns',
+        submission_id = f'submission_{uuid4().hex}'
+        submitted = self._request(
+            'POST',
+            '/v1/reruns',
+            headers={'Idempotency-Key': submission_id},
             json={
                 'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+                'submission_id': submission_id,
                 'request': asdict(request),
                 'source_trajectory': model_to_dict(self.source),
             },
         )
-        submitted.raise_for_status()
         submission = _json_object(submitted, 'rerun submission')
         run_id = str(submission.get('run_id') or '').strip()
         if not run_id:
             raise ValueError('HTTP runner submission did not return run_id')
 
-        deadline = time.monotonic() + self.timeout
-        status_payload = submission
-        while str(status_payload.get('status') or '') not in _TERMINAL_STATUSES:
-            if time.monotonic() >= deadline:
-                self.cancel(run_id)
-                raise TimeoutError(f'HTTP rerun {run_id} exceeded {self.timeout}s')
-            self.sleep(self.poll_interval)
-            response = self.client.get(f'{self.base_url}/v1/reruns/{run_id}')
-            response.raise_for_status()
-            status_payload = _json_object(response, 'rerun status')
+        try:
+            deadline = time.monotonic() + self.timeout
+            status_payload = submission
+            while str(status_payload.get('status') or '') not in _TERMINAL_STATUSES:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f'HTTP rerun {run_id} exceeded {self.timeout}s'
+                    )
+                self.sleep(self.poll_interval)
+                response = self._request('GET', f'/v1/reruns/{run_id}')
+                status_payload = _json_object(response, 'rerun status')
 
-        status = str(status_payload.get('status'))
-        if status != 'succeeded':
-            detail = status_payload.get('error') or status_payload.get('message') or status
-            raise RuntimeError(f'HTTP rerun {run_id} {status}: {detail}')
-        result_response = self.client.get(
-            f'{self.base_url}/v1/reruns/{run_id}/trajectory'
-        )
-        result_response.raise_for_status()
-        result_payload = _json_object(result_response, 'rerun result')
+            status = str(status_payload.get('status'))
+            if status != 'succeeded':
+                detail = (
+                    status_payload.get('error')
+                    or status_payload.get('message')
+                    or status
+                )
+                raise RuntimeError(f'HTTP rerun {run_id} {status}: {detail}')
+            result_response = self._request(
+                'GET', f'/v1/reruns/{run_id}/trajectory'
+            )
+            result_payload = _json_object(result_response, 'rerun result')
+        except BaseException:
+            self.cancel(run_id)
+            raise
         trajectory, proof, metadata = parse_live_result(result_payload)
         trajectory.metadata.update(
             {
@@ -135,6 +157,7 @@ class HttpLiveExecutor:
                 'tools_executed': proof['tools_executed'],
                 'live_runner': proof['runner'],
                 'remote_run_id': run_id,
+                'submission_id': submission_id,
             }
         )
         return RerunResult(
@@ -150,6 +173,7 @@ class HttpLiveExecutor:
                 'framework': proof['framework'],
                 'tool_execution_count': proof['tool_execution_count'],
                 'remote_run_id': run_id,
+                'submission_id': submission_id,
                 'runner_url': self.base_url,
                 'capabilities': capabilities,
             },
@@ -157,9 +181,59 @@ class HttpLiveExecutor:
 
     def cancel(self, run_id: str) -> None:
         try:
-            self.client.post(f'{self.base_url}/v1/reruns/{run_id}/cancel')
+            self._request(
+                'POST',
+                f'/v1/reruns/{run_id}/cancel',
+                retry=False,
+            )
         except httpx.HTTPError:
             return
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        retry: bool = True,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        attempts = self.max_retries + 1 if retry else 1
+        for attempt in range(attempts):
+            try:
+                response = self.client.request(
+                    method,
+                    f'{self.base_url}{path}',
+                    **kwargs,
+                )
+                if (
+                    response.status_code in _RETRYABLE_STATUS_CODES
+                    and attempt + 1 < attempts
+                ):
+                    self._wait_before_retry(attempt, response)
+                    continue
+                response.raise_for_status()
+                return response
+            except (httpx.TimeoutException, httpx.NetworkError):
+                if attempt + 1 >= attempts:
+                    raise
+                self._wait_before_retry(attempt)
+        raise RuntimeError('HTTP runner request exhausted retries')
+
+    def _wait_before_retry(
+        self,
+        attempt: int,
+        response: Optional[httpx.Response] = None,
+    ) -> None:
+        retry_after = response.headers.get('Retry-After') if response else None
+        try:
+            delay = float(retry_after) if retry_after is not None else None
+        except ValueError:
+            delay = None
+        self.sleep(
+            max(0.0, delay)
+            if delay is not None
+            else min(self.retry_delay * (2 ** attempt), 10.0)
+        )
 
     def close(self) -> None:
         if self._owns_client:
