@@ -41,7 +41,6 @@ from agentdebug.schema import AgentEvent, AgentTrajectory, FailureFinding
 from agentdebug.diagnose.attribute.attribution import (
     AllAtOnceAttributor,
     AttributionResult,
-    BinarySearchAttributor,
     Blame,
 )
 
@@ -152,6 +151,9 @@ def _decision_events(trajectory: AgentTrajectory) -> List[AgentEvent]:
         if e.step_index is not None
         and (e.agent_name or '').lower() != 'environment'
         and 'observation' not in str(getattr(e, 'event_type', '')).lower()
+        and str(getattr(e.event_type, 'value', e.event_type)) not in {
+            'run.start', 'run.end', 'tool.call', 'tool.result'
+        }
     ]
     return out or [e for e in trajectory.events if e.step_index is not None]
 
@@ -561,6 +563,21 @@ def analyze_aao_moe(
         event_id=str(m.get('event_id') or '').strip() or None,
         duration_ms=int((time.perf_counter() - probe_started) * 1000),
     )
+    normalized_structure_event = resolve_candidate_event(
+        evs,
+        event_id=structure_candidate.event_id,
+        step_index=structure_candidate.step_index,
+        agent_name=structure_candidate.agent_name,
+    )
+    if normalized_structure_event is not None:
+        structure_candidate = AttributionCandidate(
+            source=structure_candidate.source,
+            step_index=normalized_structure_event.step_index,
+            agent_name=normalized_structure_event.agent_name,
+            confidence=structure_candidate.confidence,
+            event_id=normalized_structure_event.event_id,
+            duration_ms=structure_candidate.duration_ms,
+        )
     structure_probe = StructureProbeResult(
         strategy=str(m.get('strategy') or 'unknown'),
         candidate=structure_candidate,

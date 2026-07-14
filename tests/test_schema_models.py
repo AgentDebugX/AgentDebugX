@@ -11,6 +11,7 @@ from agentdebug.schema import (
     DiagnosticReport,
     EventType,
     model_to_json,
+    model_to_dict,
     new_id,
     report_from_json,
     trajectory_from_json,
@@ -35,6 +36,42 @@ def test_report_json_round_trip_preserves_findings(
 
     assert restored == diagnostic_report
     assert restored.findings[0].failure_mode.mode_id == 'test.missing_constraint'
+
+
+@pytest.mark.parametrize('analyzer', ['HeuristicAnalyzer', 'DeepDebugAnalyzer'])
+def test_non_llm_report_output_omits_confidence_recursively(
+    diagnostic_report: DiagnosticReport,
+    analyzer: str,
+) -> None:
+    diagnostic_report.metadata.update(
+        {'analyzer': analyzer, 'confidence': 0.8}
+    )
+    diagnostic_report.attribution = {
+        'primary': {'confidence': 0.7},
+        'hypotheses': [{'confidence': 0.6}],
+    }
+    diagnostic_report.recovery = {
+        'primary': {'confidence': 0.5},
+        'proposals': [{'confidence': 0.4}],
+    }
+
+    payload = model_to_dict(diagnostic_report)
+
+    assert 'confidence' not in json.dumps(payload)
+    assert 'confidence' not in model_to_json(diagnostic_report)
+    assert diagnostic_report.findings[0].confidence == 0.8
+
+
+def test_llm_judge_report_output_preserves_confidence(
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    diagnostic_report.metadata['analyzer'] = 'LLMJudgeAnalyzer'
+    diagnostic_report.attribution = {'primary': {'confidence': 0.7}}
+
+    payload = model_to_dict(diagnostic_report)
+
+    assert payload['findings'][0]['confidence'] == 0.8
+    assert payload['attribution']['primary']['confidence'] == 0.7
 
 
 def test_prefix_returns_independent_event_list(

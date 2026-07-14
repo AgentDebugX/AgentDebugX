@@ -905,3 +905,139 @@ Rerun = checkpoint + retry directive + branch comparison / executor
 
 - 新增重复 `step_index`、不同 agent/event 的定位测试。
 - 新增虚构 evidence 被拒绝并由根因事件原文兜底的测试。
+
+## 15. 2026-07-14 13:50:17 +08
+
+本次更新将 Rerun 从仅生成配置的入口升级为真正调用模型并生成新轨迹的第二
+阶段，同时统一 CLI 与 UI 的执行实现。
+
+### 内置 Rerun executor
+
+- 新增 `LLMContinuationExecutor`，通过现有 `LLMClient` 调用
+  OpenAI-compatible 模型执行 rollout。
+- executor 输入包含任务目标、原失败轨迹、诊断结果生成的 retry directive
+  和 checkpoint policy。
+- 模型必须返回结构化 events；空事件或无效 JSON 会作为执行失败返回，不会
+  生成伪成功结果。
+- 输出统一规范化为新的 `AgentTrajectory`，包含 `rerun_of`、report ID、
+  directive source、reported success 和 rollout summary 等元数据。
+- 新增 `RolloutContext`、`build_rollout_prompt()`、
+  `trajectory_from_rollout()` 和 OpenAI endpoint 规范化。
+
+### CLI 与 UI
+
+- `agentdebug rerun` 现在默认从任务开头执行完整模型 rollout，要求
+  `--trajectory` 以及 URL、API key、model 配置。
+- CLI 使用 `checkpoint_policy=from_start`，新轨迹从 step 1 开始。
+- 新增 `--plan-only`，保留原先只生成可审计 rerun request 的能力。
+- 使用 SQLite/JSONL store 时，CLI 会将新 trajectory 保存回同一 store。
+- UI 继续支持从用户指定 event rerun，并改为复用同一个 executor；生成轨迹
+  的首事件以指定 checkpoint event 为 parent。
+- API key 只用于请求，不进入 CLI 输出、UI response 或 branch store。
+
+### 能力边界
+
+- 内置 executor 会真实调用模型并生成新的 observable trajectory。
+- 它不会从离线日志恢复任意第三方工具进程；需要真实 LangGraph、OpenAI
+  Agents 或 benchmark environment 工具执行时，应实现对应的
+  runtime-specific `RerunExecutor`。
+
+### 测试
+
+- 新增 full-task CLI rollout、checkpoint parent、endpoint 兼容、trajectory
+  normalization 和 secret boundary 测试。
+- CLI、UI 和 Python workflow 共用同一 executor contract。
+
+## 16. 2026-07-14 14:05:35 +08
+
+本次更新将已经存在的 `DeepDebugRecovery` 正式接入 CLI，使 DeepDebug 的最终
+fix guidance 自动成为标准 retry directive，可直接交给 Rerun 阶段消费。
+
+### CLI recovery 接入
+
+- `--recovery` 新增 `deepdebug`，并兼容 `deep`、`deep-debug`、
+  `deep_debug` 和 `DeepDebugRecovery` 别名。
+- `--mode deepdebug` 未显式指定 recovery 时，自动运行
+  `DeepDebugRecovery`，将根因事件、证据、失败原因和修复建议写入
+  `report.recovery.primary.suggestion_text`。
+- 普通 diagnose 模式未指定 recovery 时仍保持 `none`，不改变原有行为。
+- 显式 `--recovery none` 继续有效，可用于关闭 DeepDebug 的标准 recovery
+  payload，保证旧脚本兼容。
+- `DeepDebugRecovery` 不发起额外 LLM 请求，只包装 DeepDebug 已验证的诊断
+  结果。
+
+### 文档与测试
+
+- 更新 README、CLI README、AgentDebug skill references 和集成模板，移除
+  DeepDebug 必须填写 `--attributor none --recovery none` 的旧说明。
+- 新增 DeepDebug 自动 recovery、显式 `--recovery deepdebug` 和显式
+  `--recovery none` 兼容测试。
+
+## 17. 2026-07-14 14:26:14 +08
+
+本次更新针对人工测试生成的 heuristic、LLM 和 DeepDebug 三份报告进行质量
+修复，强化根因定位、事件身份、证据和 recovery 完整性。
+
+### Heuristic diagnosis
+
+- core rule pack 新增结构化 constraint-loss 规则，识别 recorder 写入的
+  `dropped_constraint`、`violated_constraint` 和 `decision_error`。
+- 结构化约束信号优先于通用 explicit-error fallback，避免把后续
+  reflection 中的 postcondition failure 误判为 environment error。
+- `RuleMatch.confidence` 现在会进入 `FailureFinding`，使高质量结构化规则的
+  置信度不再丢失。
+
+### LLM attribution 与 recovery
+
+- All-at-Once attribution 在模型选择同 step 的下游 action 时，会使用唯一的
+  detector finding event 作为精确事件锚点，并记录
+  `detector_event_anchor` source。
+- Self-Refine 会检查 critic/refined action 是否明显截断；不完整时使用原
+  finding suggestion 生成完整、可执行且带 pre-side-effect verification 的
+  retry action。
+
+### DeepDebug grounding
+
+- MoE 决策事件过滤 lifecycle 和纯 tool execution 事件，减少同 step 下
+  Thought/Action 混淆。
+- structure candidate 必须规范化到真实 trajectory event；`Step 2` 等展示
+  标签不再作为 event ID 进入报告。
+- 最终 root cause 无法唯一落到真实事件时直接失败，不再生成带伪 event ID
+  的报告。
+- 模型最终 JSON 为空或截断时，从已验证根因事件生成 grounded evidence、
+  summary 和具体约束检查建议，保证 retry directive 不为空泛。
+
+### 测试
+
+- 新增结构化约束根因、同 step detector event 锚定、Self-Refine 截断兜底
+  和 DeepDebug 非法 event label 规范化测试。
+- 虚拟 ReAct 酒店轨迹的本地 heuristic 根因由错误的 step 3 environment
+  error 修正为 step 2 `planning.constraint_ignorance`。
+
+## 18. 2026-07-14 14:34:15 +08
+
+本次更新调整公开诊断报告的 confidence 契约：Heuristic 和 DeepDebug 不再
+输出不可校准的 confidence，LLM Judge 继续保留模型自报 confidence。
+
+### 输出策略
+
+- Heuristic 与 DeepDebug 的内部对象仍保留 confidence，供规则排序、候选
+  仲裁和 recovery 兼容逻辑使用，但不会出现在 CLI、存储、Hub 或 UI 的公开
+  report payload 中。
+- 过滤为递归行为，同时移除 findings、attribution、recovery 和 metadata 内
+  的所有 `confidence` 键，避免同一报告不同层级语义混杂。
+- `LLMJudgeAnalyzer` 报告不经过过滤，finding、attribution 和 recovery 中的
+  confidence 保持原有输出。
+
+### 统一序列化
+
+- 新增 `model_to_dict()` 作为公开 dictionary 序列化入口。
+- `model_to_json()` 对 `DiagnosticReport` 复用同一策略，因此 CLI、SQLite
+  report store 和 Error Hub bundle 行为一致。
+- Inspect UI 的 `_to_dict()` 同样转发到统一入口，避免 API 与 CLI 契约分叉。
+
+### 文档与测试
+
+- README 与 AgentDebug skill 文档改为以 evidence 和 provenance 表达诊断
+  可信度，并明确只有 LLM Judge 输出模型自报 confidence。
+- 新增 Heuristic/DeepDebug 递归移除、LLM Judge 保留以及 UI 输出一致性测试。

@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 from agentdebug.inspect.ui.services import (
+    _to_dict,
     _extract_chat_content,
     _extract_json_payload,
     _extract_partial_continuation_payload,
     _normalize_chat_endpoint,
     _normalize_generated_events,
 )
+from agentdebug.schema import DiagnosticReport, FailureFinding, FailureMode
+
+
+def test_ui_report_serialization_uses_confidence_policy() -> None:
+    finding = FailureFinding(
+        failure_mode=FailureMode(
+            mode_id='test',
+            name='Test',
+            family='test',
+            description='Test finding.',
+        ),
+        confidence=0.9,
+    )
+    report = DiagnosticReport(
+        trace_id='trace',
+        findings=[finding],
+        metadata={'analyzer': 'HeuristicAnalyzer'},
+    )
+
+    assert 'confidence' not in _to_dict(report)['findings'][0]
 
 
 def test_normalize_chat_endpoint_variants() -> None:

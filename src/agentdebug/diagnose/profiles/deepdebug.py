@@ -188,6 +188,11 @@ class DeepDebugAnalyzer:
             step_index=root.step_index,
             agent_name=root.agent_name,
         )
+        if root_ev is None:
+            raise ValueError(
+                'DeepDebug could not ground the localized root cause to a '
+                'unique trajectory event'
+            )
         root_step = root_ev.step_index if root_ev else root.step_index
         root_agent = root_ev.agent_name if root_ev else root.agent_name
         root_eid = root_ev.event_id if root_ev else root.event_id
@@ -210,6 +215,13 @@ class DeepDebugAnalyzer:
             fallback = self._fallback_evidence(root_ev)
             if fallback is not None:
                 evidence_references = [fallback]
+        if not summary_text:
+            summary_text = (
+                f'The decision at step {root_step} by {root_agent} introduced '
+                'the earliest error that led to the failed outcome.'
+            )
+        if not suggestion:
+            suggestion = self._fallback_suggestion(root_ev)
         evidence = [reference.quote for reference in evidence_references]
         diagnosis = DeepDebugDiagnosis(
             summary=summary_text,
@@ -460,6 +472,24 @@ class DeepDebugAnalyzer:
             if text:
                 return DeepDebugEvidence(event.event_id, text[:300])
         return None
+
+    @staticmethod
+    def _fallback_suggestion(event: AgentEvent) -> str:
+        metadata = event.metadata or {}
+        constraint = (
+            metadata.get('dropped_constraint')
+            or metadata.get('violated_constraint')
+        )
+        if constraint:
+            return (
+                f'Before executing this decision, verify the {constraint} '
+                'constraint against the selected option and fail closed if it '
+                'cannot be satisfied.'
+            )
+        return (
+            'Re-evaluate this decision against every original task constraint '
+            'and verify the corrected action before invoking any tool.'
+        )
 
 
 __all__ = [

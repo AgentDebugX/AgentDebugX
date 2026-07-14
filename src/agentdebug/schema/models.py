@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, cast
@@ -167,10 +168,42 @@ class DiagnosticReport(BaseModel):
 
 def model_to_json(model: BaseModel, indent: Optional[int] = None) -> str:
     """Serialize a Pydantic model across v1 and v2 runtimes."""
+    if isinstance(model, DiagnosticReport):
+        return json.dumps(model_to_dict(model), indent=indent)
     dumper = getattr(model, 'model_dump_json', None)
     if callable(dumper):
         return str(dumper(indent=indent))
     return str(model.json(indent=indent))
+
+
+def model_to_dict(model: BaseModel) -> JsonDict:
+    """Serialize a model for public output with report-specific filtering."""
+
+    dumper = getattr(model, 'model_dump', None)
+    if callable(dumper):
+        payload = cast(JsonDict, dumper(mode='json'))
+    else:
+        payload = cast(JsonDict, json.loads(model.json()))
+    if isinstance(model, DiagnosticReport) and _omits_confidence(model):
+        return cast(JsonDict, _without_confidence(payload))
+    return payload
+
+
+def _omits_confidence(report: DiagnosticReport) -> bool:
+    analyzer = str((report.metadata or {}).get('analyzer') or '')
+    return analyzer in {'HeuristicAnalyzer', 'DeepDebugAnalyzer'}
+
+
+def _without_confidence(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_confidence(item)
+            for key, item in value.items()
+            if key != 'confidence'
+        }
+    if isinstance(value, list):
+        return [_without_confidence(item) for item in value]
+    return value
 
 
 def trajectory_from_json(payload: str) -> AgentTrajectory:

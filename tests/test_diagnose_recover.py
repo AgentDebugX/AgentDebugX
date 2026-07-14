@@ -6,8 +6,10 @@ from agentdebug.diagnose.recover import (
     AutoManualRules,
     CriticRecoverer,
     ReflexionSuggestion,
+    SelfRefineLoop,
     VerifierSpec,
 )
+from agentdebug.runtime import CompletionResult
 from agentdebug.schema import AgentTrajectory, DiagnosticReport
 
 
@@ -80,3 +82,23 @@ def test_recoverers_return_empty_for_clean_report(
 
     assert ReflexionSuggestion().suggest(failed_trajectory, report) == []
     assert AutoManualRules().suggest(failed_trajectory, report) == []
+
+
+def test_self_refine_replaces_truncated_output_with_complete_action(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    class TruncatedLLM:
+        model = 'truncated'
+
+        def complete(self, messages, **kwargs):
+            return CompletionResult(text='Before retrying, verify the required', raw={})
+
+    proposal = SelfRefineLoop(TruncatedLLM()).suggest(
+        failed_trajectory,
+        diagnostic_report,
+    )[0]
+
+    assert 'REFINED ACTION:' in proposal.suggestion_text
+    assert 'Preserve refund_policy before calling the browser.' in proposal.suggestion_text
+    assert proposal.suggestion_text.endswith('side-effecting tool call.')

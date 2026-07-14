@@ -5,7 +5,7 @@ import json
 import pytest
 
 from agentdebug.inspect.ui import routes
-from agentdebug.runtime import SQLiteTraceStore
+from agentdebug.runtime import CompletionResult, OpenAICompatClient, SQLiteTraceStore
 from agentdebug.schema import AgentTrajectory
 
 
@@ -79,24 +79,19 @@ def test_rerun_does_not_persist_or_return_api_key(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(
-        routes,
-        '_request_debug_completion',
-        lambda **kwargs: {
-            'choices': [
+        OpenAICompatClient,
+        'complete',
+        lambda self, messages, **kwargs: CompletionResult(
+            text=json.dumps(
                 {
-                    'message': {
-                        'content': json.dumps(
-                            {
-                                'continuation_events': [
-                                    {'event_type': 'plan', 'output': 'retry safely'},
-                                    {'event_type': 'tool.result', 'output': 'success'},
-                                ]
-                            }
-                        )
-                    }
+                    'events': [
+                        {'event_type': 'plan', 'output': 'retry safely'},
+                        {'event_type': 'tool.result', 'output': 'success'},
+                    ]
                 }
-            ]
-        },
+            ),
+            raw={'choices': []},
+        ),
     )
     secret = 'sk-ui-secret-that-must-not-persist'
 

@@ -87,6 +87,40 @@ class EventErrorRule:
         )
 
 
+class StructuredConstraintRule:
+    """Recognize recorder-provided constraint-loss signals on decisions."""
+
+    rule_id = 'core.planning.constraint_ignorance.structured'
+    rule_pack = 'core'
+    priority = 50
+
+    def match(
+        self,
+        event: AgentEvent,
+        text: str,
+        trajectory: AgentTrajectory,
+    ) -> Optional[RuleMatch]:
+        metadata = event.metadata or {}
+        constraint = (
+            metadata.get('dropped_constraint')
+            or metadata.get('violated_constraint')
+        )
+        decision_error = str(metadata.get('decision_error') or '').strip()
+        if not constraint and not decision_error:
+            return None
+        detail = decision_error or f'constraint {constraint!r} was not preserved'
+        return RuleMatch(
+            mode_id='planning.constraint_ignorance',
+            evidence=[detail],
+            rule_id=self.rule_id,
+            rule_pack=self.rule_pack,
+            confidence_basis='structured constraint-loss metadata',
+            priority=self.priority,
+            confidence=0.95,
+            metadata={'constraint': str(constraint or '')},
+        )
+
+
 class MetadataStatusRule:
     rule_id = 'core.system.environment_error.metadata_status'
     rule_pack = 'core'
@@ -266,6 +300,7 @@ def build_event_rules() -> List[object]:
     """
 
     return [
+        StructuredConstraintRule(),
         KeywordRule(
             rule_id='core.system.llm_limit',
             mode_id='system.llm_limit',
