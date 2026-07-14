@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from agentdebug.hub.backend_base import HubBackend, HubSpec, parse_spec
 from agentdebug.hub.bundle import Bundle, pack_bundle, unpack_bundle
@@ -255,7 +255,7 @@ class HuggingFaceBackend:
 
 # ---------------- Spec dispatch ---------------- #
 
-def backend_from_spec(spec: str | HubSpec) -> HubBackend:
+def backend_from_spec(spec: Union[str, HubSpec]) -> HubBackend:
     """Resolve a hub identifier (string or parsed) to a backend instance."""
     parsed = spec if isinstance(spec, HubSpec) else parse_spec(spec)
     if parsed.scheme == 'local':

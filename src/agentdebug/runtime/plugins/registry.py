@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any, Dict, List, Optional
 
 from agentdebug.runtime.plugins.types import PluginSpec, PluginType
 

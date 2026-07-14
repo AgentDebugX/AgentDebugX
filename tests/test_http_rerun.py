@@ -78,7 +78,10 @@ def test_http_runner_service_executes_real_callback(
         bearer_token='runner-secret',
     )
     client = TestClient(app)
-    headers = {'Authorization': 'Bearer runner-secret'}
+    headers = {
+        'Authorization': 'Bearer runner-secret',
+        'Idempotency-Key': 'submission-service-test',
+    }
     request = build_rerun_request(
         diagnostic_report,
         failed_trajectory,
@@ -95,6 +98,7 @@ def test_http_runner_service_executes_real_callback(
         headers=headers,
         json={
             'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+            'submission_id': 'submission-service-test',
             'request': __import__('dataclasses').asdict(request),
             'source_trajectory': model_to_dict(failed_trajectory),
         },
@@ -140,6 +144,7 @@ def test_http_live_executor_handshake_poll_and_result(
         if request.method == 'POST' and request.url.path == '/v1/reruns':
             payload = json.loads(request.content)
             assert payload['source_trajectory']['trace_id'] == 'trace_failed'
+            assert request.headers['Idempotency-Key'] == payload['submission_id']
             return httpx.Response(202, json={'run_id': 'run_test', 'status': 'queued'})
         if request.url.path == '/v1/reruns/run_test':
             return httpx.Response(
@@ -183,13 +188,13 @@ def test_http_live_executor_rejects_unsupported_checkpoint(
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-                json={
-                    'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
-                    'live_execution': True,
-                    'runner': 'tests.http',
-                    'framework': 'test-framework',
-                    'checkpoint_policies': ['from_start'],
-                },
+            json={
+                'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+                'live_execution': True,
+                'runner': 'tests.http',
+                'framework': 'test-framework',
+                'checkpoint_policies': ['from_start'],
+            },
         )
 
     executor = HttpLiveExecutor(
@@ -233,8 +238,10 @@ def test_http_runner_cancel_sets_cooperative_signal(
     )
     submission = client.post(
         '/v1/reruns',
+        headers={'Idempotency-Key': 'submission-cancel-test'},
         json={
             'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+            'submission_id': 'submission-cancel-test',
             'request': __import__('dataclasses').asdict(request),
             'source_trajectory': model_to_dict(failed_trajectory),
         },
@@ -244,6 +251,168 @@ def test_http_runner_cancel_sets_cooperative_signal(
 
     assert response.status_code == 200
     assert observed_cancel.wait(1)
+
+
+def test_http_runner_submission_is_idempotent(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report,
+) -> None:
+    TestClient = pytest.importorskip('fastapi.testclient').TestClient
+    calls = []
+
+    def runner(request, source, cancel_event):
+        calls.append(request)
+        return _live_result(source)
+
+    client = TestClient(
+        create_http_runner_app(
+            runner,
+            HttpRunnerCapabilities(runner='tests.idempotent', framework='test'),
+        )
+    )
+    request = build_rerun_request(
+        diagnostic_report, failed_trajectory, checkpoint_policy='from_start'
+    )
+    payload = {
+        'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+        'submission_id': 'submission-same',
+        'request': __import__('dataclasses').asdict(request),
+        'source_trajectory': model_to_dict(failed_trajectory),
+    }
+    headers = {'Idempotency-Key': 'submission-same'}
+
+    first = client.post('/v1/reruns', headers=headers, json=payload)
+    second = client.post('/v1/reruns', headers=headers, json=payload)
+    deadline = time.monotonic() + 1
+    while len(calls) < 1 and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.json()['run_id'] == second.json()['run_id']
+    assert len(calls) == 1
+
+
+def test_http_runner_rejects_mismatched_idempotency_key(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report,
+) -> None:
+    TestClient = pytest.importorskip('fastapi.testclient').TestClient
+    client = TestClient(
+        create_http_runner_app(
+            lambda request, source, cancel: _live_result(source),
+            HttpRunnerCapabilities(runner='tests.id', framework='test'),
+        )
+    )
+    request = build_rerun_request(
+        diagnostic_report, failed_trajectory, checkpoint_policy='from_start'
+    )
+    response = client.post(
+        '/v1/reruns',
+        headers={'Idempotency-Key': 'header-id'},
+        json={
+            'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+            'submission_id': 'body-id',
+            'request': __import__('dataclasses').asdict(request),
+            'source_trajectory': model_to_dict(failed_trajectory),
+        },
+    )
+
+    assert response.status_code == 400
+    assert 'does not match' in response.json()['detail']
+
+
+def test_http_live_executor_retries_transient_error(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report,
+) -> None:
+    capability_calls = 0
+    delays = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal capability_calls
+        if request.url.path == '/v1/capabilities':
+            capability_calls += 1
+            if capability_calls == 1:
+                return httpx.Response(503, headers={'Retry-After': '0'})
+            return httpx.Response(
+                200,
+                json={
+                    'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+                    'runner': 'tests.retry',
+                    'framework': 'test',
+                    'live_execution': True,
+                    'checkpoint_policies': ['from_start'],
+                },
+            )
+        if request.url.path == '/v1/reruns':
+            return httpx.Response(202, json={'run_id': 'retry-run', 'status': 'succeeded'})
+        if request.url.path == '/v1/reruns/retry-run/trajectory':
+            return httpx.Response(200, json=_live_result(failed_trajectory))
+        raise AssertionError(request.url.path)
+
+    executor = HttpLiveExecutor(
+        'https://runner.test',
+        failed_trajectory,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=delays.append,
+    )
+    result = RerunWorkflow(executor).run(
+        diagnostic_report,
+        failed_trajectory,
+        execute=True,
+        checkpoint_policy='from_start',
+    )
+
+    assert result.execution is not None
+    assert capability_calls == 2
+    assert delays == [0.0]
+
+
+def test_http_live_executor_cancels_job_after_poll_failure(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report,
+) -> None:
+    cancelled = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == '/v1/capabilities':
+            return httpx.Response(
+                200,
+                json={
+                    'protocol_version': HTTP_RUNNER_PROTOCOL_VERSION,
+                    'runner': 'tests.cleanup',
+                    'framework': 'test',
+                    'live_execution': True,
+                    'checkpoint_policies': ['from_start'],
+                },
+            )
+        if request.url.path == '/v1/reruns':
+            return httpx.Response(202, json={'run_id': 'cleanup-run', 'status': 'queued'})
+        if request.url.path == '/v1/reruns/cleanup-run/cancel':
+            cancelled.append(True)
+            return httpx.Response(200, json={'status': 'cancelled'})
+        if request.url.path == '/v1/reruns/cleanup-run':
+            raise httpx.ConnectError('connection lost', request=request)
+        raise AssertionError(request.url.path)
+
+    executor = HttpLiveExecutor(
+        'https://runner.test',
+        failed_trajectory,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        poll_interval=0,
+        retry_delay=0,
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(httpx.ConnectError):
+        RerunWorkflow(executor).run(
+            diagnostic_report,
+            failed_trajectory,
+            execute=True,
+            checkpoint_policy='from_start',
+        )
+    assert cancelled == [True]
 
 
 def test_http_live_executor_over_real_uvicorn_socket(

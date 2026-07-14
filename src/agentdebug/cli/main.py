@@ -9,7 +9,8 @@ extracted incrementally.
 from __future__ import annotations
 
 import argparse
-from typing import Optional, Sequence
+from collections.abc import Sequence
+from typing import Optional
 
 from agentdebug.cli import legacy
 from agentdebug.cli.commands import (

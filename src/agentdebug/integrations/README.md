@@ -10,9 +10,9 @@ tool, agent runtime, or assistant environment.
 
 Current integration families include:
 
-- Claude-style debugging skill generation
+- Claude Code, Hermes, and OpenClaw debugging skill generation
 - OpenHands integration assets
-- generic debug skill templates
+- shared reference documents and generic debug skill templates
 
 ## Flow
 
@@ -34,4 +34,3 @@ documented formats.
 - Do not mix integration generation with Diagnose implementation.
 - Preserve legacy `diagnose/actions/integrations` imports as compatibility
   shims.
-

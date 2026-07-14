@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any, Optional, Union
 
 from agentdebug.ingest import convert_payload
 from agentdebug.schema import (

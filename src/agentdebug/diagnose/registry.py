@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import importlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from importlib.resources import files
-from typing import Literal, Optional, Sequence, cast
+from typing import Literal, Optional, cast
 
 from agentdebug.diagnose.detect.rules import list_rule_packs
 

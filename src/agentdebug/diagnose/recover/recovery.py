@@ -12,8 +12,9 @@ artifacts to be surfaced (CLI/UI/PR comment) or fed back into the next run.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Protocol, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple
 
 from agentdebug.runtime import extract_json_block
 from agentdebug.schema import (

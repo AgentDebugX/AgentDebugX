@@ -8,10 +8,11 @@ frontmatter, install paths, and allowed tools.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
-from typing import Literal, Mapping, Optional
+from typing import Literal, Optional
 
 SkillPlatform = Literal['claude', 'hermes', 'openclaw']
 

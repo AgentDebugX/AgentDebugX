@@ -39,6 +39,9 @@ original agent or performs the Rerun stage.
 The CLI runs deterministic Detect first and passes its findings into DeepDebug
 as fallible prior signals. DeepDebug records its own primary attribution in the
 standard report and preserves the upstream Detect summary for Recover.
+`DiagnoseContext` then makes that primary attribution the recovery target, and
+DeepDebug recovery converts the final fix into the standard retry-directive
+shape consumed by Rerun.
 
 ## Compatibility
 

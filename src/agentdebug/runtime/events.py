@@ -9,9 +9,10 @@ on a streaming trace subscribe here; offline detectors continue to walk the
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, DefaultDict, Dict, List, Optional
+from typing import Any, DefaultDict, Dict, List, Optional
 from uuid import uuid4
 
 from agentdebug.schema.models import AgentEvent, AgentTrajectory, DiagnosticReport

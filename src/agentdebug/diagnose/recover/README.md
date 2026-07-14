@@ -26,6 +26,8 @@ Typical strategies include:
 3. Select one or more recovery strategies.
 4. Generate candidate recovery actions or rerun directives.
 5. Preserve evidence and assumptions so the user can audit the recommendation.
+6. Carry the selected proposal, Detect findings, and primary Attribution result
+   into the bounded diagnostic context of the `RerunRequest`.
 
 Self-Refine requests JSON-constrained critic and refined-action fields. Each
 stage validates `finish_reason`, JSON parsing, the required field, and sentence
@@ -39,6 +41,10 @@ finding instead of exposing partial model text. Gateways that reject
 Template-based recovery can run locally. LLM-guided recovery requires configured
 model access. Workflow-specific recovery modes may depend on benchmark or
 executor context supplied later by Rerun.
+
+Recovery never executes the proposal. `requires_human_approval` is portable
+policy metadata for the integrating deployment; callers must enforce their own
+authorization policy before dispatching a live Rerun executor.
 
 ## Extension Rules
 

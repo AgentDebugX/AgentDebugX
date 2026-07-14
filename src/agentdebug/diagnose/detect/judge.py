@@ -10,10 +10,12 @@ space.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Dict, List, Optional
 
 from agentdebug.runtime import LLMClient, extract_json_block
 from agentdebug.schema import (
+    SEED_FAILURE_MODES,
     AgentEvent,
     AgentTrajectory,
     DiagnosticReport,
@@ -23,7 +25,6 @@ from agentdebug.schema import (
     confidence_or_default,
     new_id,
 )
-from agentdebug.schema import SEED_FAILURE_MODES
 
 LOG = logging.getLogger('agentdebug.judges')
 
