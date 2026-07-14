@@ -182,6 +182,85 @@ def test_llm_executor_generates_full_rerun_trajectory(
     assert result.execution.metadata['reported_success'] is True
 
 
+def test_rerun_cleans_failure_fixture_metadata_and_sets_ended_at(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    failed_trajectory.metadata.update(
+        {
+            'fixture': True,
+            'scenario': 'constraint-loss',
+            'expected_outcome': 'failure',
+            'expected_root_cause_event_id': 'evt_plan',
+            'expected_root_cause_step_index': 1,
+            'expected_failure_mode': 'planning.constraint_ignorance',
+            'failure_family': 'planning',
+            'react_format': 'thought-action-observation',
+            'business_context': 'travel',
+        }
+    )
+
+    class LLM:
+        model = 'rerun-model'
+
+        def complete(self, messages, **kwargs):
+            return CompletionResult(
+                text=(
+                    '{"success":true,"events":['
+                    '{"event_type":"run.start","step_index":0},'
+                    '{"event_type":"run.end","step_index":1,'
+                    '"output":{"status":"success"}}]}'
+                ),
+                raw={},
+            )
+
+    result = RerunWorkflow(
+        LLMContinuationExecutor(LLM(), RolloutContext(failed_trajectory))
+    ).run(
+        diagnostic_report,
+        failed_trajectory,
+        execute=True,
+        checkpoint_policy='from_start',
+    )
+
+    assert result.execution is not None
+    trajectory = result.execution.trajectory
+    for key in (
+        'fixture',
+        'scenario',
+        'expected_outcome',
+        'expected_root_cause_event_id',
+        'expected_root_cause_step_index',
+        'expected_failure_mode',
+        'failure_family',
+    ):
+        assert key not in trajectory.metadata
+    assert trajectory.metadata['react_format'] == 'thought-action-observation'
+    assert trajectory.metadata['business_context'] == 'travel'
+    assert trajectory.ended_at == trajectory.events[-1].timestamp
+
+
+def test_rerun_without_terminal_event_keeps_ended_at_unset(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    class LLM:
+        model = 'rerun-model'
+
+        def complete(self, messages, **kwargs):
+            return CompletionResult(
+                text='{"events":[{"event_type":"agent.step","output":"retry"}]}',
+                raw={},
+            )
+
+    result = RerunWorkflow(
+        LLMContinuationExecutor(LLM(), RolloutContext(failed_trajectory))
+    ).run(diagnostic_report, failed_trajectory, execute=True)
+
+    assert result.execution is not None
+    assert result.execution.trajectory.ended_at is None
+
+
 def test_checkpoint_rerun_parents_first_event_to_selected_event(
     failed_trajectory: AgentTrajectory,
     diagnostic_report: DiagnosticReport,

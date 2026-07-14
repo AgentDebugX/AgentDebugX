@@ -102,3 +102,98 @@ def test_self_refine_replaces_truncated_output_with_complete_action(
     assert 'REFINED ACTION:' in proposal.suggestion_text
     assert 'Preserve refund_policy before calling the browser.' in proposal.suggestion_text
     assert proposal.suggestion_text.endswith('side-effecting tool call.')
+
+
+def test_self_refine_retries_length_and_invalid_json_with_larger_budget(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    class AdaptiveLLM:
+        model = 'adaptive'
+
+        def __init__(self) -> None:
+            self.calls = []
+
+        def complete(self, messages, **kwargs):
+            self.calls.append((messages, kwargs))
+            call_index = len(self.calls)
+            if call_index == 1:
+                return CompletionResult(
+                    text='{"critic":"The planner dropped the refund policy."}',
+                    raw={'choices': [{'finish_reason': 'length'}]},
+                )
+            if call_index == 2:
+                return CompletionResult(
+                    text=(
+                        '{"critic":"The planner omitted the refundable-flight '
+                        'constraint, causing the browser call to use an invalid '
+                        'plan."}'
+                    ),
+                    raw={'choices': [{'finish_reason': 'stop'}]},
+                )
+            if call_index == 3:
+                return CompletionResult(
+                    text='{"wrong_field":"retry carefully"}',
+                    raw={'choices': [{'finish_reason': 'stop'}]},
+                )
+            return CompletionResult(
+                text=(
+                    '{"refined_action":"Preserve refund_policy in the plan, '
+                    'then verify it before calling the browser."}'
+                ),
+                raw={'choices': [{'finish_reason': 'stop'}]},
+            )
+
+    llm = AdaptiveLLM()
+    proposal = SelfRefineLoop(llm, max_tokens=512).suggest(
+        failed_trajectory,
+        diagnostic_report,
+    )[0]
+
+    assert len(llm.calls) == 4
+    assert [call[1]['max_tokens'] for call in llm.calls] == [512, 2048, 512, 2048]
+    assert all(
+        call[1]['response_format'] == {'type': 'json_object'}
+        for call in llm.calls
+    )
+    assert 'The planner omitted the refundable-flight constraint' in proposal.suggestion_text
+    assert 'Preserve refund_policy in the plan' in proposal.suggestion_text
+    assert 'previous response was truncated or invalid' in llm.calls[1][0][1]['content']
+
+
+def test_self_refine_retries_without_response_format_when_unsupported(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    class CompatibleLLM:
+        model = 'compat'
+
+        def __init__(self) -> None:
+            self.kwargs = []
+
+        def complete(self, messages, **kwargs):
+            self.kwargs.append(kwargs)
+            if 'response_format' in kwargs:
+                raise RuntimeError('response_format is unsupported')
+            field = 'critic' if len(self.kwargs) == 2 else 'refined_action'
+            value = (
+                'The planner dropped the required refund policy before the tool call.'
+                if field == 'critic'
+                else 'Preserve refund_policy and verify it before calling the browser.'
+            )
+            return CompletionResult(
+                text=f'{{"{field}":"{value}"}}',
+                raw={'choices': [{'finish_reason': 'stop'}]},
+            )
+
+    llm = CompatibleLLM()
+    proposal = SelfRefineLoop(llm).suggest(
+        failed_trajectory,
+        diagnostic_report,
+    )[0]
+
+    assert len(llm.kwargs) == 3
+    assert 'response_format' in llm.kwargs[0]
+    assert 'response_format' not in llm.kwargs[1]
+    assert 'response_format' not in llm.kwargs[2]
+    assert 'Preserve refund_policy' in proposal.suggestion_text

@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
+from agentdebug.runtime import extract_json_block
 from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
@@ -418,7 +419,9 @@ Your job: in 2-4 short sentences, explain WHAT went wrong at that step and
 WHY it caused the failure. Do not propose a fix yet — that's the next round.
 Be concrete; reference the evidence.
 
-Output plain text. No JSON, no markdown."""
+Return ONLY a complete JSON object with this exact schema:
+{"critic": "<2-4 complete sentences>"}
+Do not output markdown or text outside the JSON object."""
 
 
 _SELF_REFINE_REFINER_PROMPT = """You are AgentDebugX-SelfRefine acting as the
@@ -433,7 +436,9 @@ If the failure is in tool args, give the exact corrected arg shape. If the
 failure is in planning, give the next plan step. If the failure is in
 reflection, give the next verification check.
 
-Output plain text. No JSON, no markdown."""
+Return ONLY a complete JSON object with this exact schema:
+{"refined_action": "<2-4 complete operational sentences>"}
+Do not output markdown or text outside the JSON object."""
 
 
 class SelfRefineLoop:
@@ -464,6 +469,7 @@ class SelfRefineLoop:
         self.llm = llm
         self.max_iters = max(1, max_iters)
         self.max_tokens = max_tokens
+        self._supports_response_format = True
 
     def suggest(
         self,
@@ -503,6 +509,7 @@ class SelfRefineLoop:
                         f'\n\nPRIOR REFINED ACTION (improve on this if needed):\n'
                         f'{last_refined}' if last_refined else ''
                     ),
+                    field='critic',
                 )
                 if not critic_text:
                     break
@@ -510,6 +517,7 @@ class SelfRefineLoop:
                 refined_text = self._call(
                     system=_SELF_REFINE_REFINER_PROMPT,
                     user=finding_block + f'\n\nCRITIC ANALYSIS:\n{critic_text}',
+                    field='refined_action',
                 )
                 if not refined_text:
                     break
@@ -517,8 +525,6 @@ class SelfRefineLoop:
         except Exception:
             # Defensive: never break the host pipeline on LLM hiccup.
             pass
-        if not last_critic and not last_refined:
-            return None
         fallback_action = self._fallback_action(finding)
         if not self._looks_complete(last_refined):
             last_refined = fallback_action
@@ -553,17 +559,59 @@ class SelfRefineLoop:
             requires_human_approval=False,
         )
 
-    def _call(self, *, system: str, user: str) -> str:
-        messages = [
-            {'role': 'system', 'content': system},
-            {'role': 'user', 'content': user},
-        ]
-        # Direct attribute access — llm is duck-typed (see __init__ note).
-        result = self.llm.complete(  # type: ignore[attr-defined]
-            messages=messages, max_tokens=self.max_tokens
+    def _call(self, *, system: str, user: str, field: str) -> str:
+        retry_budget = min(max(self.max_tokens * 4, self.max_tokens + 512), 8192)
+        budgets = (self.max_tokens, retry_budget)
+        for attempt, token_budget in enumerate(budgets):
+            retry_note = (
+                '\n\nYour previous response was truncated or invalid. '
+                'Regenerate the complete JSON object from the beginning.'
+                if attempt else ''
+            )
+            messages = [
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': user + retry_note},
+            ]
+            try:
+                kwargs: Dict[str, Any] = {'max_tokens': token_budget}
+                if self._supports_response_format:
+                    kwargs['response_format'] = {'type': 'json_object'}
+                result = self.llm.complete(  # type: ignore[attr-defined]
+                    messages=messages,
+                    **kwargs,
+                )
+            except Exception as exc:
+                if self._response_format_unsupported(exc):
+                    self._supports_response_format = False
+                continue
+            raw = getattr(result, 'raw', {}) or {}
+            text = str(getattr(result, 'text', '') or '').strip()
+            parsed = extract_json_block(text)
+            value = str(parsed.get(field) or '').strip() if parsed else ''
+            if not self._is_length_limited(raw) and self._looks_complete(value):
+                return value
+        return ''
+
+    @staticmethod
+    def _response_format_unsupported(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return 'response_format' in message and any(
+            marker in message
+            for marker in ('unsupported', 'not support', 'unknown', 'invalid')
         )
-        text = getattr(result, 'text', '') or ''
-        return str(text).strip()
+
+    @staticmethod
+    def _is_length_limited(raw: Dict[str, Any]) -> bool:
+        choices = raw.get('choices') or []
+        choice = choices[0] if choices else {}
+        reason = str(
+            choice.get('finish_reason')
+            or choice.get('stop_reason')
+            or raw.get('finish_reason')
+            or raw.get('stop_reason')
+            or ''
+        ).strip().lower()
+        return reason == 'length' or 'token' in reason
 
     @staticmethod
     def _looks_complete(text: str) -> bool:
