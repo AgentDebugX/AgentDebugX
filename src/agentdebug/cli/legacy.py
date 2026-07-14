@@ -22,6 +22,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional, Sequence
+from urllib.parse import urlparse
 
 from agentdebug.analyzers import HeuristicAnalyzer
 from agentdebug.attribution import (
@@ -321,9 +322,46 @@ def _add_rerun_args(parser: argparse.ArgumentParser) -> None:
     _add_store_args(parser, required=False)
     _add_llm_args(parser)
     parser.add_argument(
+        '--runner-command',
+        help=(
+            'Trusted framework runner command for live model/tool execution. '
+            'Defaults to AGENTDEBUG_RERUN_COMMAND.'
+        ),
+    )
+    parser.add_argument(
+        '--runner',
+        help='Named persistent HTTP runner saved by `agentdebug config set-runner`.',
+    )
+    parser.add_argument(
+        '--runner-cwd',
+        help='Working directory for the live framework runner.',
+    )
+    parser.add_argument(
+        '--runner-timeout',
+        type=float,
+        default=1800.0,
+        help='Live runner timeout in seconds (default: 1800).',
+    )
+    parser.add_argument(
+        '--simulate',
+        action='store_true',
+        help=(
+            'Explicitly allow an LLM-generated simulated rollout. This does '
+            'not execute tools and is never treated as live execution.'
+        ),
+    )
+    parser.add_argument(
         '--plan-only',
         action='store_true',
         help='Build the rerun request without calling the configured model.',
+    )
+    parser.add_argument(
+        '--actor-task-format',
+        choices=['jsonl', 'parquet'],
+        help=(
+            'With --plan-only, export one pending actor rollout task instead '
+            'of the workflow JSON.'
+        ),
     )
     parser.add_argument('--out', help='Optional output path for rerun result JSON')
 
@@ -455,6 +493,47 @@ def _add_config_subcommands(parser: argparse.ArgumentParser) -> None:
     p_doctor.add_argument('--base-url', dest='base_url', default=None)
     p_doctor.add_argument('--api-key', dest='api_key', default=None)
     p_doctor.set_defaults(handler=_cmd_config)
+
+    p_runner = config_sub.add_parser(
+        'set-runner', help='Save a persistent HTTP agent runner'
+    )
+    p_runner.add_argument('name', help='Local runner name')
+    p_runner.add_argument('--url', required=True, help='Runner service base URL')
+    p_runner.add_argument(
+        '--token-env',
+        default=None,
+        help='Environment variable containing the bearer token',
+    )
+    p_runner.add_argument('--timeout', type=float, default=1800.0)
+    p_runner.add_argument('--poll-interval', type=float, default=1.0)
+    p_runner.add_argument(
+        '--insecure', action='store_true', help='Disable TLS certificate verification'
+    )
+    p_runner.add_argument('--default', action='store_true')
+    p_runner.set_defaults(handler=_cmd_config)
+
+    p_list_runners = config_sub.add_parser(
+        'list-runners', help='List configured HTTP runners'
+    )
+    p_list_runners.set_defaults(handler=_cmd_config)
+
+    p_use_runner = config_sub.add_parser(
+        'use-runner', help='Select the default HTTP runner'
+    )
+    p_use_runner.add_argument('name')
+    p_use_runner.set_defaults(handler=_cmd_config)
+
+    p_remove_runner = config_sub.add_parser(
+        'remove-runner', help='Remove a configured HTTP runner'
+    )
+    p_remove_runner.add_argument('name')
+    p_remove_runner.set_defaults(handler=_cmd_config)
+
+    p_doctor_runner = config_sub.add_parser(
+        'doctor-runner', help='Verify an HTTP runner and print capabilities'
+    )
+    p_doctor_runner.add_argument('name', nargs='?')
+    p_doctor_runner.set_defaults(handler=_cmd_config)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -638,7 +717,13 @@ def _cmd_diagnose(args: argparse.Namespace) -> int:
         return 0
     rendered = model_to_json(report, indent=2)
     if args.suggest:
-        proposals = ReflexionSuggestion().suggest(trajectory, report)
+        from agentdebug.diagnose.context import DiagnoseContext
+        from agentdebug.diagnose.recover import suggest_from_context
+
+        proposals = suggest_from_context(
+            ReflexionSuggestion(),
+            DiagnoseContext.build(trajectory, report),
+        )
         rendered = _augment_with_suggestions(rendered, report, proposals)
     _emit(rendered, args.out)
     return 0
@@ -745,10 +830,94 @@ def _cmd_config(args: argparse.Namespace) -> int:
         print(json.dumps({'ok': True, 'model': llm.model, 'response': text}, indent=2))
         return 0
 
+    if sub == 'set-runner':
+        try:
+            name = _validate_runner_name(args.name)
+            runner = _runner_config_from_args(args)
+        except ValueError as exc:
+            print(f'runner config failed: {exc}', file=sys.stderr)
+            return 2
+        config = _load_cli_config()
+        runners = config.setdefault('runners', {})
+        if not isinstance(runners, dict):
+            runners = {}
+            config['runners'] = runners
+        runners[name] = runner
+        if args.default or not config.get('default_runner'):
+            config['default_runner'] = name
+        path = _write_cli_config(config)
+        print(f'wrote runner {name!r} -> {path}')
+        return 0
+
+    if sub == 'list-runners':
+        config = _load_cli_config()
+        runners = config.get('runners') or {}
+        print(
+            json.dumps(
+                {
+                    'default_runner': config.get('default_runner'),
+                    'runners': runners if isinstance(runners, dict) else {},
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if sub == 'use-runner':
+        config = _load_cli_config()
+        runners = config.get('runners') or {}
+        if not isinstance(runners, dict) or args.name not in runners:
+            print(f'unknown runner: {args.name}', file=sys.stderr)
+            return 2
+        config['default_runner'] = args.name
+        path = _write_cli_config(config)
+        print(f'default runner is now {args.name!r} -> {path}')
+        return 0
+
+    if sub == 'remove-runner':
+        config = _load_cli_config()
+        runners = config.get('runners') or {}
+        if not isinstance(runners, dict) or args.name not in runners:
+            print(f'unknown runner: {args.name}', file=sys.stderr)
+            return 2
+        runners.pop(args.name)
+        if config.get('default_runner') == args.name:
+            config['default_runner'] = next(iter(runners), None)
+        path = _write_cli_config(config)
+        print(f'removed runner {args.name!r} -> {path}')
+        return 0
+
+    if sub == 'doctor-runner':
+        executor = None
+        try:
+            name, runner = _configured_runner(args.name)
+            executor = _http_executor_from_config(runner, source=None)
+            capabilities = executor.capabilities()
+        except Exception as exc:
+            print(f'runner config check failed: {exc}', file=sys.stderr)
+            return 5
+        finally:
+            if executor is not None:
+                executor.close()
+        print(json.dumps({'ok': True, 'runner': name, 'capabilities': capabilities}, indent=2))
+        return 0
+
     return 1
 
 
 def _cmd_rerun(args: argparse.Namespace) -> int:
+    if args.actor_task_format and not args.plan_only:
+        print('--actor-task-format requires --plan-only.', file=sys.stderr)
+        return 2
+    if args.plan_only and args.simulate:
+        print('rerun accepts either --plan-only or --simulate, not both.', file=sys.stderr)
+        return 2
+    if args.plan_only and (args.runner_command or args.runner):
+        print(
+            'rerun accepts either --plan-only or a live runner, not both.',
+            file=sys.stderr,
+        )
+        return 2
     report_path = Path(args.diagnostic_report)
     try:
         report_payload = json.loads(report_path.read_text(encoding='utf-8'))
@@ -775,6 +944,43 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
             trajectory,
             checkpoint_policy='from_start',
         )
+        if args.actor_task_format:
+            if trajectory is None:
+                print(
+                    'actor task export requires --trajectory with the original trace.',
+                    file=sys.stderr,
+                )
+                return 2
+            if not args.out:
+                print(
+                    'actor task export requires --out ending in .jsonl or .parquet.',
+                    file=sys.stderr,
+                )
+                return 2
+            expected_suffix = f'.{args.actor_task_format}'
+            if Path(args.out).suffix.lower() != expected_suffix:
+                print(
+                    f'--actor-task-format {args.actor_task_format} requires '
+                    f'an {expected_suffix} --out path.',
+                    file=sys.stderr,
+                )
+                return 2
+            from agentdebug.rerun import (
+                build_actor_rerun_task,
+                export_actor_rerun_tasks,
+            )
+
+            task = build_actor_rerun_task(plan.request, report, trajectory)
+            try:
+                export_actor_rerun_tasks(
+                    [task],
+                    args.out,
+                    format=args.actor_task_format,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                print(f'actor task export failed: {exc}', file=sys.stderr)
+                return 5
+            return 0
         payload = {
             'stage': 'rerun',
             'status': plan.status,
@@ -793,15 +999,60 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    llm = _build_llm(args, command_name='rerun')
-    if llm is None:
-        return 4
+    runner_command = str(
+        args.runner_command or os.environ.get('AGENTDEBUG_RERUN_COMMAND') or ''
+    ).strip()
+    explicit_modes = sum(
+        bool(value) for value in (runner_command, args.runner, args.simulate)
+    )
+    if explicit_modes > 1:
+        print(
+            'rerun accepts only one of --runner, --runner-command, or --simulate.',
+            file=sys.stderr,
+        )
+        return 2
+    if args.runner:
+        try:
+            _, runner = _configured_runner(args.runner)
+            executor = _http_executor_from_config(runner, trajectory)
+        except Exception as exc:
+            print(f'rerun failed: {exc}', file=sys.stderr)
+            return 4
+        workflow = RerunWorkflow(executor)
+    elif runner_command:
+        from agentdebug.rerun import ProcessLiveExecutor
 
-    from agentdebug.rerun import LLMContinuationExecutor, RolloutContext
+        runner_env = _live_runner_llm_env(args)
+        executor = ProcessLiveExecutor(
+            runner_command,
+            trajectory,
+            cwd=args.runner_cwd,
+            timeout=args.runner_timeout,
+            env=runner_env,
+        )
+        workflow = RerunWorkflow(executor)
+    elif args.simulate:
+        llm = _build_llm(args, command_name='rerun --simulate')
+        if llm is None:
+            return 4
+        from agentdebug.rerun import LLMContinuationExecutor, RolloutContext
 
-    executor = LLMContinuationExecutor(llm, RolloutContext(trajectory))
+        executor = LLMContinuationExecutor(llm, RolloutContext(trajectory))
+        workflow = RerunWorkflow(executor, allow_simulated=True)
+    else:
+        try:
+            _, runner = _configured_runner(None)
+            executor = _http_executor_from_config(runner, trajectory)
+            workflow = RerunWorkflow(executor)
+        except ValueError:
+            print(
+                'rerun requires a configured HTTP runner, --runner-command, or '
+                '--simulate. Add one with `agentdebug config set-runner`.',
+                file=sys.stderr,
+            )
+            return 4
     try:
-        result = RerunWorkflow(executor).run(
+        result = workflow.run(
             report,
             trajectory,
             execute=True,
@@ -810,6 +1061,10 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f'rerun failed: {exc}', file=sys.stderr)
         return 5
+    finally:
+        close = getattr(locals().get('executor'), 'close', None)
+        if callable(close):
+            close()
 
     payload = result.to_dict()
     if result.execution is not None:
@@ -822,6 +1077,32 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
     payload['diagnostic_report'] = report_payload
     _emit(json.dumps(payload, indent=2), args.out)
     return 0
+
+
+def _live_runner_llm_env(args: argparse.Namespace) -> dict[str, str]:
+    """Pass configured model access to the trusted runner without serializing it."""
+
+    values = {
+        'AGENTDEBUG_LIVE_BASE_URL': _resolve_llm_option(
+            args,
+            attr='base_url',
+            env_name='AGENTDEBUG_LLM_BASE_URL',
+            config_key='base_url',
+        ),
+        'AGENTDEBUG_LIVE_API_KEY': _resolve_llm_option(
+            args,
+            attr='api_key',
+            env_name='AGENTDEBUG_LLM_API_KEY',
+            config_key='api_key',
+        ),
+        'AGENTDEBUG_LIVE_MODEL': _resolve_llm_option(
+            args,
+            attr='model',
+            env_name='AGENTDEBUG_LLM_MODEL',
+            config_key='model',
+        ),
+    }
+    return {key: str(value) for key, value in values.items() if value}
 
 
 def _parse_diagnostic_report(payload: dict[str, Any]) -> DiagnosticReport:
@@ -1061,6 +1342,80 @@ def _configured_llm() -> dict[str, Any]:
     return llm if isinstance(llm, dict) else {}
 
 
+def _validate_runner_name(value: object) -> str:
+    name = str(value or '').strip()
+    if not name or not all(character.isalnum() or character in '-_' for character in name):
+        raise ValueError('runner name must contain only letters, numbers, - or _')
+    return name
+
+
+def _runner_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    from agentdebug.rerun import normalize_http_runner_url
+
+    url = normalize_http_runner_url(str(args.url or ''))
+    parsed = urlparse(url)
+    if (
+        parsed.scheme not in {'http', 'https'}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+    ):
+        raise ValueError('runner URL must be an absolute http:// or https:// URL')
+    if args.timeout <= 0 or args.poll_interval < 0:
+        raise ValueError('runner timeout must be positive and poll interval non-negative')
+    token_env = str(args.token_env or '').strip() or None
+    if token_env and not token_env.replace('_', '').isalnum():
+        raise ValueError('token environment variable name is invalid')
+    return {
+        'url': url,
+        'token_env': token_env,
+        'timeout': float(args.timeout),
+        'poll_interval': float(args.poll_interval),
+        'verify_tls': not bool(args.insecure),
+    }
+
+
+def _configured_runner(name: Optional[str]) -> tuple[str, dict[str, Any]]:
+    config = _load_cli_config()
+    runner_name = _validate_runner_name(name or config.get('default_runner'))
+    runners = config.get('runners') or {}
+    if not isinstance(runners, dict) or runner_name not in runners:
+        raise ValueError(f'unknown runner: {runner_name}')
+    runner = runners[runner_name]
+    if not isinstance(runner, dict):
+        raise ValueError(f'invalid runner configuration: {runner_name}')
+    return runner_name, runner
+
+
+def _http_executor_from_config(
+    config: dict[str, Any],
+    source: Optional[AgentTrajectory],
+) -> Any:
+    from agentdebug.rerun import HttpLiveExecutor, normalize_http_runner_url
+
+    url = normalize_http_runner_url(str(config.get('url') or ''))
+    parsed = urlparse(url)
+    if (
+        parsed.scheme not in {'http', 'https'}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+    ):
+        raise ValueError('configured runner URL is invalid')
+    token_env = str(config.get('token_env') or '').strip()
+    token = os.environ.get(token_env) if token_env else None
+    if token_env and not token:
+        raise ValueError(f'runner token environment variable is not set: {token_env}')
+    return HttpLiveExecutor(
+        url,
+        source or AgentTrajectory(trace_id='runner_doctor_probe'),
+        token=token,
+        timeout=float(config.get('timeout') or 1800),
+        poll_interval=float(config.get('poll_interval') or 1),
+        verify_tls=bool(config.get('verify_tls', True)),
+    )
+
+
 def _mask_secret(value: object) -> object:
     text = '' if value is None else str(value)
     if len(text) <= 8:
@@ -1197,14 +1552,38 @@ def _run_diagnose_mode(
         from agentdebug.deep import DeepDebugAnalyzer
         from agentdebug.deep_memory import SQLiteDeepMemoryStore
 
+        detect_report = HeuristicAnalyzer(
+            rule_packs=args.rule_pack or 'auto'
+        ).analyze(trajectory)
         memory_store = (
             SQLiteDeepMemoryStore(embedder=llm)
             if getattr(args, 'embedding_model', None)
             else SQLiteDeepMemoryStore()
         )
-        return DeepDebugAnalyzer(llm=llm, memory_store=memory_store).analyze(
-            trajectory
-        ).report
+        report = DeepDebugAnalyzer(
+            llm=llm,
+            memory_store=memory_store,
+            prior_findings=detect_report.findings,
+        ).analyze(trajectory).report
+        report.metadata['upstream_detect'] = {
+            'analyzer': detect_report.metadata.get('analyzer'),
+            'summary': detect_report.summary,
+            'finding_count': len(detect_report.findings),
+            'findings': [
+                {
+                    'finding_id': finding.finding_id,
+                    'failure_mode_id': finding.failure_mode.mode_id,
+                    'failure_mode_name': finding.failure_mode.name,
+                    'event_id': finding.event_id,
+                    'agent_name': finding.agent_name,
+                    'step_index': finding.step_index,
+                    'evidence': list(finding.evidence),
+                    'suggestion': finding.suggestion,
+                }
+                for finding in detect_report.findings
+            ],
+        }
+        return report
 
     if diagnose_mode == 'gui-rca':
         # OSWorld GUI root-cause analysis. Hard prerequisite: the configured
@@ -1232,12 +1611,16 @@ def _run_diagnose_pipeline(
 ) -> DiagnosticReport:
     """Run the shared Detect -> Attribute -> Recover CLI pipeline."""
 
+    from agentdebug.diagnose.context import DiagnoseContext
+
     report = _run_diagnose_mode(args, trajectory, diagnose_mode, llm)
-    if attributor_mode != 'none':
-        blame = _run_attributor(attributor_mode, trajectory, report, llm)
-        report.attribution = _attribution_to_payload(blame)
+    attribution = None
+    if attributor_mode != 'none' and diagnose_mode != 'deep':
+        attribution = _run_attributor(attributor_mode, trajectory, report, llm)
+        report.attribution = _attribution_to_payload(attribution)
+    context = DiagnoseContext.build(trajectory, report, attribution)
     if recovery_mode != 'none':
-        proposals = _run_recovery(recovery_mode, trajectory, report, llm)
+        proposals = _run_recovery(recovery_mode, context, llm)
         report.suggestions = [proposal.suggestion_text for proposal in proposals]
         report.recovery = _recovery_to_payload(recovery_mode, proposals)
     return report
@@ -1271,26 +1654,27 @@ def _run_attributor(
 
 def _run_recovery(
     recovery_mode: str,
-    trajectory: AgentTrajectory,
-    report: DiagnosticReport,
+    context: Any,
     llm: Optional[Any],
 ) -> list[FixProposal]:
+    from agentdebug.diagnose.recover import suggest_from_context
+
     if recovery_mode == 'deepdebug':
-        return DeepDebugRecovery().suggest(trajectory, report)
+        return suggest_from_context(DeepDebugRecovery(), context)
     if recovery_mode == 'reflexion':
-        return ReflexionSuggestion().suggest(trajectory, report)
+        return suggest_from_context(ReflexionSuggestion(), context)
     if recovery_mode == 'critic':
-        return CriticRecoverer().suggest(trajectory, report)
+        return suggest_from_context(CriticRecoverer(), context)
     if recovery_mode == 'self_refine':
         if llm is None:
             raise ValueError('self_refine recovery requires an LLM client')
-        return SelfRefineLoop(llm=llm).suggest(trajectory, report)
+        return suggest_from_context(SelfRefineLoop(llm=llm), context)
     if recovery_mode == 'auto_manual':
-        return AutoManualRules(llm=llm).suggest(trajectory, report)
+        return suggest_from_context(AutoManualRules(llm=llm), context)
     if recovery_mode == 'saga_rollback':
         # No compensations are registered from CLI yet; this safely returns
         # an empty plan unless a future runner wires project-specific tools.
-        return SagaRollback(Compensator()).suggest(trajectory, report)
+        return suggest_from_context(SagaRollback(Compensator()), context)
 
     raise ValueError(f'unknown recovery mode: {recovery_mode}')
 

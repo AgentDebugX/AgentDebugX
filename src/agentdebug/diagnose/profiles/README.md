@@ -15,7 +15,10 @@ between those stages and should not be composed as a single stage component.
 
 Every run exposes these stages as `DeepDebugRound` entries named
 `global_read`, `structure_probe`, `cross_examine`, and
-`diagnose_and_suggest`. The typed `AaoMoeAnalysis` result preserves both
+`diagnose_and_suggest`. The same entries are written to the standard
+`DiagnosticReport.audit` field, so CLI JSON retains each stage's summaries,
+duration, candidates, narrowing decisions, and adjudication payload. The typed
+`AaoMoeAnalysis` result preserves both
 candidates, every cascade/bisection narrowing decision, the final candidate
 window, and the adjudication verdict. `DeepDebugDiagnosis` carries the final
 summary, evidence, and suggestion after localization is fixed.
@@ -32,6 +35,10 @@ deterministic excerpt from the resolved root event instead.
 The profile may consume attribution algorithms and memory services, but those
 remain independently owned by `diagnose/attribute/`. It never executes the
 original agent or performs the Rerun stage.
+
+The CLI runs deterministic Detect first and passes its findings into DeepDebug
+as fallible prior signals. DeepDebug records its own primary attribution in the
+standard report and preserves the upstream Detect summary for Recover.
 
 ## Compatibility
 

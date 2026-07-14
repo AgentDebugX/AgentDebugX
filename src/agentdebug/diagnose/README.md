@@ -18,9 +18,11 @@ in the Error Hub, or passed into Rerun.
 
 1. Detect identifies visible failure signals in events or full trajectories.
 2. Attribute maps those signals to likely root causes.
-3. Recover proposes repair strategies, prompts, rollback points, or rerun
-   directives.
-4. `pipeline.py` coordinates local default execution across the three stages.
+3. `DiagnoseContext` preserves the detector findings and promotes the primary
+   attribution to the recovery target.
+4. Recover proposes repair strategies, prompts, rollback points, or rerun
+   directives from that target.
+5. `pipeline.py` coordinates local default execution across the three stages.
 
 ## Components
 
@@ -59,4 +61,3 @@ API configuration.
 - Put repair strategy generation in `recover/`.
 - Register new components with a manifest under `component_manifests/<stage>/`.
 - Keep legacy paths such as `diagnose/actions` and `diagnose/rules` as shims.
-

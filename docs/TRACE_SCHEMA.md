@@ -1,235 +1,289 @@
-# 04 — Canonical Trace Schema
+# Canonical Trace Schema
 
-## 1. Goal
+This document describes the schema implemented by the current AgentDebugX
+codebase. It is a runtime contract, not a roadmap.
 
-A single, framework-agnostic representation of an agent run that:
+The source of truth is `src/agentdebug/schema/models.py`. Public imports live
+under `agentdebug.schema`; legacy imports under `agentdebug.core` remain
+available as compatibility shims.
 
-1. **Wire-compatible with OpenTelemetry GenAI semantic conventions** — every backend that speaks OTel can ingest AgentDebugX traces verbatim.
-2. **Rich enough for failure attribution** — captures intent, observations, intermediate state, parent–child relationships across agents.
-3. **Replayable** — enough info to re-execute a step under a counterfactual or with a different model.
-4. **Versioned** — schema lives in `agentdebugx.schema` with a `schema_version` field on every record.
+## 1. Scope
 
-## 2. Top-level objects
+AgentDebugX uses one framework-independent intermediate representation for an
+agent execution:
 
-```
-Run                # one user-initiated agent invocation
-├── Session        # logical container (multi-run threads, e.g. chat sessions)
-└── Trace          # tree of Spans
-    └── Span       # one operation: agent, llm, tool, retrieval, handoff
-        ├── Events # discrete records inside a span (messages, decisions)
-        └── Links  # cross-span references (e.g. handoff target)
+```text
+AgentTrajectory
+└── events: list[AgentEvent]
+    └── artifacts: list[Artifact]
 ```
 
-Mapping to OTel:
+Diagnose produces a separate report linked by `trace_id`:
 
-- `Run` ↔ root `Span` with `gen_ai.operation.name=invoke_workflow`
-- `Trace` ↔ OTel trace
-- `Span` ↔ OTel span
-- `Events` ↔ OTel span events (`gen_ai.user.message`, `gen_ai.assistant.message`, `gen_ai.tool.message`, plus AgentDebugX custom events)
-
-## 3. Pydantic models (schema-of-record)
-
-```python
-class Run(BaseModel):
-    schema_version: str = "0.1.0"
-    run_id: str                    # ULID
-    session_id: str | None
-    project: str
-    framework: FrameworkId         # autogen | langgraph | crewai | …
-    status: Literal["pending", "running", "succeeded", "failed", "aborted"]
-    started_at: datetime
-    finished_at: datetime | None
-    config: dict                   # model, temperature, tools, etc.
-    inputs: dict
-    outputs: dict | None
-    error: ErrorInfo | None
-    trace_id: str                  # OTel trace_id
-
-class Span(BaseModel):
-    span_id: str
-    parent_span_id: str | None
-    trace_id: str
-    operation: Literal[
-        "invoke_workflow", "create_agent", "invoke_agent",
-        "chat", "text_completion", "embeddings",
-        "execute_tool", "retrieve_context",
-        "handoff", "delegate",
-    ]
-    agent: AgentRef | None
-    started_at: datetime
-    finished_at: datetime | None
-    status: SpanStatus
-    attributes: dict               # all OTel gen_ai.* attributes
-    events: list[SpanEvent]
-    links: list[SpanLink]
-    raw: dict                      # framework-specific original payload (preserved)
-
-class AgentRef(BaseModel):
-    id: str                        # gen_ai.agent.id
-    name: str                      # gen_ai.agent.name
-    description: str | None        # gen_ai.agent.description
-    version: str | None
-    role: str | None
-    tools: list[ToolDef]
-
-class ToolDef(BaseModel):
-    name: str
-    description: str
-    schema: dict                   # JSON schema of args
-    side_effect: Literal["none", "read", "write", "external"]
-    compensation: str | None       # name of a registered compensation tool
-
-class SpanEvent(BaseModel):
-    timestamp: datetime
-    name: str                      # gen_ai.user.message etc.
-    attributes: dict
-
-class Message(BaseModel):          # used inside chat span events
-    role: Literal["system", "user", "assistant", "tool"]
-    content: str | list[ContentPart]
-    name: str | None
-    tool_calls: list[ToolCall] | None
-    tool_call_id: str | None
-
-class ToolCall(BaseModel):
-    id: str
-    name: str
-    arguments: dict
-    result: dict | None
-    error: str | None
-    duration_ms: int | None
+```text
+DiagnosticReport
+├── findings: list[FailureFinding]
+├── attribution: dict | null
+├── recovery: dict | null
+└── audit: list[DiagnosticAuditEntry]
 ```
 
-### 3.1 Runtime-control extension records
+The repository does not currently define `Run`, `Session`, `Trace`, or `Span`
+Pydantic models. OpenTelemetry support is an optional export adapter that maps
+an `AgentTrajectory` to spans; the canonical stored representation remains the
+trajectory/event model documented here.
 
-The schema should also reserve first-class records for live control decisions,
-inspired by Claude Code's hooks, permissions, and subagent lifecycle model.
+## 2. AgentTrajectory
 
-```python
-class DecisionRecord(BaseModel):
-    decision_id: str
-    span_id: str
-    hook_point: Literal[
-        "before_tool_use", "after_tool_use",
-        "before_agent_step", "after_agent_step",
-        "before_handoff", "after_handoff",
-        "before_stop", "after_stop",
-        "before_recovery_apply", "after_recovery_apply",
-        "before_memory_write", "before_external_side_effect",
-    ]
-    decision: Literal["observe", "annotate", "allow", "block", "escalate", "rewrite", "retry"]
-    source: str                    # detector / policy / human / plugin id
-    rationale: str
-    policy_rule_id: str | None
-    human_approval_id: str | None
-    payload_before_hash: str | None
-    payload_after_hash: str | None
+`AgentTrajectory` represents one recorded agent run.
 
-class HandoffContract(BaseModel):
-    source_agent_id: str
-    target_agent_id: str
-    delegation_prompt_hash: str
-    expected_output_schema: dict | None
-    tool_surface: list[str]
-    context_scope: Literal["none", "summary", "selected_events", "full_trace"]
-    omitted_context_summary: str | None
-    return_payload_hash: str | None
-    stop_reason: str | None
+| Field | Type | Required | Meaning |
+|---|---|---:|---|
+| `trace_id` | `str` | generated by default | Stable identifier for the run |
+| `task_id` | `str \| null` | no | External task or benchmark identifier |
+| `goal` | `str \| null` | no | User or benchmark objective |
+| `framework` | `str \| null` | no | Source framework or adapter label |
+| `started_at` | `datetime` | generated by default | UTC run start timestamp |
+| `ended_at` | `datetime \| null` | no | UTC completion timestamp when known |
+| `metadata` | `dict[str, Any]` | default `{}` | Source-specific context and provenance |
+| `events` | `list[AgentEvent]` | default `[]` | Events in recorded execution order |
 
-class ContextBudget(BaseModel):
-    component_id: str
-    load_time: Literal["startup", "per_run", "per_step", "on_demand", "offline"]
-    context_cost: Literal["none", "metadata", "bounded_excerpt", "full_trace"]
-    latency_budget_ms: int | None
-    privacy_surface: Literal["local", "model_visible", "external_service"]
+`add_event(event)` appends an event. `prefix(n)` returns a trajectory copy with
+only the first `n` events and is used by attribution algorithms.
+
+## 3. AgentEvent
+
+`AgentEvent` is the smallest normalized execution record.
+
+| Field | Type | Required | Meaning |
+|---|---|---:|---|
+| `event_id` | `str` | generated by default | Event identity within the trajectory |
+| `trace_id` | `str` | yes | Owning trajectory |
+| `parent_event_id` | `str \| null` | no | Parent event for causal or branch linkage |
+| `agent_name` | `str` | default `agent` | Agent responsible for the event |
+| `event_type` | `EventType` | default `agent.step` | Normalized event category |
+| `module` | `str \| null` | no | Tool, subsystem, or framework module |
+| `step_index` | `int \| null` | no | Framework step label; not globally unique |
+| `timestamp` | `datetime` | generated by default | UTC event timestamp |
+| `input` | `Any` | no | Input visible at this event |
+| `output` | `Any` | no | Observable event output |
+| `error` | `str \| null` | no | Recorded error text |
+| `duration_ms` | `float \| null` | no | Event duration when available |
+| `metadata` | `dict[str, Any]` | default `{}` | Adapter-specific structured data |
+| `artifacts` | `list[Artifact]` | default `[]` | Linked files or multimodal evidence |
+
+Event identity should use `event_id`. A `step_index` may repeat across agents or
+across thought, action, and observation events. Attribution and rerun code
+therefore resolve events with `event_id` first and use step/agent information as
+supporting context.
+
+### EventType values
+
+```text
+run.start       run.end          agent.step      llm.call
+llm.response    tool.call        tool.result     memory.read
+memory.write    reflection       plan            handoff
+guardrail       observation      error           human.feedback
 ```
 
-These records let AgentDebugX answer questions that ordinary traces cannot:
+## 4. Artifact
 
-- Was a dangerous action blocked before execution?
-- Which policy or hook escalated the action?
-- Did a recovery rewrite a payload?
-- What exact context did a subagent receive?
-- Did a stop gate prevent premature success?
+`Artifact` links non-inline evidence to an event.
 
-## 4. Required OTel GenAI attributes
-
-Every span MUST carry the appropriate subset:
-
-```
-gen_ai.system                    openai | anthropic | google | …
-gen_ai.operation.name            chat | execute_tool | invoke_agent | …
-gen_ai.agent.id / name           if span is agent-scoped
-gen_ai.request.model             on chat / completion spans
-gen_ai.response.model
-gen_ai.usage.input_tokens
-gen_ai.usage.output_tokens
-gen_ai.request.temperature       optional
-gen_ai.request.max_tokens        optional
-gen_ai.tool.name                 on execute_tool spans
-gen_ai.tool.call.id              on execute_tool spans
-gen_ai.tool.definitions          on agent spans (JSON schema list)
-```
-
-AgentDebugX adds a small `agentdebugx.*` namespace for non-standardized fields:
-
-```
-agentdebugx.step_index           monotonic step counter inside a run
-agentdebugx.adapter              which adapter produced this span
-agentdebugx.detected_errors      list of DetectedError IDs attached
-agentdebugx.blame                Blame object IDs attached
-agentdebugx.checkpoint_id        if a checkpoint was taken here
-agentdebugx.parent_run_id        if span is part of a retry chain
-```
-
-## 5. Trace as a "step list"
-
-Many algorithms (Binary-Search attribution, ddmin, SBFL) need a *linear* view. AgentDebugX derives a canonical step list from the span tree:
-
-```python
-def steps(trace: Trace) -> list[Step]:
-    """
-    Walk the span tree depth-first; emit a Step for each
-    invoke_agent | execute_tool | chat | handoff span.
-    """
-```
-
-A `Step` is a frozen view of a single decision point with all surrounding context (input messages, output messages, tool call, tool result), suitable for replay.
-
-## 6. Storage
-
-| Tier | Format | Purpose |
+| Field | Type | Meaning |
 |---|---|---|
-| Hot | SQLite (`runs.db`) | Metadata, indexes, fast lookups |
-| Warm | DuckDB | Analytical queries over span attributes |
-| Cold | Parquet (one file per run) | Long-term archive, sharing, community sync |
+| `uri` | `str` | File path, URL, object-store key, or other locator |
+| `modality` | `Modality` | `text`, `image`, `audio`, `video`, `ui`, `file`, `tool`, `state`, or `other` |
+| `media_type` | `str \| null` | MIME type when known |
+| `description` | `str \| null` | Human-readable purpose |
+| `metadata` | `dict[str, Any]` | Additional provenance |
 
-Spans are stored as JSONL inside the Parquet file per run; metadata (run_id, project, framework, status, errors, blame) goes into SQLite for indexing.
+AgentDebugX does not embed or copy artifact bytes as part of this model.
 
-## 7. Serialization
+## 5. DiagnosticReport
 
-- **On-disk:** JSONL (one Span per line) inside Parquet; metadata in SQLite.
-- **Wire (export):** OTLP (gRPC + HTTP), matching the OTel collector protocol.
-- **Inter-process (event bus):** msgpack for low-latency in-process pub/sub.
+`DiagnosticReport` is the standard output of Diagnose.
 
-## 8. PII scrubbing
+| Field | Type | Meaning |
+|---|---|---|
+| `report_id` | `str` | Generated report identity |
+| `trace_id` | `str` | Diagnosed trajectory |
+| `task_id` | `str \| null` | Source task identifier |
+| `generated_at` | `datetime` | UTC report timestamp |
+| `root_cause_event_id` | `str \| null` | Normalized root event |
+| `root_cause_agent` | `str \| null` | Root-cause agent |
+| `root_cause_step_index` | `int \| null` | Root-cause step label |
+| `findings` | `list[FailureFinding]` | Detected or localized failures |
+| `summary` | `str` | Human-readable diagnosis |
+| `suggestions` | `list[str]` | Recovery guidance |
+| `attribution` | `dict \| null` | Attributor method, hypotheses, and primary result |
+| `recovery` | `dict \| null` | Recoverer method and proposals |
+| `audit` | `list[DiagnosticAuditEntry]` | Ordered diagnostic-stage records |
+| `metadata` | `dict[str, Any]` | Analyzer and provenance metadata |
 
-Before any cross-machine sync (community corpus, OTel export to third-party), traces pass through a `Scrubber`:
+`DiagnoseContext` is the in-process contract between Detect, Attribute, and
+Recover. It preserves detector findings while promoting the primary attribution
+to the recovery target. It is not serialized as a top-level schema object;
+bounded context needed by later stages is placed in report or rerun metadata.
 
-- Configurable regex + presidio-style detectors for emails, phone, SSNs, API keys.
-- Per-tool-arg redaction rules registered via `ToolDef.redact_args`.
-- Allow-listed retention for benchmarking inputs (GAIA tasks, etc.).
+## 6. Failure Models
 
-Scrubbing is **on by default for sync, off for local storage**. The local user owns the unscrubbed copy.
+### FailureMode
 
-## 9. Schema evolution
+`FailureMode` describes a taxonomy node:
 
-- `schema_version` semver on every `Run` and `Span`.
-- Migrations live in `agentdebugx.schema.migrations.v0_1_0_to_v0_2_0`, automatically applied on read.
-- Breaking changes (major bump) require ≥ 1 minor of deprecation notice and a writer-shim.
+- `mode_id`
+- `name`
+- `family`
+- `description`
+- `signals`
+- `suggestion_templates`
+- `source`
 
-## 10. Validation
+The built-in taxonomy is exposed as `SEED_FAILURE_MODES`.
 
-- Pydantic v2 models in `agentdebugx.schema`.
-- `agentdebugx.schema.validate(span_dict)` is the canonical entry point.
-- A `pytest` suite ensures every adapter emits spans that round-trip through validation.
+### FailureFinding
+
+`FailureFinding` links one failure mode to a trajectory location:
+
+- generated `finding_id`
+- `failure_mode`
+- optional `event_id`, `agent_name`, and `step_index`
+- optional `confidence`
+- evidence strings
+- optional recovery suggestion
+- metadata
+
+Confidence is retained internally for ranking and compatibility. Public
+serialization removes confidence recursively for Heuristic and DeepDebug
+reports; LLM Judge reports retain the model-reported value.
+
+## 7. Diagnostic Audit
+
+`DiagnosticAuditEntry` records one stage used to produce a report:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `stage` | `str` | Stable stage identifier |
+| `request_summary` | `str` | Work requested in this stage |
+| `response_summary` | `str` | Compact result summary |
+| `duration_ms` | `int` | Stage duration |
+| `payload` | `dict[str, Any]` | Structured candidates, decisions, or verdicts |
+
+DeepDebug writes four ordered entries:
+
+1. `global_read`
+2. `structure_probe`
+3. `cross_examine`
+4. `diagnose_and_suggest`
+
+The CLI serializes `DiagnosticReport.audit` directly. DeepDebug reports
+therefore retain candidate localization, cascade or bisection decisions,
+cross-examination verdicts, final evidence, and per-stage duration. The older
+`metadata.deepdebug_stages` list remains as a compact compatibility summary.
+
+## 8. Serialization
+
+Use the public helpers instead of calling Pydantic methods directly:
+
+```python
+from agentdebug.schema import (
+    model_to_dict,
+    model_to_json,
+    report_from_json,
+    trajectory_from_json,
+)
+```
+
+- `model_to_json(model, indent=None)` supports Pydantic v1 and v2.
+- `model_to_dict(model)` applies report-specific public-output filtering.
+- `trajectory_from_json(payload)` parses an `AgentTrajectory`.
+- `report_from_json(payload)` parses a `DiagnosticReport`.
+
+Datetimes are serialized as ISO 8601 strings. Enums are serialized by value.
+Unknown producer formats should go through `agentdebug ingest` or a registered
+adapter instead of being passed directly to `trajectory_from_json`.
+
+## 9. Storage
+
+Two local storage backends implement `TraceStore`:
+
+### JsonlTraceStore
+
+- Append-only JSONL.
+- One complete serialized `AgentTrajectory` per line.
+- Loading a duplicated `trace_id` returns the last matching entry.
+- Also recognizes supported AgentErrorBench JSONL rows during reads.
+
+### SQLiteTraceStore
+
+- Stores complete trajectory JSON in `trajectories.payload_json`.
+- Stores complete report JSON in `diagnostic_reports.payload_json`.
+- Index columns contain identifiers and timestamps used for lookup and ordering.
+- It is an embedded local store, not a distributed database contract.
+
+DuckDB, Parquet, msgpack, and native OTLP persistence are not implemented
+storage formats in the current repository.
+
+## 10. OpenTelemetry
+
+`agentdebug.ingest.adapters.otel.export_trajectory()` is an optional best-effort
+exporter. It creates one root span and one child span per event with selected
+`gen_ai.*` and `agentdebug.*` attributes.
+
+This exporter does not make the AgentDebugX JSON schema wire-compatible with
+OTLP, and it does not define native `Span` models. When OpenTelemetry packages
+are absent, the adapter reports itself unavailable and emits nothing.
+
+## 11. Error Hub Bundles and Privacy
+
+Error Hub bundles contain:
+
+- `BundleManifest`
+- one `AgentTrajectory`
+- an optional `DiagnosticReport`
+- optional artifact paths
+
+`BundleManifest` currently has `schema_version = "1.0.0"`. This version covers
+the bundle manifest and directory layout, not every trajectory, event, finding,
+or report record.
+
+Hub push scrubs common secrets and PII by default. The scrubber operates over
+the trajectory goal and metadata plus event input, output, error, and metadata.
+It does not inspect artifact file contents or rewrite `Artifact` fields. Local
+trace storage is not automatically scrubbed.
+
+## 12. Schema Evolution Status
+
+Current facts:
+
+- `AgentTrajectory`, `AgentEvent`, and `DiagnosticReport` do not contain a
+  `schema_version` field.
+- There is no trajectory/report migration registry.
+- Read helpers rely on Pydantic validation and field defaults.
+- Additive fields with defaults, such as `DiagnosticReport.audit`, remain
+  readable from older payloads because the missing value is defaulted.
+- Breaking field renames or type changes are not automatically migrated.
+
+Until record-level versioning is implemented, schema changes should remain
+additive where possible, preserve compatibility import paths, and include JSON
+round-trip tests for old and current payload shapes.
+
+## 13. Validation and Tests
+
+The canonical validation entry points are Pydantic construction and the JSON
+read helpers. There is no separate `agentdebug.schema.validate()` function.
+
+The test suite currently checks:
+
+- trajectory JSON round trips
+- diagnostic report and audit round trips
+- Pydantic v1 and v2 compatibility in CI
+- adapter conversion into `AgentTrajectory`
+- JSONL and SQLite persistence
+- public confidence filtering
+- DeepDebug audit visibility in serialized CLI reports
+
+When adding a schema field, add a default unless the change intentionally
+breaks compatibility, export the public type from `agentdebug.schema`, and add
+round-trip coverage before changing adapters or stores.

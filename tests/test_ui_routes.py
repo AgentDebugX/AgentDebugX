@@ -5,8 +5,10 @@ import json
 import pytest
 
 from agentdebug.inspect.ui import routes
-from agentdebug.runtime import CompletionResult, OpenAICompatClient, SQLiteTraceStore
-from agentdebug.schema import AgentTrajectory
+from agentdebug.rerun import HttpLiveExecutor, RerunResult
+from agentdebug.rerun.executors.process_live import ProcessLiveExecutor
+from agentdebug.runtime import SQLiteTraceStore
+from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
 
 
 fastapi = pytest.importorskip('fastapi')
@@ -78,21 +80,38 @@ def test_rerun_does_not_persist_or_return_api_key(
     monkeypatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(
-        OpenAICompatClient,
-        'complete',
-        lambda self, messages, **kwargs: CompletionResult(
-            text=json.dumps(
-                {
-                    'events': [
-                        {'event_type': 'plan', 'output': 'retry safely'},
-                        {'event_type': 'tool.result', 'output': 'success'},
-                    ]
-                }
-            ),
-            raw={'choices': []},
-        ),
-    )
+    monkeypatch.setenv('AGENTDEBUG_RERUN_COMMAND', 'trusted-runner')
+    monkeypatch.setenv('AGENTDEBUG_UI_RERUN_POLICY', 'from_event')
+
+    def run_live(self, request):
+        trajectory = AgentTrajectory(trace_id='trace_ui_live')
+        trajectory.add_event(
+            AgentEvent(
+                trace_id=trajectory.trace_id,
+                event_type=EventType.TOOL_CALL,
+                input={'query': 'retry'},
+            )
+        )
+        trajectory.add_event(
+            AgentEvent(
+                trace_id=trajectory.trace_id,
+                event_type=EventType.TOOL_RESULT,
+                output={'status': 'success'},
+            )
+        )
+        return RerunResult(
+            request=request,
+            trajectory=trajectory,
+            metadata={
+                'execution_mode': 'live_execution',
+                'observed_execution': True,
+                'tools_executed': True,
+                'tool_execution_count': 1,
+                'runner': 'test.ui.runner',
+            },
+        )
+
+    monkeypatch.setattr(ProcessLiveExecutor, 'run', run_live)
     secret = 'sk-ui-secret-that-must-not-persist'
 
     response = ui_client.post(
@@ -117,11 +136,59 @@ def test_rerun_does_not_persist_or_return_api_key(
 def test_rerun_validates_required_backend_fields(ui_client: TestClient) -> None:
     base = {'event_id': 'evt_plan', 'prompt_text': 'retry'}
 
-    assert ui_client.post(
+    response = ui_client.post(
         '/api/v1/traces/trace_failed/rerun-from-event',
         json=base,
-    ).status_code == 400
+    )
+    assert response.status_code == 503
+    assert 'AGENTDEBUG_RUNNER_URL' in response.json()['detail']
+
     assert ui_client.post(
         '/api/v1/traces/trace_failed/rerun-from-event',
-        json={**base, 'api_url': 'https://example.invalid/v1'},
+        json={'event_id': 'evt_plan'},
     ).status_code == 400
+
+
+def test_ui_rerun_uses_persistent_http_runner(
+    ui_client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv('AGENTDEBUG_RUNNER_URL', 'https://runner.test')
+    calls = []
+
+    def run_live(self, request):
+        calls.append(request)
+        trajectory = AgentTrajectory(trace_id='trace_ui_http')
+        trajectory.add_event(
+            AgentEvent(
+                trace_id=trajectory.trace_id,
+                event_type=EventType.TOOL_CALL,
+                input={'query': 'retry'},
+            )
+        )
+        return RerunResult(
+            request=request,
+            trajectory=trajectory,
+            metadata={
+                'execution_mode': 'live_execution',
+                'observed_execution': True,
+                'tools_executed': True,
+                'runner': 'tests.http',
+            },
+        )
+
+    monkeypatch.setattr(HttpLiveExecutor, 'run', run_live)
+    monkeypatch.setattr(HttpLiveExecutor, 'close', lambda self: None)
+    response = ui_client.post(
+        '/api/v1/traces/trace_failed/rerun-from-event',
+        json={
+            'event_id': 'evt_plan',
+            'model': 'server-runner',
+            'prompt_text': 'Preserve refund policy.',
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls
+    assert calls[0].checkpoint.policy == 'from_start'
+    assert response.json()['branch']['execution_mode'] == 'live_execution'

@@ -163,6 +163,7 @@ def test_rerun_workflow_plans_and_evaluates_second_stage() -> None:
 
     class SuccessfulExecutor:
         id = 'test_successful_executor'
+        execution_mode = 'live_execution'
 
         def run(self, request):
             rerun = AgentTrajectory(trace_id='trace_rerun_fixed', goal='test rerun')
@@ -178,7 +179,12 @@ def test_rerun_workflow_plans_and_evaluates_second_stage() -> None:
             return RerunResult(
                 request=request,
                 trajectory=rerun,
-                metadata={'executor': self.id},
+                metadata={
+                    'executor': self.id,
+                    'execution_mode': 'live_execution',
+                    'observed_execution': True,
+                    'tools_executed': True,
+                },
             )
 
     workflow = RerunWorkflow(executor=SuccessfulExecutor())
@@ -263,7 +269,8 @@ def test_cli_rerun_plan_only_emits_second_stage_plan(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
 
     assert payload['stage'] == 'rerun'
-    assert payload['status'] == 'planned'
+    assert payload['status'] == 'not_executable'
+    assert payload['plan']['capability']['level'] == 'trajectory_only'
     assert payload['executed'] is False
     assert payload['plan']['request']['trace_id'] == trajectory.trace_id
     assert payload['plan']['request']['checkpoint']['policy'] == 'from_start'
