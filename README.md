@@ -164,6 +164,29 @@ Use `--format` when the source is known, for example `messages`,
 `openai_agents_spans`, `crewai_events`, `langgraph_callbacks`, `claude_code`,
 or `osworld`.
 
+Process a directory of independent JSON files or every non-empty line in a
+JSONL dataset:
+
+```bash
+agentdebug batch ingest AgentProcessBench/gaia_dev/test.jsonl \
+  --out-dir data/agentprocessbench/gaia_dev
+```
+
+Batch diagnosis normalizes each record and writes independently rerunnable
+trajectories and reports:
+
+```bash
+agentdebug batch diagnose AgentProcessBench/gaia_dev/test.jsonl \
+  --mode judge \
+  --attributor all-at-once \
+  --recovery self-refine \
+  --out-dir runs/agentprocessbench/gaia_dev
+```
+
+Every batch writes `batch-summary.json`. Invalid records are isolated and do
+not discard successful outputs; a partially failed CLI batch exits with code
+`3`.
+
 ### 2. Run a fully local diagnosis
 
 The deterministic pipeline does not require an API key:
@@ -301,6 +324,8 @@ agentdebug serve \
 | --- | --- |
 | `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |
+| `agentdebug batch ingest` | Normalize every JSON file or independent JSONL record |
+| `agentdebug batch diagnose` | Normalize and diagnose a JSON/JSONL collection |
 | `agentdebug rerun` | Execute a full-task model rollout from a diagnostic report |
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
 | `agentdebug config` | Save, inspect, clear, and test LLM configuration |

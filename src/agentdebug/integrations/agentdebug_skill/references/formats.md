@@ -51,15 +51,16 @@ Each line is one session object with full session metadata and messages:
 The older AgentDebugX wrapper shape
 `{"hermes_session": {...}, "messages": [...]}` is also accepted.
 
-Current limitation: `agentdebug ingest --format hermes` converts one Hermes
-session object at a time. A JSONL file containing multiple Hermes sessions, one
-session per line, should be split or processed one line/session at a time until
-the CLI grows first-class split/batch support.
+`agentdebug ingest --format hermes` converts one Hermes session object at a
+time. For a JSONL file containing one independent Hermes session per line, use
+the batch workflow:
 
 Run:
 
 ```bash
-agentdebug ingest hermes.jsonl --format hermes --out .agentdebug/hermes.trajectory.json
+agentdebug batch ingest hermes.jsonl \
+  --format hermes \
+  --out-dir .agentdebug/hermes
 ```
 
 After conversion, confirm message retention:
