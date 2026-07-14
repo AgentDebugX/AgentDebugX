@@ -72,13 +72,13 @@ with the host's normal file-reading tool.
 
 ## Diagnose: `diagnose`
 
-`diagnose` combines three choices:
+For regular modes, `diagnose` combines three choices:
 
 - `--mode`: diagnosis engine.
 - `--attributor`: root-cause localization attachment.
 - `--recovery`: recovery proposal attachment.
 
-The `diagnose` command requires all three choices explicitly.
+The `diagnose` command currently requires all three flags explicitly.
 
 ```bash
 agentdebug diagnose TRAJECTORY_OR_TRACE_ID \
@@ -97,6 +97,20 @@ Modes:
 | `judge` | LLM judge diagnosis. | Yes |
 | `deep` | DeepDebug iterative diagnosis. | Yes |
 | `gui-rca` | OSWorld GUI root-cause analysis. | Yes, vision/tool-calling |
+
+### DeepDebug option contract
+
+DeepDebug is a complete Diagnose workflow, not an attributor that should be
+combined with an independent recovery strategy. It performs global analysis,
+structure-guided localization, candidate adjudication, and fix-guidance
+generation internally.
+
+Use `--attributor none --recovery none` with `--mode deep` or
+`--mode deepdebug`. These are compatibility placeholders required by the
+current parser; they do not disable DeepDebug's internal attribution and fix
+guidance. Do not combine DeepDebug with values such as `binary-search` or
+`self-refine`, because that runs a second attachment after the DeepDebug
+workflow and makes the result's ownership ambiguous.
 
 Attributors:
 
@@ -155,9 +169,9 @@ DeepDebug escalation:
 
 ```bash
 agentdebug diagnose .agentdebug/hermes.trajectory.json \
-  --mode deep \
-  --attributor binary-search \
-  --recovery self-refine \
+  --mode deepdebug \
+  --attributor none \
+  --recovery none \
   --traceback --no-color \
   --out .agentdebug/hermes.deep.traceback.txt
 ```

@@ -83,7 +83,7 @@ agentdebug diagnose run.trajectory.json \
 # 3. optional escalation when model credentials are configured:
 #    LLM judge, attribution backends, iterative DeepDebug
 agentdebug diagnose run.trajectory.json \
-  --mode deep --attributor binary-search --recovery self-refine \
+  --mode deepdebug --attributor none --recovery none \
   --traceback --no-color
 ```
 

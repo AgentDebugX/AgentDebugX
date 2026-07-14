@@ -206,6 +206,22 @@ agentdebug diagnose trace.json \
   --out report.json
 ```
 
+For difficult multi-step or ambiguous failures, DeepDebug is a complete
+diagnosis workflow rather than an attributor/recovery combination. Do not add
+another attribution or recovery implementation on top of it:
+
+```bash
+agentdebug diagnose trace.json \
+  --mode deepdebug \
+  --attributor none \
+  --recovery none \
+  --out report.json
+```
+
+`--attributor none --recovery none` are currently required compatibility
+placeholders. DeepDebug performs its own global analysis, structural probing,
+root-cause attribution, adjudication, and fix-guidance generation internally.
+
 Environment variables can be used instead of saved configuration:
 
 ```bash

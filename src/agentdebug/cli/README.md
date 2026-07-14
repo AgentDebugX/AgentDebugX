@@ -19,6 +19,25 @@ Primary commands:
 - `agentdebug serve` starts the inspection API or UI.
 - `agentdebug doctor` checks local configuration.
 
+## Diagnose option contract
+
+For regular diagnosis modes, callers explicitly select the diagnosis engine,
+attributor, and recovery strategy with `--mode`, `--attributor`, and
+`--recovery`.
+
+DeepDebug is different: `--mode deep` (or `--mode deepdebug`) selects a
+complete diagnosis workflow with its own attribution and fix guidance. Do not
+compose it with a second attributor or recovery strategy. The current CLI
+still requires `--attributor none --recovery none` as compatibility
+placeholders:
+
+```bash
+agentdebug diagnose TRACE \
+  --mode deepdebug \
+  --attributor none \
+  --recovery none
+```
+
 ## Flow
 
 1. `main.py` builds the parser and registers command modules.
@@ -46,4 +65,3 @@ optional extras:
 - Put reusable behavior in the owning workflow package, not in `cli/legacy.py`.
 - Preserve old command names and option semantics unless a compatibility shim is
   provided.
-

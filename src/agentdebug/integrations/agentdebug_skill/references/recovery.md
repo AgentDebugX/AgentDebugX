@@ -43,11 +43,16 @@ LLM-backed recovery for ambiguous or multi-step failures:
 
 ```bash
 agentdebug diagnose .agentdebug/<case>.trajectory.json \
-  --mode deep \
-  --attributor binary-search \
-  --recovery self-refine \
+  --mode deepdebug \
+  --attributor none \
+  --recovery none \
   --out .agentdebug/<case>.deep.recovery.report.json
 ```
+
+DeepDebug generates its own attribution and fix guidance. The two `none`
+values are current CLI compatibility placeholders, not disabled DeepDebug
+stages. Use `--recovery self-refine` with a regular mode when an independently
+attached Self-Refine proposal is specifically desired.
 
 Use `--traceback --no-color` when the user wants a readable cascade. Use JSON
 `--out` when the user wants recovery proposals because the recovery payload is

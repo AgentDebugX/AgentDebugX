@@ -74,12 +74,23 @@ wins on Who&When; see §7):
 | 3 | **Cross-examination** *(conditional)* | if Turns 1–2 agree → accept; else zoom both candidates ±k context windows and adjudicate | `zoom_step_context` |
 | 4 | **Diagnose & suggest** | step now fixed; write summary + quoted evidence + **one concrete fix**; verdict cannot move the step | — |
 
-Implementation: `src/agentdebug/diagnose/attribute/deepdebug.py`
+Implementation: `src/agentdebug/diagnose/profiles/deepdebug.py`
 (`DeepDebugAnalyzer`) over `src/agentdebug/diagnose/attribute/moe.py`
 (`aao_moe_attribute`: `all_at_once` +
 `_cascade`/`_bisect_refine` + arbitration). Memory retrieval (step 0) feeds
-both readings and the refine turn. Turns 1–3 are the "two readings +
-arbitration" of the shipped localizer; the table above is the canonical naming.
+both readings and the final diagnosis turn. `DeepDebugResult.rounds` exposes
+the four table stages directly. `AaoMoeAnalysis` preserves both candidates,
+the cascade/bisection decisions and final window, and the adjudication verdict.
+Every candidate carries `event_id + step_index + agent_name`; a bare step is
+accepted only when unique. Final evidence is represented as an event-id quote,
+verified against trajectory input/output/error text before entering the report.
+Unverified model quotes are rejected and counted in report metadata.
+
+DeepDebug lives under `diagnose/profiles/` because it orchestrates a complete
+Diagnose workflow rather than implementing attribution alone. The former
+`diagnose/attribute/deepdebug.py` module remains a compatibility re-export.
+The registry ID `attribute.deepdebug` is also retained for existing plugin
+configuration, but its entrypoint resolves to the canonical profile module.
 
 **Design rationale (measured, not taste):** replacing the structure-guided
 turn with a second global search costs −4.8 strict points (gpt-5.4-mini
@@ -98,8 +109,8 @@ functions of `moe.py` — same capabilities, not yet declared as callable tools
 |---|---|---|---|
 | `read_full_trace` | whole-trajectory rendering (truncation-aware) | ✅ internal (`_render_marked`) | ✅ injected into initial prompt |
 | `get_step_details` / `read_span` | one step ± context, full fidelity | ✅ internal (`_render_span`) | ✅ tool (returns action code, reasoning, tool use, **screenshots**) |
-| `walk_cascade_upstream` | follow handoffs from failure toward origin | ✅ internal (`_cascade`) | — (single-agent GUI runs) |
-| `bisect_range` | divide-and-conquer step-range narrowing | ✅ internal (`_bisect_refine`) | — |
+| `walk_cascade_upstream` | follow handoffs from failure toward origin | ✅ internal (`_cascade`), decisions audited | — (single-agent GUI runs) |
+| `bisect_range` | divide-and-conquer step-range narrowing | ✅ internal (`_bisect_refine`), decisions audited | — |
 | `zoom_step_context` | side-by-side candidate windows (arbitration) | ✅ internal | ✅ via `get_step_details` |
 | `open_env_asset` | dive into env: screenshots, task files, attachments | ❌ **G3** (GAIA attachments) | ✅ (OSWorld dir via `IngestionResult.from_directory`; old screenshots auto-compressed) |
 | `search_memory` | top-k similar past cases | ✅ step-0 retrieval (`use_memory`) | 🟡 lessons variant |
