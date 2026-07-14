@@ -67,7 +67,9 @@ silently inspect host-local private state to find traces.
 8. If confidence is low and LLM credentials are configured, escalate with
    `agentdebug diagnose <trajectory.json> --mode judge --attributor all-at-once --recovery critic`.
 9. If the failure is multi-step, ambiguous, or judge output is weak, use
-   `agentdebug diagnose <trajectory.json> --mode deep --attributor binary-search --recovery self-refine`.
+   `agentdebug diagnose <trajectory.json> --mode deepdebug --attributor none --recovery none`.
+   DeepDebug performs attribution and fix guidance internally; the two `none`
+   values are required only by the current CLI compatibility contract.
 10. Report the candidate root cause, step/event id, evidence, failure mode,
    confidence, and suggested fix.
 

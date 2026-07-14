@@ -16,7 +16,7 @@ from agentdebug.diagnose.attribute.attribution import (
     SBFLAttributor,
     StepByStepAttributor,
 )
-from agentdebug.diagnose.attribute.deepdebug import (
+from agentdebug.diagnose.profiles.deepdebug import (
     DeepDebugAnalyzer,
     DeepDebugResult,
     DeepDebugRound,
