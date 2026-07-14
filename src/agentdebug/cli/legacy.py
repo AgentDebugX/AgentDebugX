@@ -255,6 +255,48 @@ def _add_diagnose_args(
     )
 
 
+def _add_batch_diagnose_args(parser: argparse.ArgumentParser) -> None:
+    """Add only pipeline controls that are meaningful for batch diagnosis."""
+
+    parser.add_argument('trajectory', help='Directory, JSON file, or JSONL file')
+    parser.add_argument(
+        '--mode',
+        '--diagnoser',
+        dest='diagnose_mode',
+        default='heuristic',
+        choices=sorted(_DIAGNOSE_MODE_ALIASES),
+    )
+    parser.add_argument(
+        '--attributor',
+        '--attribute',
+        dest='attributor_mode',
+        default='none',
+        nargs='?',
+        const='all-at-once',
+        choices=sorted(_ATTRIBUTOR_ALIASES),
+    )
+    _add_hidden_const_flags(
+        parser, dest='attributor_mode', flags=_ATTRIBUTOR_CLASS_FLAGS
+    )
+    parser.add_argument(
+        '--recovery',
+        '--recoverer',
+        dest='recovery_mode',
+        default='auto',
+        choices=sorted(_RECOVERY_ALIASES),
+    )
+    _add_hidden_const_flags(
+        parser, dest='recovery_mode', flags=_RECOVERY_CLASS_FLAGS
+    )
+    _add_llm_args(parser)
+    parser.add_argument('--embedding', dest='embedding_model')
+    parser.add_argument(
+        '--rule-pack',
+        action='append',
+        choices=['auto', 'core', 'agenterrorbench', 'gui', 'all'],
+    )
+
+
 def _add_ingest_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('input', help='Path to a JSON or JSONL trace export')
     parser.add_argument('--out', help='Optional output path for converted JSON')
@@ -574,27 +616,17 @@ def _cmd_diagnose(args: argparse.Namespace) -> int:
             return 4
 
     try:
-        report = _run_diagnose_mode(args, trajectory, diagnose_mode, llm)
+        report = _run_diagnose_pipeline(
+            args,
+            trajectory,
+            diagnose_mode=diagnose_mode,
+            attributor_mode=attributor_mode,
+            recovery_mode=recovery_mode,
+            llm=llm,
+        )
     except Exception as exc:
         print(f'diagnose failed: {exc}', file=sys.stderr)
         return 2
-
-    if attributor_mode != 'none':
-        try:
-            blame = _run_attributor(attributor_mode, trajectory, report, llm)
-        except Exception as exc:
-            print(f'attribution failed: {exc}', file=sys.stderr)
-            return 2
-        report.attribution = _attribution_to_payload(blame)
-
-    if recovery_mode != 'none':
-        try:
-            proposals = _run_recovery(recovery_mode, trajectory, report, llm)
-        except Exception as exc:
-            print(f'recovery failed: {exc}', file=sys.stderr)
-            return 2
-        report.suggestions = [proposal.suggestion_text for proposal in proposals]
-        report.recovery = _recovery_to_payload(recovery_mode, proposals)
 
     if args.traceback:
         from agentdebug.traceback import format_traceback
@@ -1187,6 +1219,28 @@ def _run_diagnose_mode(
         return GuiRcaAnalyzer(channel=channel, model=llm.model).analyze(trajectory)
 
     raise ValueError(f'unknown diagnose mode: {diagnose_mode}')
+
+
+def _run_diagnose_pipeline(
+    args: argparse.Namespace,
+    trajectory: AgentTrajectory,
+    *,
+    diagnose_mode: str,
+    attributor_mode: str,
+    recovery_mode: str,
+    llm: Optional[Any],
+) -> DiagnosticReport:
+    """Run the shared Detect -> Attribute -> Recover CLI pipeline."""
+
+    report = _run_diagnose_mode(args, trajectory, diagnose_mode, llm)
+    if attributor_mode != 'none':
+        blame = _run_attributor(attributor_mode, trajectory, report, llm)
+        report.attribution = _attribution_to_payload(blame)
+    if recovery_mode != 'none':
+        proposals = _run_recovery(recovery_mode, trajectory, report, llm)
+        report.suggestions = [proposal.suggestion_text for proposal in proposals]
+        report.recovery = _recovery_to_payload(recovery_mode, proposals)
+    return report
 
 
 def _run_attributor(
