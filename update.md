@@ -802,3 +802,106 @@ Rerun = checkpoint + retry directive + branch comparison / executor
 ### 贡献文档
 
 - 补全 `CONTRIBUTING.md`，说明开发环境、测试分类、覆盖率命令、CUA 独立测试、质量检查和 PR 要求。
+
+## 12. 2026-07-14 09:47:37 +08
+
+本次更新修正 DeepDebug 的模块所有权，使代码结构与完整 Diagnose profile
+的产品语义一致，同时保持现有 CLI 和 Python API 兼容。
+
+### DeepDebug 结构迁移
+
+- 新增 `src/agentdebug/diagnose/profiles/`，用于承载跨 Detect、Attribute、
+  Recover guidance 的完整诊断工作流。
+- 将 DeepDebug 真实实现从 `diagnose/attribute/deepdebug.py` 迁移到
+  `diagnose/profiles/deepdebug.py`。
+- `diagnose/attribute/moe.py` 和 `diagnose/attribute/deep_memory.py` 继续承载
+  DeepDebug 使用的归因算法与记忆服务，不承担完整流程编排。
+- 新增 `diagnose/profiles/README.md`，说明 profile 边界、DeepDebug 流程和
+  read-only 约束。
+
+### 兼容性
+
+- 以下旧 import 路径继续导出同一组 canonical classes：
+  - `agentdebug.deep`
+  - `agentdebug.diagnose.deep`
+  - `agentdebug.diagnose.attribute.deepdebug`
+- 保留 `attribute.deepdebug` 组件 ID，避免破坏已有插件配置；其 entrypoint
+  已改为 `agentdebug.diagnose.profiles.deepdebug:DeepDebugAnalyzer`。
+- CLI 的 `--mode deep` / `--mode deepdebug` 用法及运行行为保持不变。
+
+### 测试与文档
+
+- 新增 DeepDebug canonical path、旧 import shim 和 registry entrypoint 的
+  身份一致性测试。
+- 更新 `docs/ARCHITECTURE.md` 中实现路径及 profile ownership 说明。
+
+## 13. 2026-07-14 09:59:36 +08
+
+本次更新在不改变 DeepDebug 定位算法和 LLM 调用顺序的前提下，将实现显式
+对齐论文描述的四阶段流程，并增强类型安全与审计能力。
+
+### 四阶段流程
+
+- `DeepDebugAnalyzer` 现在明确执行并记录：
+  1. `global_read`
+  2. `structure_probe`
+  3. `cross_examine`
+  4. `diagnose_and_suggest`
+- 候选一致时仍记录 cross-examination 结论，但不会增加额外 LLM 调用；
+  候选冲突时才执行局部上下文仲裁。
+- 最终诊断阶段固定已经选定的根因 step，不允许重新移动根因。
+
+### 结构化结果
+
+- 新增 `AttributionCandidate`、`ProbeDecision`、`StructureProbeResult`、
+  `AdjudicationResult` 和 `AaoMoeAnalysis`。
+- cascade / bisection 现在记录每次 upper/lower 区间、选择方向、置信度和
+  最终候选窗口。
+- 新增 `DeepDebugDiagnosis`，结构化承载最终 summary、evidence、suggestion
+  和执行耗时。
+- `DeepDebugResult` 新增 `analysis` 与 `diagnosis`，同时继续保留原有
+  `report`、`rounds` 和代理属性。
+
+### 兼容性与测试
+
+- `aao_moe_attribute()` 保留原有 dictionary 返回契约，内部转发到新的
+  `analyze_aao_moe()` 类型化接口。
+- 新增 `tests/test_deepdebug_profile.py`，覆盖四阶段顺序、结构探测审计、
+  一致候选的免调用仲裁和最终 report 映射。
+- 本次只增强流程表达和可观测性，不宣称改变现有 benchmark 结果。
+
+## 14. 2026-07-14 11:03:39 +08
+
+本次更新强化 DeepDebug 根因事件身份和最终证据约束，避免多 Agent 重复 step
+导致误定位，并阻止模型生成的虚构 evidence 进入诊断报告。
+
+### 精确事件定位
+
+- `AttributionCandidate` 新增 `event_id`，全局读取、结构探测和交叉仲裁均
+  贯通事件身份。
+- 事件解析顺序为：验证 `event_id` 与 step/agent 一致性，随后匹配
+  `step_index + agent_name`，最后仅在 step 唯一时允许按 step 回退。
+- 同一个 `step_index` 下不同 agent/event 的候选不再被视为 agreement，
+  必须进入 cross-examination。
+- cross-examination 改为选择 Candidate A/B 或明确 `event_id`，不再只返回
+  无法区分重复 step 的整数。
+- `AaoMoeAttributor`、DeepDebug profile 和 legacy dictionary 输出共享同一
+  event identity。
+
+### Evidence grounding
+
+- 最终诊断 prompt 要求 evidence 使用 `{event_id, quote}`，且 quote 必须从
+  展示的事件原文逐字引用。
+- DeepDebug 会逐条验证 quote 是否存在于指定事件的 input、output 或 error；
+  不存在、事件 ID 错误或旧字符串引用不唯一时直接拒绝。
+- 新增 `DeepDebugEvidence`，记录验证通过的 event ID 与 quote。
+- `DeepDebugDiagnosis` 新增 `evidence_references` 和
+  `rejected_evidence_count`。
+- 如果模型 evidence 全部无效，使用已解析根因事件的 error、output 或 input
+  生成确定性兜底，不保留幻觉文本。
+- report metadata 新增 `evidence_verified` 与 `rejected_evidence_count`。
+
+### 测试
+
+- 新增重复 `step_index`、不同 agent/event 的定位测试。
+- 新增虚构 evidence 被拒绝并由根因事件原文兜底的测试。

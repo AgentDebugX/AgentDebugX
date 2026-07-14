@@ -24,7 +24,7 @@ import agentdebug.diagnose as _diagnose_pkg
 import agentdebug.diagnose.attribute as _diagnose_attribute_pkg
 import agentdebug.diagnose.attribute.attribution as _diagnose_attribution_mod
 import agentdebug.diagnose.attribute.deep_memory as _diagnose_deep_memory_mod
-import agentdebug.diagnose.attribute.deepdebug as _diagnose_deep_mod
+import agentdebug.diagnose.profiles.deepdebug as _diagnose_deep_mod
 import agentdebug.diagnose.detect as _diagnose_detect_pkg
 import agentdebug.diagnose.detect.analyzers as _diagnose_analyzers_mod
 import agentdebug.diagnose.detect.detectors as _diagnose_detectors_mod

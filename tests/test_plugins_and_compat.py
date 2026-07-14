@@ -51,6 +51,21 @@ def test_all_builtin_component_entrypoints_load() -> None:
     [
         ('agentdebug.models', 'agentdebug.schema', 'AgentTrajectory'),
         ('agentdebug.storage', 'agentdebug.runtime', 'SQLiteTraceStore'),
+        (
+            'agentdebug.deep',
+            'agentdebug.diagnose.profiles.deepdebug',
+            'DeepDebugAnalyzer',
+        ),
+        (
+            'agentdebug.diagnose.deep',
+            'agentdebug.diagnose.profiles.deepdebug',
+            'DeepDebugAnalyzer',
+        ),
+        (
+            'agentdebug.diagnose.attribute.deepdebug',
+            'agentdebug.diagnose.profiles.deepdebug',
+            'DeepDebugAnalyzer',
+        ),
         ('agentdebug.attribution', 'agentdebug.diagnose.attribute', 'HeuristicAttributor'),
         ('agentdebug.recovery', 'agentdebug.diagnose.recover', 'ReflexionSuggestion'),
         ('agentdebug.rules.core', 'agentdebug.diagnose.detect.rules.core', 'KeywordRule'),
@@ -66,3 +81,9 @@ def test_legacy_import_paths_resolve_to_canonical_symbols(
     canonical = importlib.import_module(canonical_path)
 
     assert getattr(legacy, symbol) is getattr(canonical, symbol)
+
+
+def test_deepdebug_component_loads_canonical_profile() -> None:
+    canonical = importlib.import_module('agentdebug.diagnose.profiles.deepdebug')
+
+    assert load_component('attribute.deepdebug') is canonical.DeepDebugAnalyzer
