@@ -58,7 +58,7 @@ Work down this list; escalate only when the result is inconclusive.
 
 3. **DeepDebug** — when judge waffles or the root cause looks multi-step:
    ```bash
-   agentdebug diagnose <trajectory.json|trace_id> --mode deep --attributor none --recovery none --traceback
+   agentdebug diagnose <trajectory.json|trace_id> --mode deep --traceback
    ```
 
 **Inspect a store:**
@@ -190,7 +190,7 @@ Diagnosis, optional attribution, and optional recovery planning.
 agentdebug diagnose <trajectory.json|external-trace> \\
     --mode heuristic|judge|deep|gui-rca \\
     --attributor none|heuristic|all-at-once|step-by-step|binary-search|counterfactual \\
-    --recovery none|reflexion|critic|self-refine|auto-manual|saga-rollback \\
+    --recovery none|deepdebug|reflexion|critic|self-refine|auto-manual|saga-rollback \\
     [--out PATH] [--traceback] [--no-color] \\
     [--rule-pack auto|core|agenterrorbench|all]
 agentdebug analyze ...   # identical alias
@@ -264,7 +264,7 @@ Iterative DeepDebug for hard failures:
 ```bash
 agentdebug diagnose <trajectory.json|trace_id> \\
     [--store-sqlite PATH | --store-jsonl PATH] \\
-    --mode deep --attributor binary-search --recovery self-refine \\
+    --mode deep \\
     [--model NAME] [--base-url URL] [--api-key KEY] \\
     [--traceback] [--no-color] [--out PATH]
 ```

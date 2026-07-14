@@ -4,7 +4,7 @@ Primary user flow:
 
 * ``agentdebug ingest``   - normalize external traces into ``AgentTrajectory``
 * ``agentdebug diagnose`` - run diagnose + attribution + recovery planning
-* ``agentdebug rerun``    - prepare a second-stage rerun from a report
+* ``agentdebug rerun``    - execute a second-stage model rollout from a report
 * ``agentdebug inspect``  - inspect traces through local UI / store commands
 
 Compatibility aliases remain available for ``convert``, ``analyze``,
@@ -41,6 +41,7 @@ from agentdebug.recovery import (
     AutoManualRules,
     Compensator,
     CriticRecoverer,
+    DeepDebugRecovery,
     FixProposal,
     ReflexionSuggestion,
     SagaRollback,
@@ -118,6 +119,11 @@ _RECOVERY_ALIASES = {
     'none': 'none',
     'off': 'none',
     'false': 'none',
+    'deep': 'deepdebug',
+    'deep-debug': 'deepdebug',
+    'deep_debug': 'deepdebug',
+    'deepdebug': 'deepdebug',
+    'DeepDebugRecovery': 'deepdebug',
     'reflexion': 'reflexion',
     'ReflexionSuggestion': 'reflexion',
     'critic': 'critic',
@@ -145,6 +151,7 @@ _ATTRIBUTOR_CLASS_FLAGS = {
 }
 
 _RECOVERY_CLASS_FLAGS = {
+    '--DeepDebugRecovery': 'DeepDebugRecovery',
     '--ReflexionSuggestion': 'ReflexionSuggestion',
     '--CriticRecoverer': 'CriticRecoverer',
     '--SelfRefineLoop': 'SelfRefineLoop',
@@ -206,11 +213,12 @@ def _add_diagnose_args(
         '--recovery',
         '--recoverer',
         dest='recovery_mode',
-        default=None if require_pipeline else 'none',
+        default=None if require_pipeline else 'auto',
         choices=sorted(_RECOVERY_ALIASES),
         help=(
-            'Recovery prompt writer to attach under report.recovery: reflexion, '
-            'critic, self-refine, auto-manual, or saga-rollback.'
+            'Recovery prompt writer to attach under report.recovery: deepdebug, '
+            'reflexion, critic, self-refine, auto-manual, or saga-rollback. '
+            'Defaults to deepdebug for --mode deepdebug and none otherwise.'
         ),
     )
     _add_hidden_const_flags(parser, dest='recovery_mode', flags=_RECOVERY_CLASS_FLAGS)
@@ -260,6 +268,22 @@ def _add_ingest_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--task-id', dest='task_id')
     parser.add_argument('--goal')
     parser.add_argument('--framework')
+
+
+def _add_rerun_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument('diagnostic_report', help='Path to a diagnose report JSON')
+    parser.add_argument(
+        '--trajectory',
+        help='Original trajectory path or trace_id used for full-task rerun context',
+    )
+    _add_store_args(parser, required=False)
+    _add_llm_args(parser)
+    parser.add_argument(
+        '--plan-only',
+        action='store_true',
+        help='Build the rerun request without calling the configured model.',
+    )
+    parser.add_argument('--out', help='Optional output path for rerun result JSON')
 
 
 def _add_llm_args(parser: argparse.ArgumentParser) -> None:
@@ -447,14 +471,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         'rerun',
         help='Second-stage entry point: rerun an agent from a diagnostic report',
     )
-    p_rerun.add_argument('diagnostic_report', help='Path to a diagnose report JSON')
-    p_rerun.add_argument(
-        '--trajectory',
-        help='Optional original trajectory path or trace_id used for rerun context',
-    )
-    _add_store_args(p_rerun, required=False)
-    _add_llm_args(p_rerun)
-    p_rerun.add_argument('--out', help='Optional output path for rerun config JSON')
+    _add_rerun_args(p_rerun)
     p_rerun.set_defaults(handler=_cmd_rerun)
 
     p_doctor = sub.add_parser('doctor', help='Report adapter and integration availability')
@@ -537,11 +554,14 @@ def _cmd_diagnose(args: argparse.Namespace) -> int:
         _ATTRIBUTOR_ALIASES,
         'attributor',
     )
-    recovery_mode = _normalize_choice(
-        args.recovery_mode or 'none',
-        _RECOVERY_ALIASES,
-        'recovery mode',
-    )
+    if args.recovery_mode == 'auto':
+        recovery_mode = 'deepdebug' if diagnose_mode == 'deep' else 'none'
+    else:
+        recovery_mode = _normalize_choice(
+            args.recovery_mode or 'none',
+            _RECOVERY_ALIASES,
+            'recovery mode',
+        )
     llm = None
     needs_llm = (
         diagnose_mode in {'judge', 'deep', 'gui-rca'}
@@ -717,41 +737,58 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
             print(f'rerun failed: {exc}', file=sys.stderr)
             return 2
 
-    plan = RerunWorkflow.suggest_only().plan(report, trajectory)
-    config = {
-        'stage': 'rerun',
-        'status': plan.status,
-        'message': (
-            'Rerun execution is intentionally separated from diagnose. '
-            'Use this config as input to a rollout backend.'
-        ),
-        'plan': plan.to_dict(),
-        'diagnostic_report': report_payload,
-        'trajectory': trajectory_ref,
-        'llm': {
-            'model': _resolve_llm_option(
-                args,
-                attr='model',
-                env_name='AGENTDEBUG_LLM_MODEL',
-                config_key='model',
-                default='gemini-3-flash',
-            ),
-            'base_url': _resolve_llm_option(
-                args,
-                attr='base_url',
-                env_name='AGENTDEBUG_LLM_BASE_URL',
-                config_key='base_url',
-            ),
-            'api_key_env': (
-                'AGENTDEBUG_LLM_API_KEY'
-                if not args.api_key and os.environ.get('AGENTDEBUG_LLM_API_KEY')
-                else None
-            ),
-            'api_key_provided': bool(args.api_key),
-            'api_key_configured': bool(_configured_llm().get('api_key')),
-        },
-    }
-    _emit(json.dumps(config, indent=2), args.out)
+    if args.plan_only:
+        plan = RerunWorkflow.suggest_only().plan(
+            report,
+            trajectory,
+            checkpoint_policy='from_start',
+        )
+        payload = {
+            'stage': 'rerun',
+            'status': plan.status,
+            'executed': False,
+            'plan': plan.to_dict(),
+            'diagnostic_report': report_payload,
+            'trajectory': trajectory_ref,
+        }
+        _emit(json.dumps(payload, indent=2), args.out)
+        return 0
+
+    if trajectory is None:
+        print(
+            'rerun execution requires --trajectory with the original trace; '
+            'use --plan-only to prepare a request without execution.',
+            file=sys.stderr,
+        )
+        return 2
+    llm = _build_llm(args, command_name='rerun')
+    if llm is None:
+        return 4
+
+    from agentdebug.rerun import LLMContinuationExecutor, RolloutContext
+
+    executor = LLMContinuationExecutor(llm, RolloutContext(trajectory))
+    try:
+        result = RerunWorkflow(executor).run(
+            report,
+            trajectory,
+            execute=True,
+            checkpoint_policy='from_start',
+        )
+    except Exception as exc:
+        print(f'rerun failed: {exc}', file=sys.stderr)
+        return 5
+
+    payload = result.to_dict()
+    if result.execution is not None:
+        payload['trajectory'] = json.loads(model_to_json(result.execution.trajectory))
+        if args.store_sqlite or args.store_jsonl:
+            store = _resolve_store(args)
+            if store is not None:
+                store.save_trajectory(result.execution.trajectory)
+                payload['stored_trace_id'] = result.execution.trajectory.trace_id
+    payload['diagnostic_report'] = report_payload
+    _emit(json.dumps(payload, indent=2), args.out)
     return 0
 
 
@@ -1184,6 +1221,8 @@ def _run_recovery(
     report: DiagnosticReport,
     llm: Optional[Any],
 ) -> list[FixProposal]:
+    if recovery_mode == 'deepdebug':
+        return DeepDebugRecovery().suggest(trajectory, report)
     if recovery_mode == 'reflexion':
         return ReflexionSuggestion().suggest(trajectory, report)
     if recovery_mode == 'critic':

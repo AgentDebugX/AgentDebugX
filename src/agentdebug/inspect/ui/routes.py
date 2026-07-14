@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -20,17 +21,12 @@ from agentdebug.inspect.ui.services import (
     _build_debug_continuation_context,
     _build_rerun_evaluation,
     _decorate_debug_branch_record,
-    _extract_chat_content,
-    _extract_json_payload,
-    _extract_partial_continuation_payload,
-    _normalize_generated_events,
-    _request_debug_completion,
     _to_dict,
     build_overview,
 )
 from agentdebug.inspect.ui.views import render_gui_page, render_page, render_space_page
 from agentdebug.runtime import TraceStore
-from agentdebug.schema import SEED_FAILURE_MODES
+from agentdebug.schema import SEED_FAILURE_MODES, model_to_json
 
 def build_app(store: TraceStore) -> Any:
     try:
@@ -270,34 +266,54 @@ def build_app(store: TraceStore) -> Any:
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+        from agentdebug.rerun import (
+            LLMContinuationExecutor,
+            RerunWorkflow,
+            RolloutContext,
+            normalize_openai_base_url,
+        )
+        from agentdebug.runtime import OpenAICompatClient
+
+        llm = OpenAICompatClient(
+            base_url=normalize_openai_base_url(api_url),
+            api_key=api_key,
+            model=model,
+            default_max_tokens=8192,
+            timeout=180.0,
+        )
+        executor = LLMContinuationExecutor(
+            llm,
+            RolloutContext(
+                trajectory,
+                start_event_id=event_id,
+                prompt_override=prompt_text,
+            ),
+        )
         try:
-            llm_response = _request_debug_completion(
-                api_url=api_url,
-                api_key=api_key,
-                model=model,
-                prompt_text=prompt_text,
+            workflow_result = RerunWorkflow(executor).run(
+                report,
+                trajectory,
+                execute=True,
+                checkpoint_policy='from_event',
+                checkpoint_event_id=event_id,
             )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f'rerun request failed: {exc}') from exc
 
-        response_text = _extract_chat_content(llm_response)
-        parsed_payload = _extract_json_payload(response_text) or _extract_partial_continuation_payload(response_text)
+        execution = workflow_result.execution
+        if execution is None:  # pragma: no cover - executor contract guard
+            raise HTTPException(status_code=502, detail='rerun produced no execution')
+        parsed_payload = json.loads(model_to_json(execution.trajectory))
+        response_text = str(execution.metadata.get('response_summary') or '')
+        llm_response = {
+            'usage': execution.metadata.get('usage'),
+            'finish_reason': execution.metadata.get('finish_reason'),
+        }
         branch_id = 'branch_' + datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
-        generated_trace_id = ''
-        if isinstance(parsed_payload, dict):
-            generated_trace_id = str(
-                parsed_payload.get('trace_id')
-                or ((parsed_payload.get('trajectory') or {}).get('trace_id') if isinstance(parsed_payload.get('trajectory'), dict) else '')
-                or f'{trace_id}__{branch_id}'
-            )
-        else:
-            generated_trace_id = f'{trace_id}__{branch_id}'
-        generated_events = _normalize_generated_events(
-            parsed_payload,
-            parent_event_id=event_id,
-            generated_trace_id=generated_trace_id,
-            checkpoint_step_index=checkpoint.get('checkpoint_step_index'),
-        )
+        generated_trace_id = execution.trajectory.trace_id
+        generated_events = [
+            _to_dict(event) for event in execution.trajectory.events
+        ]
         trajectory_payload = _to_dict(trajectory)
         report_payload = _to_dict(report)
         evaluation = _build_rerun_evaluation(
@@ -362,5 +378,3 @@ def build_app(store: TraceStore) -> Any:
         }
 
     return app
-
-

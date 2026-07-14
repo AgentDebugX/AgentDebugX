@@ -26,17 +26,16 @@ attributor, and recovery strategy with `--mode`, `--attributor`, and
 `--recovery`.
 
 DeepDebug is different: `--mode deep` (or `--mode deepdebug`) selects a
-complete diagnosis workflow with its own attribution and fix guidance. Do not
-compose it with a second attributor or recovery strategy. The current CLI
-still requires `--attributor none --recovery none` as compatibility
-placeholders:
+complete diagnosis workflow with its own attribution and fix guidance. The CLI
+automatically packages that guidance as a standard DeepDebug retry directive:
 
 ```bash
 agentdebug diagnose TRACE \
-  --mode deepdebug \
-  --attributor none \
-  --recovery none
+  --mode deepdebug
 ```
+
+Use `--recovery deepdebug` to select the same packaging explicitly. Existing
+scripts may pass `--recovery none` to disable the standard recovery payload.
 
 ## Flow
 

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 from agentdebug.rerun.evaluators import LocalProxyEvaluation, evaluate_local_proxy
 from agentdebug.rerun.executors.base import RerunExecutor, RerunResult
 from agentdebug.rerun.request import RerunCheckpoint, RerunDirective, RerunRequest
-from agentdebug.schema import AgentEvent, AgentTrajectory, DiagnosticReport
+from agentdebug.schema import (
+    AgentEvent,
+    AgentTrajectory,
+    DiagnosticReport,
+    model_to_json,
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,7 @@ class RerunWorkflowResult:
         if self.execution is not None:
             payload['execution'] = {
                 'trace_id': self.execution.trajectory.trace_id,
+                'trajectory': json.loads(model_to_json(self.execution.trajectory)),
                 'metadata': self.execution.metadata,
             }
         return payload
@@ -76,10 +83,18 @@ class RerunWorkflow:
         self,
         report: DiagnosticReport,
         trajectory: Optional[AgentTrajectory] = None,
+        *,
+        checkpoint_policy: str = 'from_root_cause',
+        checkpoint_event_id: Optional[str] = None,
     ) -> RerunPlan:
         """Build a portable rerun plan from Diagnose output."""
 
-        request = build_rerun_request(report, trajectory)
+        request = build_rerun_request(
+            report,
+            trajectory,
+            checkpoint_policy=checkpoint_policy,
+            checkpoint_event_id=checkpoint_event_id,
+        )
         return RerunPlan(
             request=request,
             approval_required=request.directive.requires_human_approval,
@@ -99,6 +114,8 @@ class RerunWorkflow:
         trajectory: AgentTrajectory,
         *,
         execute: bool = False,
+        checkpoint_policy: str = 'from_root_cause',
+        checkpoint_event_id: Optional[str] = None,
     ) -> RerunWorkflowResult:
         """Run the second-stage workflow.
 
@@ -107,7 +124,12 @@ class RerunWorkflow:
         against the original trajectory with local proxy evaluation.
         """
 
-        plan = self.plan(report, trajectory)
+        plan = self.plan(
+            report,
+            trajectory,
+            checkpoint_policy=checkpoint_policy,
+            checkpoint_event_id=checkpoint_event_id,
+        )
         if not execute:
             return RerunWorkflowResult(plan=plan)
         if self.executor is None:
@@ -125,24 +147,50 @@ class RerunWorkflow:
 def build_rerun_request(
     report: DiagnosticReport,
     trajectory: Optional[AgentTrajectory] = None,
+    *,
+    checkpoint_policy: str = 'from_root_cause',
+    checkpoint_event_id: Optional[str] = None,
 ) -> RerunRequest:
     """Construct the portable request consumed by rerun executors."""
 
-    target_event = _target_event(report, trajectory)
+    target_event = None
+    if checkpoint_policy != 'from_start':
+        if checkpoint_event_id and trajectory is not None:
+            target_event = next(
+                (
+                    event for event in trajectory.events
+                    if event.event_id == checkpoint_event_id
+                ),
+                None,
+            )
+            if target_event is None:
+                raise ValueError(f'unknown rerun checkpoint event: {checkpoint_event_id}')
+        else:
+            target_event = _target_event(report, trajectory)
     checkpoint = RerunCheckpoint(
-        event_id=target_event.event_id if target_event else report.root_cause_event_id,
+        event_id=(
+            None
+            if checkpoint_policy == 'from_start'
+            else target_event.event_id if target_event else report.root_cause_event_id
+        ),
         step_index=(
-            target_event.step_index
+            None
+            if checkpoint_policy == 'from_start'
+            else target_event.step_index
             if target_event is not None
             else report.root_cause_step_index
         ),
-        policy='from_root_cause',
+        policy=checkpoint_policy,
     )
     directive_text = _directive_text(report)
     directive = RerunDirective(
         text=directive_text,
         source='diagnosis',
-        target_event_id=checkpoint.event_id,
+        target_event_id=(
+            report.root_cause_event_id
+            if checkpoint_policy == 'from_start'
+            else checkpoint.event_id
+        ),
         requires_human_approval=_requires_approval(report),
         metadata={
             'summary': report.summary,

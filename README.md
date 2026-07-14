@@ -206,21 +206,19 @@ agentdebug diagnose trace.json \
   --out report.json
 ```
 
-For difficult multi-step or ambiguous failures, DeepDebug is a complete
-diagnosis workflow rather than an attributor/recovery combination. Do not add
-another attribution or recovery implementation on top of it:
+For difficult multi-step or ambiguous failures, DeepDebug runs the complete
+diagnosis workflow and automatically packages its evidence-backed fix as a
+standard retry directive:
 
 ```bash
 agentdebug diagnose trace.json \
   --mode deepdebug \
-  --attributor none \
-  --recovery none \
   --out report.json
 ```
 
-`--attributor none --recovery none` are currently required compatibility
-placeholders. DeepDebug performs its own global analysis, structural probing,
-root-cause attribution, adjudication, and fix-guidance generation internally.
+`--recovery deepdebug` can select this packaging explicitly. Existing scripts
+that use `--attributor none --recovery none` remain compatible; explicit
+`--recovery none` disables the standard recovery payload.
 
 Environment variables can be used instead of saved configuration:
 
@@ -233,13 +231,24 @@ export AGENTDEBUG_LLM_MODEL="<model>"
 Use `agentdebug config show` to inspect masked configuration and
 `agentdebug config doctor` to test the configured endpoint.
 
-### 4. Prepare the Rerun stage
+### 4. Execute the Rerun stage
 
-Turn the diagnostic report into an auditable rerun configuration:
+Run a fresh model rollout from the beginning of the task using the diagnosis
+as the retry directive:
 
 ```bash
-agentdebug rerun report.json --trajectory trace.json --out rerun.json
+agentdebug rerun report.json \
+  --trajectory trace.json \
+  --base-url "https://<openai-compatible-host>/v1" \
+  --api-key "<secret>" \
+  --model "<model>" \
+  --out rerun.json
 ```
+
+The result contains the new `AgentTrajectory`, execution metadata, and branch
+evaluation. Use `--plan-only` to create an auditable request without calling
+the model. The web console uses the same executor but can branch from a selected
+event instead of restarting from the beginning.
 
 ### 5. Work with stored traces
 
@@ -290,7 +299,7 @@ agentdebug serve \
 | --- | --- |
 | `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |
-| `agentdebug rerun` | Build a second-stage rerun plan from a diagnostic report |
+| `agentdebug rerun` | Execute a full-task model rollout from a diagnostic report |
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
 | `agentdebug config` | Save, inspect, clear, and test LLM configuration |
 | `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
@@ -378,9 +387,10 @@ AgentDebugX is local-first:
 - Recovery is suggest-only by default; external execution belongs to the Rerun
   stage and requires an executor plus explicit approval.
 
-Diagnostic findings are ranked hypotheses with evidence and confidence, not
-ground truth. Configure retention, access control, and redaction before
-collecting production traces.
+Diagnostic findings are hypotheses with evidence and provenance, not ground
+truth. LLM Judge reports retain the model's self-reported confidence;
+Heuristic and DeepDebug reports omit uncalibrated confidence values. Configure
+retention, access control, and redaction before collecting production traces.
 
 ## Examples
 

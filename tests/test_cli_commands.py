@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from agentdebug.cli import main
-from agentdebug.runtime import SQLiteTraceStore
+from agentdebug.runtime import CompletionResult, OpenAICompatClient, SQLiteTraceStore
 from agentdebug.schema import AgentTrajectory, DiagnosticReport, model_to_json
 
 
@@ -58,6 +58,98 @@ def test_diagnose_command_supports_explicit_pipeline(
     assert payload['trace_id'] == failed_trajectory.trace_id
     assert payload['attribution']['method'] == 'heuristic'
     assert payload['recovery']['method'] == 'reflexion'
+
+
+def test_deepdebug_mode_automatically_builds_retry_directive(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    source = tmp_path / 'trace.json'
+    source.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+    monkeypatch.setattr(
+        'agentdebug.cli.legacy._run_diagnose_mode',
+        lambda args, trajectory, diagnose_mode, llm: diagnostic_report,
+    )
+
+    result = main(
+        [
+            'diagnose',
+            str(source),
+            '--mode',
+            'deepdebug',
+            '--base-url',
+            'https://example.invalid/v1',
+            '--api-key',
+            'secret',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload['recovery']['method'] == 'deepdebug'
+    assert payload['recovery']['primary']['recoverer_id'] == 'deepdebug'
+    assert 'Fix for the retry:' in payload['recovery']['primary']['suggestion_text']
+
+
+def test_deepdebug_recovery_is_an_explicit_cli_choice(
+    tmp_path,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    source = tmp_path / 'trace.json'
+    source.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+
+    result = main(
+        [
+            'diagnose',
+            str(source),
+            '--mode',
+            'heuristic',
+            '--recovery',
+            'deepdebug',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload['recovery']['method'] == 'deepdebug'
+
+
+def test_deepdebug_explicit_none_preserves_compatibility(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    source = tmp_path / 'trace.json'
+    source.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+    monkeypatch.setattr(
+        'agentdebug.cli.legacy._run_diagnose_mode',
+        lambda args, trajectory, diagnose_mode, llm: diagnostic_report,
+    )
+
+    result = main(
+        [
+            'diagnose',
+            str(source),
+            '--mode',
+            'deepdebug',
+            '--recovery',
+            'none',
+            '--base-url',
+            'https://example.invalid/v1',
+            '--api-key',
+            'secret',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload.get('recovery') is None
 
 
 def test_analyze_compatibility_alias_uses_local_defaults(
@@ -134,12 +226,104 @@ def test_rerun_output_never_contains_provided_api_key(
     report_path.write_text(model_to_json(diagnostic_report), encoding='utf-8')
     secret = 'sk-never-print-this-value'
 
-    result = main(['rerun', str(report_path), '--api-key', secret])
+    result = main(['rerun', str(report_path), '--api-key', secret, '--plan-only'])
     rendered = capsys.readouterr().out
 
     assert result == 0
     assert secret not in rendered
-    assert json.loads(rendered)['llm']['api_key_provided'] is True
+    assert json.loads(rendered)['executed'] is False
+
+
+def test_rerun_executes_full_model_rollout(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    report_path = tmp_path / 'report.json'
+    trace_path = tmp_path / 'trace.json'
+    report_path.write_text(model_to_json(diagnostic_report), encoding='utf-8')
+    trace_path.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+    calls = []
+
+    def complete(self, messages, **kwargs):
+        calls.append(messages)
+        return CompletionResult(
+            text=(
+                '{"success":true,"events":['
+                '{"event_type":"plan","step_index":1,"output":"fixed"}]}'
+            ),
+            raw={},
+        )
+
+    monkeypatch.setattr(OpenAICompatClient, 'complete', complete)
+    secret = 'sk-cli-rerun-secret'
+
+    result = main(
+        [
+            'rerun',
+            str(report_path),
+            '--trajectory',
+            str(trace_path),
+            '--base-url',
+            'https://example.invalid/v1',
+            '--api-key',
+            secret,
+            '--model',
+            'rerun-model',
+        ]
+    )
+    rendered = capsys.readouterr().out
+    payload = json.loads(rendered)
+
+    assert result == 0
+    assert calls
+    assert payload['executed'] is True
+    assert payload['plan']['request']['checkpoint']['policy'] == 'from_start'
+    assert payload['trajectory']['events'][0]['step_index'] == 1
+    assert secret not in rendered
+
+
+def test_rerun_saves_generated_trace_to_selected_store(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    report_path = tmp_path / 'report.json'
+    store_path = tmp_path / 'traces.sqlite'
+    store = SQLiteTraceStore(str(store_path))
+    store.save_trajectory(failed_trajectory)
+    report_path.write_text(model_to_json(diagnostic_report), encoding='utf-8')
+    monkeypatch.setattr(
+        OpenAICompatClient,
+        'complete',
+        lambda self, messages, **kwargs: CompletionResult(
+            text='{"events":[{"event_type":"agent.step","output":"fixed"}]}',
+            raw={},
+        ),
+    )
+
+    result = main(
+        [
+            'rerun',
+            str(report_path),
+            '--trajectory',
+            failed_trajectory.trace_id,
+            '--store-sqlite',
+            str(store_path),
+            '--base-url',
+            'https://example.invalid/v1',
+            '--api-key',
+            'secret',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert store.load_trajectory(payload['stored_trace_id']) is not None
 
 
 def test_missing_input_returns_error_code(tmp_path, capsys) -> None:

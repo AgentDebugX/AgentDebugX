@@ -28,12 +28,28 @@ whether a recovery strategy improves the run.
   default. With `execute=True`, it requires a configured executor and evaluates
   the returned branch.
 - `RerunExecutor` is the protocol implemented by runtime-specific backends.
+- `LLMContinuationExecutor` is the built-in OpenAI-compatible executor. It
+  performs a model rollout and returns a normalized `AgentTrajectory`.
+
+## CLI and UI behavior
+
+- `agentdebug rerun` performs a full-task rollout from the beginning by default.
+- `agentdebug rerun --plan-only` builds the request without model execution.
+- The web console performs the same model rollout from a user-selected event and
+  stores the generated branch beside the original timeline.
+
+The built-in executor generates an observable model trajectory from the task,
+failed trace, and retry directive. It cannot restore arbitrary external tool
+processes from an imported log. Live LangGraph, OpenAI Agents, benchmark, or
+environment execution belongs in runtime-specific executors implementing the
+same protocol.
 
 ## Dependencies
 
-Core request construction and branch comparison are local. Real execution
-depends on an executor implementation and may require benchmark-specific
-configuration, credentials, containers, or external services.
+Core request construction and branch comparison are local. The built-in model
+executor needs an OpenAI-compatible endpoint, API key, and model. Framework
+executors may additionally require benchmark configuration, containers, or
+external services.
 
 ## Extension Rules
 

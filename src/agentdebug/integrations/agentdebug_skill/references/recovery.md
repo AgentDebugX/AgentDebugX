@@ -44,15 +44,14 @@ LLM-backed recovery for ambiguous or multi-step failures:
 ```bash
 agentdebug diagnose .agentdebug/<case>.trajectory.json \
   --mode deepdebug \
-  --attributor none \
-  --recovery none \
   --out .agentdebug/<case>.deep.recovery.report.json
 ```
 
-DeepDebug generates its own attribution and fix guidance. The two `none`
-values are current CLI compatibility placeholders, not disabled DeepDebug
-stages. Use `--recovery self-refine` with a regular mode when an independently
-attached Self-Refine proposal is specifically desired.
+DeepDebug generates its own attribution and fix guidance, then automatically
+packages the fix as a standard retry directive. Use `--recovery deepdebug` to
+make that choice explicit, or `--recovery none` to omit the recovery payload.
+Use `--recovery self-refine` with a regular mode when an independently attached
+Self-Refine proposal is specifically desired.
 
 Use `--traceback --no-color` when the user wants a readable cascade. Use JSON
 `--out` when the user wants recovery proposals because the recovery payload is
@@ -66,7 +65,8 @@ In JSON reports:
 - `recovery.method` is the selected recovery mode.
 - `recovery.proposal_count` tells whether any proposals were generated.
 - `recovery.proposals[]` contains proposal ids, target event ids, rationale,
-  confidence, side effects, and approval requirements.
+  side effects, and approval requirements. LLM Judge workflows may also expose
+  model-reported confidence; Heuristic and DeepDebug outputs omit it.
 
 If `proposal_count` is zero, say that no recovery proposal was generated for
 the selected strategy. Do not invent one. You may suggest trying another

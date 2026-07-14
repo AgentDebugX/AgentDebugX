@@ -80,14 +80,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         'rerun',
         help='Second-stage entry point: rerun an agent from a diagnostic report',
     )
-    p_rerun.add_argument('diagnostic_report', help='Path to a diagnose report JSON')
-    p_rerun.add_argument(
-        '--trajectory',
-        help='Optional original trajectory path or trace_id used for rerun context',
-    )
-    legacy._add_store_args(p_rerun, required=False)
-    legacy._add_llm_args(p_rerun)
-    p_rerun.add_argument('--out', help='Optional output path for rerun config JSON')
+    legacy._add_rerun_args(p_rerun)
     p_rerun.set_defaults(handler=rerun.run)
 
     p_doctor = sub.add_parser('doctor', help='Report adapter and integration availability')

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from agentdebug.rerun import RerunResult, RerunWorkflow, build_rerun_request
+from agentdebug.rerun import (
+    LLMContinuationExecutor,
+    RerunResult,
+    RerunWorkflow,
+    RolloutContext,
+    build_rerun_request,
+    normalize_openai_base_url,
+)
+from agentdebug.runtime import CompletionResult
 from agentdebug.rerun.branch import compare_branches
 from agentdebug.rerun.evaluators import evaluate_local_proxy
 from agentdebug.schema import AgentEvent, AgentTrajectory, DiagnosticReport, EventType
@@ -136,3 +144,78 @@ def test_request_without_suggestion_uses_safe_default() -> None:
     assert request.trace_id == 'trace-empty'
     assert 'Inspect the evidence' in request.directive.text
     assert request.directive.requires_human_approval is True
+
+
+def test_llm_executor_generates_full_rerun_trajectory(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    class LLM:
+        model = 'rerun-model'
+
+        def complete(self, messages, **kwargs):
+            assert 'Rerun policy: from_start' in messages[1]['content']
+            assert 'Preserve refund_policy' in messages[1]['content']
+            return CompletionResult(
+                text=(
+                    '{"summary":"completed","success":true,"events":['
+                    '{"agent_name":"planner","event_type":"plan",'
+                    '"step_index":1,"output":"keep refund_policy"},'
+                    '{"agent_name":"browser","event_type":"tool.result",'
+                    '"step_index":2,"output":{"ok":true}}]}'
+                ),
+                raw={'usage': {'total_tokens': 10}},
+            )
+
+    executor = LLMContinuationExecutor(LLM(), RolloutContext(failed_trajectory))
+    result = RerunWorkflow(executor).run(
+        diagnostic_report,
+        failed_trajectory,
+        execute=True,
+        checkpoint_policy='from_start',
+    )
+
+    assert result.executed is True
+    assert result.execution is not None
+    assert [event.step_index for event in result.execution.trajectory.events] == [1, 2]
+    assert result.execution.trajectory.metadata['rerun_of'] == 'trace_failed'
+    assert result.execution.metadata['reported_success'] is True
+
+
+def test_checkpoint_rerun_parents_first_event_to_selected_event(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    class LLM:
+        model = 'rerun-model'
+
+        def complete(self, messages, **kwargs):
+            return CompletionResult(
+                text='{"events":[{"event_type":"agent.step","output":"retry"}]}',
+                raw={},
+            )
+
+    result = RerunWorkflow(
+        LLMContinuationExecutor(
+            LLM(),
+            RolloutContext(failed_trajectory, start_event_id='evt_tool'),
+        )
+    ).run(
+        diagnostic_report,
+        failed_trajectory,
+        execute=True,
+        checkpoint_policy='from_event',
+        checkpoint_event_id='evt_tool',
+    )
+
+    assert result.execution is not None
+    assert result.plan.request.checkpoint.event_id == 'evt_tool'
+    assert result.execution.trajectory.events[0].parent_event_id == 'evt_tool'
+
+
+def test_openai_base_url_accepts_full_chat_endpoint() -> None:
+    assert normalize_openai_base_url('https://host/v1') == 'https://host/v1'
+    assert (
+        normalize_openai_base_url('https://host/v1/chat/completions')
+        == 'https://host/v1'
+    )
