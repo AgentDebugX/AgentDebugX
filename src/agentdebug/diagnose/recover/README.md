@@ -18,10 +18,14 @@ Typical strategies include:
 
 ## Flow
 
-1. Receive attributed findings.
-2. Select one or more recovery strategies.
-3. Generate candidate recovery actions or rerun directives.
-4. Preserve evidence and assumptions so the user can audit the recommendation.
+1. Receive a `DiagnoseContext` containing detector findings and primary
+   attribution.
+2. Use the primary attribution as the recovery target. Fall back to detector
+   findings only when attribution is unavailable or cannot be grounded to a
+   trajectory event.
+3. Select one or more recovery strategies.
+4. Generate candidate recovery actions or rerun directives.
+5. Preserve evidence and assumptions so the user can audit the recommendation.
 
 Self-Refine requests JSON-constrained critic and refined-action fields. Each
 stage validates `finish_reason`, JSON parsing, the required field, and sentence

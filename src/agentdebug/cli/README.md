@@ -16,6 +16,8 @@ Primary commands:
 - `agentdebug batch ingest` imports directories or independent JSONL records.
 - `agentdebug batch diagnose` diagnoses a collection with failure isolation.
 - `agentdebug rerun` prepares or executes Rerun workflows.
+- `agentdebug runner serve` exposes an application-owned Agent callback through
+  the persistent live Rerun HTTP protocol.
 - `agentdebug hub` manages Error Hub bundles.
 - `agentdebug integrations` generates integration assets.
 - `agentdebug serve` starts the inspection API or UI.
@@ -29,7 +31,9 @@ attributor, and recovery strategy with `--mode`, `--attributor`, and
 
 DeepDebug is different: `--mode deep` (or `--mode deepdebug`) selects a
 complete diagnosis workflow with its own attribution and fix guidance. The CLI
-automatically packages that guidance as a standard DeepDebug retry directive:
+first runs deterministic Detect and injects its findings as fallible prior
+signals, then automatically packages DeepDebug's evidence-grounded attribution
+and fix guidance as a standard retry directive:
 
 ```bash
 agentdebug diagnose TRACE \

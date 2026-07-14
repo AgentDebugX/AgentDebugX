@@ -15,6 +15,7 @@ from agentdebug.diagnose.recover.recovery import (
     ReflexionSuggestion,
     SagaRollback,
     SelfRefineLoop,
+    suggest_from_context,
     VerifierSpec,
 )
 
@@ -30,5 +31,6 @@ __all__ = [
     'ReflexionSuggestion',
     'SagaRollback',
     'SelfRefineLoop',
+    'suggest_from_context',
     'VerifierSpec',
 ]

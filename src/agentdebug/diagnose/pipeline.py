@@ -16,13 +16,14 @@ from dataclasses import asdict, dataclass
 from typing import Optional, Protocol
 
 from agentdebug.schema import AgentTrajectory, DiagnosticReport
+from agentdebug.diagnose.context import DiagnoseContext
 from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.diagnose.attribute import (
     AttributionResult,
     Attributor,
     HeuristicAttributor,
 )
-from agentdebug.diagnose.recover import FixProposal, Recoverer
+from agentdebug.diagnose.recover import FixProposal, Recoverer, suggest_from_context
 
 
 class DetectorStage(Protocol):
@@ -39,6 +40,7 @@ class DiagnosePipelineResult:
     report: DiagnosticReport
     attribution: Optional[AttributionResult] = None
     recovery: Optional[list[FixProposal]] = None
+    context: Optional[DiagnoseContext] = None
 
 
 class DiagnosePipeline:
@@ -74,24 +76,29 @@ class DiagnosePipeline:
             attribution = self.attributor.attribute(trajectory, report.findings)
             report.attribution = _attribution_payload(attribution)
 
+        context = DiagnoseContext.build(trajectory, report, attribution)
+
         if self.recoverer is not None:
-            recovery = self.recoverer.suggest(trajectory, report)
+            recovery = suggest_from_context(self.recoverer, context)
             report.recovery = _recovery_payload(recovery)
             if recovery:
                 report.suggestions = [proposal.suggestion_text for proposal in recovery]
 
         return DiagnosePipelineResult(
             report=report,
+            context=context,
             attribution=attribution,
             recovery=recovery,
         )
 
 
 def _attribution_payload(result: AttributionResult) -> dict[str, object]:
+    hypotheses = [asdict(hypothesis) for hypothesis in result.hypotheses]
     return {
         'method': result.method,
         'elapsed_ms': result.elapsed_ms,
-        'hypotheses': [asdict(hypothesis) for hypothesis in result.hypotheses],
+        'hypotheses': hypotheses,
+        'primary': hypotheses[0] if hypotheses else None,
         'raw': result.raw,
     }
 

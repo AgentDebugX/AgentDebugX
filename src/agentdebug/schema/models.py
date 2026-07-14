@@ -142,6 +142,16 @@ class FailureFinding(BaseModel):
     metadata: JsonDict = Field(default_factory=dict)
 
 
+class DiagnosticAuditEntry(BaseModel):
+    """One auditable stage recorded while producing a diagnostic report."""
+
+    stage: str
+    request_summary: str
+    response_summary: str
+    duration_ms: int
+    payload: JsonDict = Field(default_factory=dict)
+
+
 def confidence_or_default(value: Optional[float], default: float = 0.0) -> float:
     """Return a numeric confidence fallback for legacy ranking code."""
 
@@ -163,6 +173,7 @@ class DiagnosticReport(BaseModel):
     suggestions: List[str] = Field(default_factory=list)
     attribution: Optional[JsonDict] = None
     recovery: Optional[JsonDict] = None
+    audit: List[DiagnosticAuditEntry] = Field(default_factory=list)
     metadata: JsonDict = Field(default_factory=dict)
 
 

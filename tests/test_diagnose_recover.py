@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from agentdebug.diagnose.attribute import AttributionResult, Blame
+from agentdebug.diagnose.context import DiagnoseContext
+from agentdebug.diagnose.pipeline import DiagnosePipeline
 from agentdebug.diagnose.recover import (
     AutoManualRules,
     CriticRecoverer,
@@ -11,6 +14,117 @@ from agentdebug.diagnose.recover import (
 )
 from agentdebug.runtime import CompletionResult
 from agentdebug.schema import AgentTrajectory, DiagnosticReport
+
+
+def test_diagnose_context_uses_primary_attribution_as_recovery_target(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    diagnostic_report.findings[0].event_id = 'evt_tool'
+    diagnostic_report.findings[0].agent_name = 'browser'
+    diagnostic_report.findings[0].step_index = 2
+    attribution = AttributionResult(
+        method='test',
+        hypotheses=[
+            Blame(
+                span_id='evt_plan',
+                step_index=1,
+                agent_name='planner',
+                confidence=0.9,
+                rationale='The plan dropped the required constraint.',
+                evidence=['Search for the cheapest flight.'],
+                sources=['test_attributor'],
+            )
+        ],
+    )
+
+    context = DiagnoseContext.build(
+        failed_trajectory,
+        diagnostic_report,
+        attribution,
+    )
+
+    assert context.recovery_target is not None
+    assert context.recovery_target.event_id == 'evt_plan'
+    assert context.recovery_report.root_cause_event_id == 'evt_plan'
+    assert context.recovery_report.findings == [context.recovery_target]
+    diagnose_context = context.recovery_report.metadata['diagnose_context']
+    assert diagnose_context['detect']['findings'][0]['event_id'] == 'evt_tool'
+    assert diagnose_context['attribute']['span_id'] == 'evt_plan'
+    assert diagnose_context['recovery_target']['event_id'] == 'evt_plan'
+    assert diagnostic_report.root_cause_event_id == 'evt_plan'
+    assert diagnostic_report.metadata['recovery_target']['source'] == (
+        'primary_attribution'
+    )
+
+
+def test_pipeline_passes_attribution_target_to_recoverer(
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    diagnostic_report.findings[0].event_id = 'evt_tool'
+    diagnostic_report.findings[0].agent_name = 'browser'
+    diagnostic_report.findings[0].step_index = 2
+
+    class Detector:
+        def analyze(self, trajectory):
+            return diagnostic_report
+
+    class Attributor:
+        def attribute(self, trajectory, findings):
+            return AttributionResult(
+                method='test',
+                hypotheses=[
+                    Blame(
+                        span_id='evt_plan',
+                        step_index=1,
+                        agent_name='planner',
+                        confidence=0.9,
+                        rationale='The plan caused the later tool failure.',
+                        evidence=['Search for the cheapest flight.'],
+                    )
+                ],
+            )
+
+    result = DiagnosePipeline(
+        detector=Detector(),
+        attributor=Attributor(),
+        recoverer=ReflexionSuggestion(),
+    ).run(failed_trajectory)
+
+    assert result.recovery is not None
+    assert len(result.recovery) == 1
+    assert result.recovery[0].target_event_id == 'evt_plan'
+    assert result.report.root_cause_event_id == 'evt_plan'
+
+
+def test_attribution_can_create_recovery_target_without_detector_findings(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    report = DiagnosticReport(trace_id=failed_trajectory.trace_id)
+    attribution = AttributionResult(
+        method='test',
+        hypotheses=[
+            Blame(
+                span_id='evt_plan',
+                step_index=1,
+                agent_name='planner',
+                confidence=0.8,
+                rationale='The initial plan omitted the required constraint.',
+                evidence=['Search for the cheapest flight.'],
+            )
+        ],
+    )
+
+    context = DiagnoseContext.build(failed_trajectory, report, attribution)
+    proposals = ReflexionSuggestion().suggest(
+        failed_trajectory,
+        context.recovery_report,
+    )
+
+    assert context.recovery_target is not None
+    assert context.recovery_target.failure_mode.mode_id == 'attribution.root_cause'
+    assert proposals[0].target_event_id == 'evt_plan'
 
 
 def test_reflexion_builds_one_proposal_per_finding(

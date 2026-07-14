@@ -36,6 +36,7 @@ from agentdebug.runtime import LLMClient, extract_json_block
 from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
+    DiagnosticAuditEntry,
     DiagnosticReport,
     FailureFinding,
     FailureMode,
@@ -307,11 +308,45 @@ class DeepDebugAnalyzer:
             root_cause_event_id=root_eid,
             root_cause_agent=root_agent,
             root_cause_step_index=root_step,
+            attribution={
+                'method': 'deepdebug',
+                'primary': {
+                    'span_id': root_eid,
+                    'step_index': root_step,
+                    'agent_name': root_agent,
+                    'confidence': root.confidence,
+                    'rationale': summary_text,
+                    'evidence': evidence,
+                    'sources': ['deepdebug'],
+                },
+                'hypotheses': [
+                    {
+                        'span_id': root_eid,
+                        'step_index': root_step,
+                        'agent_name': root_agent,
+                        'confidence': root.confidence,
+                        'rationale': summary_text,
+                        'evidence': evidence,
+                        'sources': ['deepdebug'],
+                    }
+                ],
+            },
+            audit=[
+                DiagnosticAuditEntry(
+                    stage=round_.name,
+                    request_summary=round_.request_summary,
+                    response_summary=round_.response_summary,
+                    duration_ms=round_.duration_ms,
+                    payload=round_.payload,
+                )
+                for round_ in rounds
+            ],
             metadata={'analyzer': self.__class__.__name__, 'model': self.llm.model,
                       'backend': 'aao_moe', 'confidence': root.confidence,
                       'deepdebug_stages': [round_.name for round_ in rounds],
                       'evidence_verified': bool(evidence_references),
                       'rejected_evidence_count': rejected_evidence_count,
+                      'prior_finding_count': len(self.prior_findings or []),
                       'memory_used': bool(reference_hint),
                       'memory_reference': (ref.description[:200] if ref else None)},
         )

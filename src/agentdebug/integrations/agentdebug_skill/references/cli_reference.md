@@ -232,20 +232,48 @@ exit with code `4` when credentials are missing.
 
 ## Rerun
 
-CLI Rerun starts a fresh rollout from the beginning of the task:
+Configure a persistent application-owned HTTP runner once:
+
+```bash
+agentdebug config set-runner NAME \
+  --url http://127.0.0.1:8765 \
+  --token-env RUNNER_TOKEN \
+  --default
+agentdebug config doctor-runner NAME
+```
+
+Then CLI Rerun starts the application's real framework actor from the beginning
+of the task:
 
 ```bash
 agentdebug rerun REPORT \
   --trajectory TRAJECTORY \
-  --base-url "$AGENTDEBUG_LLM_BASE_URL" \
-  --api-key "$AGENTDEBUG_LLM_API_KEY" \
-  --model "$AGENTDEBUG_LLM_MODEL" \
   --out .agentdebug/rerun.json
 ```
 
-The command calls the configured model and returns a new normalized trajectory.
-Use `--plan-only` only when execution is intentionally deferred. The web console
-can rerun from a selected event; CLI currently reruns the full task.
+The runner owns the model, tools, credentials, and environment and returns a
+new observed trajectory with live-execution proof. Use `--runner NAME` to select
+a non-default service, or `--runner-command` for local process compatibility.
+A trajectory alone is not
+executable; use `--plan-only` to inspect missing capabilities. `--simulate`
+returns a validated hypothetical trajectory with `status=simulated`,
+`tools_executed=false`, and `verified=false`; it cannot validate a fix. The web
+console uses `AGENTDEBUG_RUNNER_URL` or `AGENTDEBUG_RERUN_COMMAND`; it defaults
+to `from_start` and uses `from_event` only when the server administrator sets
+`AGENTDEBUG_UI_RERUN_POLICY=from_event` for a capable runner.
+
+Export a pending task for a user-owned actor runtime without executing it:
+
+```bash
+agentdebug rerun REPORT \
+  --trajectory TRAJECTORY \
+  --plan-only \
+  --actor-task-format jsonl \
+  --out rerun-tasks.jsonl
+```
+
+Use `parquet` instead of `jsonl` after installing `pyarrow`. Actor task rows
+contain no response, label, reward, or verified answer.
 
 ## Stores
 
