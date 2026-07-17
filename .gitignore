@@ -25,3 +25,4 @@ debug_branches.jsonl
 paper.pdf
 data
 update.md
+.playwright-cli
