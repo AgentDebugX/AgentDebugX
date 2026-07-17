@@ -357,7 +357,6 @@ _SPACE_HTML = """<!doctype html>
     <nav class="nav" aria-label="Space navigation">
       <a class="nav-link active" href="/space"><span class="nav-icon">⌘</span>工作区</a>
       <a class="nav-link" href="/overview"><span class="nav-icon">♙</span>个人主页</a>
-      <a class="nav-link" href="/overview#more"><span class="nav-icon">◉</span>基线社区</a>
       <button class="nav-link" type="button" data-placeholder><span class="nav-icon">⚙</span>设置<span class="chev">›</span></button>
     </nav>
   </aside>
@@ -370,7 +369,6 @@ _SPACE_HTML = """<!doctype html>
       <div class="top-actions">
         <a class="icon-btn" href="/overview" title="Open overview">▣</a>
         <button class="icon-btn" type="button" title="Refresh" id="refresh-btn">↯</button>
-        <a class="icon-btn" href="/overview#more" title="Open hub">⌬</a>
         <div class="top-avatar">AD</div>
       </div>
     </header>
@@ -2219,6 +2217,10 @@ _INDEX_HTML = r"""<!doctype html>
     position:relative; box-shadow:0 16px 38px rgba(0,0,0,.32);
     transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
   }
+  .rail-user img {
+    width:100%; height:100%; display:block; border-radius:inherit;
+    object-fit:cover; object-position:center;
+  }
   .rail-user:hover {
     transform:translateY(-1px);
     border-color:rgba(114,232,244,.32);
@@ -2527,8 +2529,9 @@ _INDEX_HTML = r"""<!doctype html>
   }
   .button.primary, #analyze-btn { background:rgba(18,39,48,.9); border-color:rgba(114,232,244,.3); color:#D9FBFF; }
   .top-actions #theme-btn, .top-actions #hub-btn { display:inline-flex; }
-  #hub-btn { width:42px; padding:0; font-size:0; }
-  #hub-btn::before { content:"⋮"; font-size:22px; line-height:1; }
+  #hub-btn { width:auto; min-width:112px; padding:0 13px; font-size:13px; gap:7px; }
+  #hub-btn::before { display:none; }
+  #hub-btn svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
   .content { height:calc(100vh - 64px); padding:0 14px 14px; overflow:hidden; }
   body.trace-editor-mode .workspace { height:calc(100vh - 276px); }
   body.trace-editor-mode .content { height:calc(100vh - 64px - 276px); padding:14px; overflow:hidden; }
@@ -2693,23 +2696,6 @@ _INDEX_HTML = r"""<!doctype html>
     text-overflow:ellipsis;
     white-space:nowrap;
   }
-  body.diagnosis-collapsed .diagnosis-panel {
-    width:76px !important;
-    overflow:hidden !important;
-  }
-  body.diagnosis-collapsed .editor-main {
-    width:calc(100% - 92px) !important;
-  }
-  body.diagnosis-collapsed .diagnosis-section:not(.diagnosis-hero) { display:none !important; }
-  body.diagnosis-collapsed .diagnosis-title,
-  body.diagnosis-collapsed .diagnosis-hero .lane-meta,
-  body.diagnosis-collapsed .diagnosis-label { display:none !important; }
-  .diagnosis-toggle {
-    width:34px; height:34px; border-radius:10px; border:1px solid rgba(151,170,181,.16);
-    background:rgba(11,18,25,.8); color:#d9fbff; cursor:pointer; font-weight:800;
-    transition:transform .18s ease, border-color .18s ease, background .18s ease;
-  }
-  .diagnosis-toggle:hover { transform:translateY(-1px); border-color:rgba(114,232,244,.44); background:rgba(22,39,48,.9); }
   .timeline-toolbar-quiet { gap:8px !important; }
   .timeline-tool-group {
     display:inline-flex;
@@ -2879,6 +2865,26 @@ _INDEX_HTML = r"""<!doctype html>
     border-top:1px solid rgba(151,170,181,.12); background:rgba(8,14,20,.45);
   }
   .continuation-action-group { display:flex; gap:8px; flex-wrap:wrap; }
+  .workflow-modal-shell { width:min(760px, 100%); }
+  .workflow-modal-body { display:flex; flex-direction:column; gap:14px; padding:20px; overflow:auto; }
+  .workflow-copy { margin:0; color:#AAB8C2; font-size:13px; line-height:1.55; }
+  .workflow-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .workflow-grid .wide { grid-column:1 / -1; }
+  .mode-switch {
+    display:inline-grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; padding:4px;
+    border:1px solid rgba(151,170,181,.14); border-radius:10px; background:rgba(5,10,15,.5);
+  }
+  .mode-switch button {
+    min-height:36px; padding:0 14px; border:0; border-radius:7px; cursor:pointer;
+    background:transparent; color:#9EADB8; font-weight:760;
+  }
+  .mode-switch button.active { background:rgba(114,232,244,.14); color:#E8FEFF; }
+  .rerun-mode-panel[hidden] { display:none !important; }
+  .upload-drop {
+    min-height:150px; display:grid; place-items:center; padding:24px; text-align:center;
+    border:1px dashed rgba(114,232,244,.36); border-radius:12px; background:rgba(12,35,43,.24);
+  }
+  .upload-drop.dragging { border-color:var(--cyan); background:rgba(114,232,244,.1); }
   .session-modal {
     position:fixed; inset:0; z-index:155; display:grid; place-items:center;
     padding:28px; background:rgba(2,7,11,.58); backdrop-filter:blur(9px);
@@ -3083,7 +3089,7 @@ _INDEX_HTML = r"""<!doctype html>
   /* 1.png pixel-pass: lock major regions to the product mockup proportions. */
   :root {
     --topbar-h:74px;
-    --rail-w:88px;
+    --rail-w:0px;
     --navigator-w:430px;
     --diagnosis-w:clamp(440px, 34vw, 720px);
     --timeline-h:clamp(320px, 34vh, 460px);
@@ -3095,24 +3101,48 @@ _INDEX_HTML = r"""<!doctype html>
   }
   .topbar {
     position:fixed !important; z-index:90; top:0; left:0; right:0;
-    height:var(--topbar-h) !important; padding:0 26px 0 370px !important;
+    height:var(--topbar-h) !important; padding:0 26px 0 270px !important;
     background:linear-gradient(180deg, rgba(9,15,23,.96), rgba(6,11,17,.92)) !important;
     border-bottom:1px solid rgba(114,232,244,.12) !important;
     box-shadow:0 14px 42px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.045);
   }
   .topbar::before {
-    content:"AgentDebugX"; position:absolute; left:116px; top:0; height:var(--topbar-h);
+    content:"AgentDebugX"; position:absolute; left:82px; top:0; height:var(--topbar-h);
     display:flex; align-items:center; color:#EEF7FC; font-size:24px; font-weight:850;
     letter-spacing:-.035em;
   }
   .topbar::after {
-    content:""; position:absolute; left:34px; top:19px; width:34px; height:34px;
-    border-radius:12px; border:2px solid rgba(114,232,244,.72);
-    background:
-      radial-gradient(circle at 64% 34%, rgba(114,232,244,.95) 0 3px, transparent 4px),
-      linear-gradient(145deg, rgba(114,232,244,.2), rgba(114,232,244,.04));
-    box-shadow:0 0 28px rgba(114,232,244,.2);
+    display:none;
   }
+  .top-brand-avatar {
+    position:absolute; z-index:2; left:24px; top:16px; width:42px; height:42px;
+    border:1px solid rgba(114,232,244,.34); border-radius:12px; background:#08131f;
+    box-shadow:0 0 24px rgba(114,232,244,.08); padding:0; cursor:pointer;
+  }
+  .top-brand-avatar img { width:100%; height:100%; display:block; border-radius:inherit; }
+  .top-brand-avatar::after {
+    content:""; position:absolute; right:-2px; bottom:-2px; width:9px; height:9px;
+    border-radius:999px; background:var(--green); box-shadow:0 0 0 3px #081018;
+  }
+  .top-brand-avatar:hover { border-color:rgba(114,232,244,.7); background:#0C1A26; }
+  .top-brand-avatar:focus-visible { outline:2px solid var(--cyan); outline-offset:3px; }
+  .top-brand-avatar[aria-expanded="true"] { border-color:var(--cyan); background:rgba(114,232,244,.1); }
+  .offline-popover {
+    left:24px; top:calc(var(--topbar-h) + 10px); bottom:auto; width:292px;
+    transform:translateY(-8px) scale(.98);
+  }
+  .offline-popover::before {
+    left:20px; top:-7px; bottom:auto; border:0;
+    border-left:1px solid rgba(114,232,244,.26); border-top:1px solid rgba(114,232,244,.26);
+  }
+  .workspace-launcher {
+    height:34px; padding:0 11px;
+    display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line2);
+    border-radius:8px; background:#101923; color:#D6E1E8; font:650 13px/1 inherit; cursor:pointer;
+  }
+  .workspace-launcher svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .workspace-launcher:hover, .workspace-launcher.drawer-active { border-color:var(--cyan); color:#DDFDFF; background:rgba(114,232,244,.1); }
+  .workspace-launcher:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
   .topbar .crumb { font-size:14px; color:#A7B7C2; }
   .topbar .crumb::before { content:"" !important; }
   .topbar .brand-sub { margin-top:4px; font-size:13px; color:#7E8D98; }
@@ -3128,11 +3158,29 @@ _INDEX_HTML = r"""<!doctype html>
     background:linear-gradient(180deg, rgba(14,22,30,.97), rgba(9,16,23,.95)) !important;
   }
   .side-section-title { font-size:20px !important; margin-bottom:18px !important; }
+  .side-section-head {
+    min-height:34px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+  }
+  .side-section-head .side-section-title { margin-bottom:18px !important; }
+  .run-save-case {
+    position:absolute; top:14px; right:14px; z-index:1;
+    width:30px; height:30px; display:grid; place-items:center; padding:0;
+    border:1px solid rgba(142,162,176,.2); border-radius:8px; color:#AFC0CB;
+    background:rgba(11,18,25,.7); cursor:pointer;
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .run-save-case svg {
+    width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8;
+    stroke-linecap:round; stroke-linejoin:round;
+  }
+  .run-save-case:hover:not(:disabled) { color:#E4FDFF; border-color:rgba(114,232,244,.52); background:rgba(114,232,244,.1); }
+  .run-save-case:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+  .run-save-case:disabled { opacity:.32; cursor:not-allowed; }
   .run-search-shell { grid-template-columns:minmax(0,1fr) 52px; gap:12px; margin-bottom:20px; }
   .run-search, .run-filter-btn { height:46px; border-radius:10px; }
   .run-list { gap:12px; }
   .run {
-    min-height:114px !important; padding:18px 20px !important; border-radius:10px !important;
+    position:relative; min-height:114px !important; padding:18px 54px 18px 20px !important; border-radius:10px !important;
     background:linear-gradient(145deg, rgba(19,29,39,.84), rgba(10,17,24,.86)) !important;
   }
   .run.active {
@@ -3153,6 +3201,7 @@ _INDEX_HTML = r"""<!doctype html>
     height:calc(100vh - var(--topbar-h) - var(--timeline-h) - var(--gutter) * 2) !important;
     padding:var(--gutter) 14px 0 !important;
   }
+  body.trace-editor-mode #detail { height:100% !important; }
   body.trace-editor-mode .sidebar { padding-bottom:22px !important; }
   .editor-workbench {
     grid-template-columns:minmax(0,1fr) 612px !important;
@@ -3183,6 +3232,7 @@ _INDEX_HTML = r"""<!doctype html>
     position:fixed !important; z-index:60;
     left:calc(var(--rail-w) + var(--navigator-w) + 12px) !important;
     right:14px !important; bottom:14px !important; height:var(--timeline-h) !important;
+    grid-template-rows:66px minmax(0,1fr) !important;
     border-radius:10px !important;
   }
   body.trace-editor-mode .timeline-dock {
@@ -3326,6 +3376,12 @@ _INDEX_HTML = r"""<!doctype html>
     position:relative;
     min-height:42px;
   }
+  .branch-sequence-row.mode-plan { --branch-color:#72E8F4; }
+  .branch-sequence-row.mode-simulate { --branch-color:#A884FF; }
+  .branch-sequence-row.mode-live { --branch-color:#6EDB98; }
+  .branch-sequence-row.mode-plan .branch-origin-chip { border-style:dashed; }
+  .branch-sequence-row.mode-simulate .branch-origin-chip { background:linear-gradient(180deg, rgba(58,40,92,.98), rgba(20,15,34,.98)); }
+  .branch-sequence-row.mode-live .branch-origin-chip { background:linear-gradient(180deg, rgba(29,70,47,.98), rgba(10,28,19,.98)); }
   .branch-sequence-row::before {
     content:"";
     position:absolute;
@@ -3398,6 +3454,16 @@ _INDEX_HTML = r"""<!doctype html>
   }
   .debug-branch-track-clip:hover {
     transform:translateY(-1px);
+  }
+  .debug-branch-track-clip.mode-plan {
+    color:#D8FBFF !important; border-style:dashed !important; border-color:rgba(114,232,244,.58) !important;
+    background:rgba(19,43,50,.92) !important;
+  }
+  .debug-branch-track-clip.mode-simulate {
+    box-shadow:inset 3px 0 0 #A884FF, inset 0 1px 0 rgba(255,255,255,.04) !important;
+  }
+  .debug-branch-track-clip.mode-live {
+    box-shadow:inset 3px 0 0 #6EDB98, inset 0 1px 0 rgba(255,255,255,.04) !important;
   }
   .debug-branch-more {
     margin-left:4px; color:#8AA5AF; font-size:11px; font-weight:820;
@@ -3535,47 +3601,102 @@ _INDEX_HTML = r"""<!doctype html>
     }
   }
   @media (max-width: 1500px) {
-    :root { --navigator-w:360px; --rail-w:72px; --diagnosis-w:360px; --timeline-h:min(210px, 22vh); }
-    .topbar { padding-left:300px !important; }
-    .topbar::before { left:92px; font-size:21px; }
-    .topbar::after { left:25px; }
+    :root { --navigator-w:340px; --rail-w:0px; --diagnosis-w:340px; --timeline-h:min(210px, 22vh); }
+    .topbar { padding-left:270px !important; }
+    .topbar::before { left:82px; font-size:21px; }
     .editor-workbench { display:block !important; }
     .event-head-right { display:none !important; }
   }
   body.hub-mode .shell,
-  body.overview-mode .shell,
-  body.more-mode .shell {
+  body.overview-mode .shell {
     grid-template-columns:var(--rail-w) minmax(0, 1fr) !important;
   }
   body.hub-mode .sidebar,
-  body.overview-mode .sidebar,
-  body.more-mode .sidebar {
+  body.overview-mode .sidebar {
     display:none !important;
   }
   body.hub-mode .workspace,
-  body.overview-mode .workspace,
-  body.more-mode .workspace {
+  body.overview-mode .workspace {
     grid-column:2 !important;
     height:calc(100vh - var(--topbar-h)) !important;
   }
   body.hub-mode .topbar,
-  body.overview-mode .topbar,
-  body.more-mode .topbar {
+  body.overview-mode .topbar {
     padding-left:380px !important;
   }
   body.hub-mode .content,
-  body.overview-mode .content,
-  body.more-mode .content {
+  body.overview-mode .content {
     height:calc(100vh - var(--topbar-h)) !important;
     max-width:none !important;
     overflow:auto !important;
     padding:18px 24px 28px !important;
   }
   body.hub-mode #detail,
-  body.overview-mode #detail,
-  body.more-mode #detail {
+  body.overview-mode #detail {
     height:auto !important;
     min-height:calc(100vh - var(--topbar-h) - 48px);
+  }
+  .workspace-drawer-scrim {
+    position:fixed; z-index:140; top:var(--topbar-h); right:0; bottom:0; left:var(--rail-w);
+    border:0; padding:0; background:rgba(1,5,9,.62); opacity:0; visibility:hidden;
+    transition:opacity .18s ease, visibility .18s ease; cursor:pointer;
+  }
+  .workspace-drawer-scrim.visible { opacity:1; visibility:visible; }
+  .workspace-drawer {
+    position:fixed; z-index:150; top:var(--topbar-h); bottom:0; display:grid;
+    grid-template-rows:58px minmax(0,1fr); overflow:hidden;
+    background:#081018; border-color:rgba(114,232,244,.18);
+    box-shadow:0 28px 80px rgba(0,0,0,.52); visibility:hidden;
+    transition:transform .18s cubic-bezier(.2,.8,.2,1), visibility .18s ease;
+  }
+  .workspace-drawer.left {
+    left:var(--rail-w); width:min(78vw, 1120px); border-right:1px solid rgba(114,232,244,.2);
+    transform:translateX(-102%);
+  }
+  .workspace-drawer.right {
+    right:0; width:min(72vw, 1040px); border-left:1px solid rgba(114,232,244,.2);
+    transform:translateX(102%);
+  }
+  .workspace-drawer.visible { transform:translateX(0); visibility:visible; }
+  .workspace-drawer-head {
+    min-width:0; display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:0 18px; border-bottom:1px solid rgba(114,232,244,.14); background:#0b141d;
+  }
+  .workspace-drawer-heading { min-width:0; display:flex; align-items:baseline; gap:12px; }
+  .workspace-drawer-title { color:var(--fg); font-size:16px; font-weight:760; }
+  .workspace-drawer-subtitle { color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .workspace-drawer-close {
+    width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; padding:0;
+    border:1px solid var(--line2); border-radius:8px; background:#101923; color:var(--fg);
+    font:20px/1 inherit; cursor:pointer;
+  }
+  .workspace-drawer-close:hover { border-color:var(--cyan); }
+  .workspace-drawer-close:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+  .workspace-drawer-content { min-height:0; overflow:auto; padding:18px 20px 28px; scrollbar-width:thin; }
+  .workspace-drawer-content .project-overview { min-height:100%; }
+  .workspace-drawer.right .case-library-grid { grid-template-columns:220px minmax(0,1fr); }
+  .workspace-drawer.right .case-detail-panel { grid-column:1 / -1; position:static; }
+  .workspace-drawer.right .pattern-summary { grid-template-columns:minmax(0,1fr); }
+  .workspace-drawer.right .pattern-summary-actions { justify-content:flex-start; }
+  .workspace-drawer.right .case-controls { grid-template-columns:minmax(200px,1fr) repeat(2,minmax(130px,auto)); }
+  .workspace-drawer.right .case-list-scroll { max-height:none; }
+  body.drawer-open .timeline-dock { pointer-events:none; }
+  #hub-btn.drawer-active { border-color:var(--cyan); color:#DDFDFF; background:rgba(114,232,244,.12); }
+  body.theme-light .workspace-drawer { background:#F7FAF8; border-color:#D3DEDA; box-shadow:0 28px 70px rgba(41,54,51,.24); }
+  body.theme-light .workspace-drawer-head { background:#FFFFFF; border-color:#DDE7E3; }
+  body.theme-light .workspace-drawer-close { background:#F4F8F6; color:#243632; border-color:#D3DEDA; }
+  body.theme-light .workspace-drawer-scrim { background:rgba(29,43,39,.34); }
+  @media (max-width: 980px) {
+    .workspace-drawer.left, .workspace-drawer.right { left:0; right:0; width:100vw; }
+    .workspace-drawer-scrim { left:0; }
+  }
+  @media (max-width: 760px) {
+    .workspace-drawer-content { padding:14px; }
+    .workspace-drawer.right .case-summary-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .workspace-drawer.right .case-library-grid { grid-template-columns:minmax(0,1fr); }
+    .workspace-drawer.right .case-detail-panel { grid-column:auto; }
+    .workspace-drawer.right .pattern-nav { position:static; }
+    .workspace-drawer.right .case-controls { grid-template-columns:minmax(0,1fr); }
   }
   /* Daylight theme is intentionally designed, not an inverted dark theme. */
   body.theme-light {
@@ -4301,6 +4422,11 @@ _INDEX_HTML = r"""<!doctype html>
     flex-direction:column !important;
     justify-content:center !important;
   }
+  .diagnosis-hero-head {
+    display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
+  }
+  .diagnosis-hero-copy { min-width:0; }
+  .diagnosis-hero .workspace-launcher { flex:0 0 auto; }
   body.trace-editor-mode .diagnosis-panel .diagnosis-section:not(:first-child) {
     overflow:visible !important;
   }
@@ -4451,7 +4577,7 @@ _INDEX_HTML = r"""<!doctype html>
     }
   }
   @media (max-width: 1280px) {
-    .shell { grid-template-columns:64px 340px minmax(0,1fr); }
+    .shell { grid-template-columns:var(--rail-w) var(--navigator-w) minmax(0,1fr); }
     .editor-workbench { grid-template-columns:minmax(0,1fr) 380px; }
     .editor-head-right { gap:14px; }
     .event-head-right { grid-template-columns:auto 72px 82px; gap:14px; }
@@ -4506,16 +4632,6 @@ _INDEX_HTML = r"""<!doctype html>
 </head>
 <body>
 <div class="shell">
-  <nav class="icon-rail" aria-label="Primary">
-    <div class="rail-logo">AX</div>
-    <div class="rail-nav">
-      <button class="rail-btn active" id="rail-overview-btn" type="button" aria-label="Overview dashboard" title="Overview dashboard"><span>⌂</span></button>
-      <button class="rail-btn" id="rail-trace-btn" type="button" aria-label="Trace editor" title="Trace editor"><span>⌁</span></button>
-      <button class="rail-btn" id="rail-cases-btn" type="button" aria-label="Typical error database" title="Typical error database"><span>▣</span></button>
-      <button class="rail-btn" id="rail-more-btn" type="button" aria-label="More actions" title="More actions"><span>•••</span></button>
-    </div>
-    <button class="rail-user" id="offline-status-btn" type="button" aria-label="Local offline status" aria-expanded="false"></button>
-  </nav>
   <aside class="sidebar">
     <div class="brand">
       <div>
@@ -4525,7 +4641,10 @@ _INDEX_HTML = r"""<!doctype html>
       <div class="mark">AX</div>
     </div>
     <div class="run-section">
-      <div class="side-section-title">Run Navigator</div>
+      <div class="side-section-head">
+        <div class="side-section-title">Run Navigator</div>
+        <button class="workspace-launcher" id="overview-btn" type="button" aria-label="Open Overview panel" title="Open Overview panel" aria-expanded="false" aria-controls="overview-drawer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path></svg><span>Overview</span></button>
+      </div>
       <div class="run-search-shell">
       <input class="run-search" id="run-search" type="search" placeholder="Search runs..." aria-label="Search runs" />
         <button class="run-filter-btn" type="button" aria-label="Filter runs">≡</button>
@@ -4540,15 +4659,15 @@ _INDEX_HTML = r"""<!doctype html>
   </aside>
   <section class="workspace">
     <div class="topbar">
+      <button class="top-brand-avatar" id="offline-status-btn" type="button" aria-label="Show Local UI status" title="Local UI status" aria-haspopup="dialog" aria-expanded="false" aria-controls="offline-popover"><img src="/assets/robot-avatar.svg" alt="" /></button>
       <div>
         <div class="crumb">Project / checkout-agent / debug session</div>
         <div class="brand-sub" id="trace-count">Loading traces</div>
       </div>
       <div class="top-actions">
         <button class="button" id="theme-btn" type="button">Theme</button>
+        <button class="button" id="upload-btn" type="button">Upload Trace</button>
         <button class="button" id="analyze-btn" type="button">Refresh View</button>
-        <button class="button" id="export-btn" type="button">Export Bundle</button>
-        <button class="button primary" id="hub-btn" type="button">Open Hub</button>
       </div>
     </div>
     <div class="content">
@@ -4559,19 +4678,30 @@ _INDEX_HTML = r"""<!doctype html>
     </div>
   </section>
 </div>
+<div class="offline-popover" id="offline-popover" role="dialog" aria-label="Local UI status" aria-hidden="true">
+  <div class="offline-title"><span class="offline-dot" aria-hidden="true"></span><span id="runtime-status-title">Local UI</span></div>
+  <div class="offline-copy" id="runtime-status-copy">Traces stay in the local store.</div>
+  <div class="offline-meta" id="runtime-status-meta"></div>
+</div>
+<button class="workspace-drawer-scrim" id="workspace-drawer-scrim" type="button" aria-label="Close open panel"></button>
+<aside class="workspace-drawer left" id="overview-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Overview panel">
+  <div class="workspace-drawer-head"><div class="workspace-drawer-heading"><div class="workspace-drawer-title">Overview</div><div class="workspace-drawer-subtitle">Project health and run triage</div></div><button class="workspace-drawer-close" type="button" data-close-drawer aria-label="Close Overview">×</button></div>
+  <div class="workspace-drawer-content" id="overview-drawer-content"></div>
+</aside>
+<aside class="workspace-drawer right" id="hub-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Error Hub panel">
+  <div class="workspace-drawer-head"><div class="workspace-drawer-heading"><div class="workspace-drawer-title">Error Hub</div><div class="workspace-drawer-subtitle">Saved cases and reusable failure patterns</div></div><button class="workspace-drawer-close" type="button" data-close-drawer aria-label="Close Error Hub">×</button></div>
+  <div class="workspace-drawer-content" id="hub-drawer-content"></div>
+</aside>
 <div id="chart-tooltip" class="chart-tooltip" role="status" aria-live="polite"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<div id="offline-popover" class="offline-popover" role="dialog" aria-label="Runtime status">
-  <div class="offline-title"><span class="offline-dot"></span><span id="runtime-status-title">Local UI</span></div>
-  <div class="offline-copy" id="runtime-status-copy">Loading runtime capabilities...</div>
-  <div class="offline-meta" id="runtime-status-meta"><span class="chip good">local store</span></div>
-</div>
 <script>
 const BOOTSTRAP = __BOOTSTRAP_JSON__;
 const UI_STATUS = (BOOTSTRAP && BOOTSTRAP.ui_status) || {rerun: {configured: false, checkpoint_policy: 'from_start'}};
 let CURRENT_TRACE_ID = null;
 let CURRENT_TRACE_DATA = null;
 let CURRENT_VIEW = (BOOTSTRAP && BOOTSTRAP.view) || 'overview';
+let ACTIVE_DRAWER = null;
+let DRAWER_RETURN_FOCUS = null;
 let CURRENT_EXPANDED_EVENT_ID = null;
 let ACTIVE_TRACE_FILTER = 'all';
 let TIMELINE_ZOOM = 1;
@@ -4658,7 +4788,6 @@ async function loadOverview() {
     CURRENT_TRACE_ID = null;
     CURRENT_TRACE_DATA = null;
     document.body.classList.add('hub-mode', 'overview-mode');
-    document.body.classList.remove('more-mode');
     document.body.classList.remove('trace-editor-mode');
     const detail = document.getElementById('detail');
     if (detail) detail.innerHTML = loadingState('Loading overview');
@@ -4693,13 +4822,83 @@ async function loadOverview() {
     document.getElementById('detail').innerHTML = '<div class="empty">' + escapeHtml(e.message || e) + '</div>';
   }
 }
+async function loadOverviewDrawer() {
+  const target = document.getElementById('overview-drawer-content');
+  if (!target) return;
+  target.innerHTML = loadingState('Loading project overview');
+  try {
+    const overview = await api('/api/v1/overview');
+    BOOTSTRAP.overview = overview;
+    if (Array.isArray(overview.trace_catalog)) TRACE_CATALOG = overview.trace_catalog;
+    renderOverview(overview, target);
+  } catch (e) {
+    target.innerHTML = '<div class="empty">' + escapeHtml(e.message || e) + '</div>';
+  }
+}
+async function loadHubDrawer() {
+  const target = document.getElementById('hub-drawer-content');
+  if (!target) return;
+  target.innerHTML = loadingState('Loading Error Hub');
+  try {
+    const payload = await api('/api/v1/cases');
+    renderCasesPage(payload, target);
+  } catch (e) {
+    target.innerHTML = '<div class="empty">' + escapeHtml(e.message || e) + '</div>';
+  }
+}
+function openWorkspaceDrawer(kind, trigger) {
+  const resolved = kind === 'hub' ? 'hub' : 'overview';
+  const drawer = document.getElementById(resolved + '-drawer');
+  const other = document.getElementById((resolved === 'overview' ? 'hub' : 'overview') + '-drawer');
+  const scrim = document.getElementById('workspace-drawer-scrim');
+  if (!drawer || !scrim) return;
+  if (ACTIVE_DRAWER === resolved) {
+    closeWorkspaceDrawer();
+    return;
+  }
+  if (DRAWER_RETURN_FOCUS) DRAWER_RETURN_FOCUS.setAttribute('aria-expanded', 'false');
+  DRAWER_RETURN_FOCUS = trigger || null;
+  ACTIVE_DRAWER = resolved;
+  other?.classList.remove('visible');
+  other?.setAttribute('aria-hidden', 'true');
+  drawer.classList.add('visible');
+  drawer.setAttribute('aria-hidden', 'false');
+  scrim.classList.add('visible');
+  document.body.classList.add('drawer-open');
+  document.getElementById('hub-btn')?.classList.toggle('drawer-active', resolved === 'hub');
+  document.getElementById('hub-btn')?.setAttribute('aria-expanded', resolved === 'hub' ? 'true' : 'false');
+  document.getElementById('overview-btn')?.classList.toggle('drawer-active', resolved === 'overview');
+  document.getElementById('overview-btn')?.setAttribute('aria-expanded', resolved === 'overview' ? 'true' : 'false');
+  setRailMode(resolved === 'overview' ? 'overview' : 'trace');
+  window.requestAnimationFrame(() => drawer.querySelector('[data-close-drawer]')?.focus());
+  if (resolved === 'overview') loadOverviewDrawer();
+  else loadHubDrawer();
+}
+function closeWorkspaceDrawer(restoreFocus = true) {
+  if (!ACTIVE_DRAWER) return;
+  document.querySelectorAll('.workspace-drawer').forEach(drawer => {
+    drawer.classList.remove('visible');
+    drawer.setAttribute('aria-hidden', 'true');
+  });
+  document.getElementById('workspace-drawer-scrim')?.classList.remove('visible');
+  document.getElementById('hub-btn')?.classList.remove('drawer-active');
+  document.getElementById('hub-btn')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('overview-btn')?.classList.remove('drawer-active');
+  document.getElementById('overview-btn')?.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('drawer-open');
+  ACTIVE_DRAWER = null;
+  setRailMode('trace');
+  const returnFocus = DRAWER_RETURN_FOCUS;
+  DRAWER_RETURN_FOCUS = null;
+  if (restoreFocus) returnFocus?.focus();
+}
 async function loadCases() {
   try {
     CURRENT_VIEW = 'cases';
     CURRENT_TRACE_ID = null;
     CURRENT_TRACE_DATA = null;
     document.body.classList.add('hub-mode', 'cases-mode');
-    document.body.classList.remove('trace-editor-mode', 'overview-mode', 'more-mode');
+    document.body.classList.remove('trace-editor-mode', 'overview-mode');
     const detail = document.getElementById('detail');
     if (detail) detail.innerHTML = loadingState('Loading case database');
     const payload = await api('/api/v1/cases');
@@ -4729,9 +4928,17 @@ function renderTraceList(traceIds, selectedId) {
     const statusLabel = Number(item.finding_count || 0) ? 'Failed' : 'Passed';
     const dataset = shortDatasetLabel(item.task_type || item.dataset_type || item.framework || 'trace');
     li.title = tid + '\\n' + dataset + ' · ' + shortModelLabel(item.model || item.framework || 'model') + '\\n' + (item.event_count || 0) + ' steps · ' + (item.error_count || item.finding_count || 0) + ' errors';
-    li.innerHTML = '<div class="run-id">' + escapeHtml(runCardTitle(item)) + '</div>' +
+    li.innerHTML = '<button class="run-save-case" type="button" data-save-case aria-label="Save ' + escapeHtml(tid) + ' as case" title="Save this trace as case"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"></path></svg></button>' +
+      '<div class="run-id">' + escapeHtml(runCardTitle(item)) + '</div>' +
       '<div class="run-meta"><span>' + escapeHtml(dataset) + '</span><span>•</span><span>' + escapeHtml(shortModelLabel(item.model || item.framework || 'model')) + '</span><span class="chip ' + statusClass + '">' + statusLabel + '</span></div>' +
       '<div class="run-meta"><span>' + escapeHtml(item.event_count || 0) + ' steps</span><span>•</span><span>' + escapeHtml(item.error_count || item.finding_count || 0) + ' errors</span></div>';
+    const saveCaseButton = li.querySelector('[data-save-case]');
+    saveCaseButton.dataset.traceId = tid;
+    saveCaseButton.onclick = event => {
+      event.preventDefault();
+      event.stopPropagation();
+      saveTraceCase(tid, saveCaseButton);
+    };
     li.dataset.tid = tid;
     li.onclick = async () => {
       saveRunScroll();
@@ -4831,6 +5038,7 @@ function statusClassForItem(item) {
   return Number(item.finding_count || 0) ? 'failed' : 'passed';
 }
 async function selectTrace(tid, li, reportId) {
+  if (ACTIVE_DRAWER) closeWorkspaceDrawer(false);
   document.querySelectorAll('.run').forEach(el => el.classList.remove('active'));
   if (li && li.classList) li.classList.add('active');
   CURRENT_TRACE_ID = tid;
@@ -4850,7 +5058,7 @@ async function selectTrace(tid, li, reportId) {
 }
 function renderTrace(traj, report) {
   document.body.classList.add('trace-editor-mode');
-  document.body.classList.remove('hub-mode', 'overview-mode', 'more-mode');
+  document.body.classList.remove('hub-mode', 'overview-mode', 'cases-mode');
   setRailMode('trace');
   const crumb = document.querySelector('.crumb');
   if (crumb) crumb.textContent = 'Projects  ›  checkout-agent  ›  Debug Runs  ›  ' + (traj.trace_id || 'trace');
@@ -4892,12 +5100,15 @@ function renderTrace(traj, report) {
     html += '<span class="chip">' + escapeHtml(events.length) + ' steps</span>';
     html += '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>';
     html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Prepare Rerun</button>';
-    html += '<button class="timeline-tool" id="save-case-btn" type="button" data-save-case>Save Case</button>';
+    html += '<button class="timeline-tool" id="diagnose-pipeline-btn" type="button" data-open-diagnose>Diagnose Pipeline</button>';
     const reportOptions = Array.isArray(CURRENT_TRACE_DATA?.reports) ? CURRENT_TRACE_DATA.reports : [];
-    if (reportOptions.length) {
+    const storedReportOptions = reportOptions.filter(item => item?.source === 'stored');
+    if (storedReportOptions.length) {
       html += '<select class="report-select" id="report-select" aria-label="Diagnostic report">' +
-        reportOptions.map(item => '<option value="' + escapeHtml(item.report_id || '') + '" ' + (item.report_id === report.report_id ? 'selected' : '') + '>' + escapeHtml(reportOptionLabel(item)) + '</option>').join('') +
+        storedReportOptions.map(item => '<option value="' + escapeHtml(item.report_id || '') + '" ' + (item.report_id === report.report_id ? 'selected' : '') + '>' + escapeHtml(reportOptionLabel(item)) + '</option>').join('') +
         '</select>';
+    }
+    if (reportOptions.length) {
       html += '<span class="chip cyan">' + escapeHtml(CURRENT_TRACE_DATA?.report_source === 'stored' ? 'stored report' : 'heuristic fallback') + '</span>';
     }
   }
@@ -4923,15 +5134,21 @@ function renderTrace(traj, report) {
   bindEventNav(traj, report);
   bindTimelineTools(traj, report);
   bindDebugContinuationButton();
+  bindDiagnosePipelineButton();
   bindDebugSessionActions(traj, report);
   bindTimelineScrollSync();
   bindChartTooltips();
   bindReportSelector(traj.trace_id || '');
+  bindHubButton();
 }
 function reportOptionLabel(item) {
   const analyzer = item?.analyzer && item.analyzer !== 'unknown' ? item.analyzer : 'diagnostic report';
   const count = Number(item?.finding_count || 0);
   return analyzer + ' · ' + count + ' finding' + (count === 1 ? '' : 's');
+}
+function activeStoredReportId() {
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return null;
+  return CURRENT_TRACE_DATA?.report?.report_id || null;
 }
 function bindReportSelector(traceId) {
   const select = document.getElementById('report-select');
@@ -4945,7 +5162,7 @@ function bindReportSelector(traceId) {
 }
 function renderEventDetail(traj, report, eventId) {
   document.body.classList.remove('trace-editor-mode');
-  document.body.classList.remove('hub-mode', 'overview-mode', 'more-mode');
+  document.body.classList.remove('hub-mode', 'overview-mode');
   setRailMode('trace');
   const events = traj.events || [];
   const findings = report.findings || [];
@@ -4980,22 +5197,24 @@ function renderEventDetail(traj, report, eventId) {
   html += renderEvent(event, event.event_id === report.root_cause_event_id, finding);
   document.getElementById('detail').innerHTML = html;
 }
-function renderOverview(overview) {
-  document.body.classList.remove('trace-editor-mode');
-  document.body.classList.remove('diagnosis-collapsed');
-  document.body.classList.add('hub-mode', 'overview-mode');
-  document.body.classList.remove('more-mode');
-  setRailMode('overview');
-  const detail = document.getElementById('detail');
+function renderOverview(overview, target) {
+  const inDrawer = Boolean(target);
+  if (!inDrawer) {
+    document.body.classList.remove('trace-editor-mode');
+    document.body.classList.remove('diagnosis-collapsed');
+    document.body.classList.add('hub-mode', 'overview-mode');
+    setRailMode('overview');
+  }
+  const detail = target || document.getElementById('detail');
   if (!detail) return;
-  const crumb = document.querySelector('.crumb');
+  const crumb = inDrawer ? null : document.querySelector('.crumb');
   if (crumb) crumb.textContent = 'Projects  ›  checkout-agent  ›  Project Hub';
   const catalog = overview.trace_catalog || [];
   const top = overview.top_error_types || [];
   const failedRuns = Number(overview.error_trace_count || 0);
   const failureRate = Number(overview.error_rate_pct || 0);
   const rootCoverage = rootCauseCoverage(catalog);
-  document.getElementById('trace-count').textContent = (overview.trace_count || 0) + ' runs in local store';
+  if (!inDrawer) document.getElementById('trace-count').textContent = (overview.trace_count || 0) + ' runs in local store';
   detail.innerHTML =
     '<div class="project-overview intel-overview">' +
     '<div class="sr-only">Project Overview Run triage center Failure Trend Failure Mode Breakdown Model × Environment Heatmap Recent Failed Sequences Issue Summary Failed Runs Runs Table</div>' +
@@ -5025,41 +5244,6 @@ function renderOverview(overview) {
   bindRunsTable();
   bindChartTooltips();
   bindOverviewInteractions(catalog);
-}
-function renderMorePanel() {
-  document.body.classList.remove('trace-editor-mode');
-  document.body.classList.remove('diagnosis-collapsed');
-  document.body.classList.add('hub-mode', 'more-mode');
-  document.body.classList.remove('overview-mode');
-  setRailMode('more');
-  CURRENT_VIEW = 'more';
-  const crumb = document.querySelector('.crumb');
-  if (crumb) crumb.textContent = 'Projects  ›  checkout-agent  ›  More';
-  const detail = document.getElementById('detail');
-  if (!detail) return;
-  document.getElementById('trace-count').textContent = 'Shortcuts, exports, and local workflow';
-  detail.innerHTML =
-    '<div class="project-overview">' +
-    '<div class="overview-top"><div><div class="kicker">More</div><h1>Workflow controls</h1>' +
-    '<div class="goal">Quick access to keyboard shortcuts, export formats, and local debug workflow notes. These controls do not change the selected run.</div></div>' +
-    '<div class="lane-meta"><span class="chip cyan">local UI</span><span class="chip">no network required</span></div></div>' +
-    '<div class="overview-visual-grid">' +
-    '<div class="panel"><div class="panel-head">' + panelTitle('Keyboard Shortcuts', 'Fast navigation inside Trace Editor.') + '</div><div class="panel-body">' +
-    '<div class="issue-list">' +
-    moreRow('← / →', 'Previous or next event') +
-    moreRow('Shift + ← / →', 'Previous or next error event') +
-    moreRow('R', 'Jump to root cause') +
-    moreRow('+ / −', 'Zoom timeline') +
-    moreRow('Space', 'Step through events') +
-    moreRow('Esc', 'Expand panels and clear focus state') +
-    '</div></div></div>' +
-    '<div class="panel"><div class="panel-head">' + panelTitle('Export Modes', 'Available local bundle formats.') + '</div><div class="panel-body">' +
-    '<div class="issue-list">' +
-    moreRow('JSON', 'Full trace, report, findings, and metadata') +
-    moreRow('CSV', 'Event table for spreadsheet review') +
-    moreRow('PDF', 'Browser print dialog for report snapshots') +
-    '</div><div class="lane-meta"><button class="button primary" type="button" onclick="exportTraceBundle()">Export current run</button></div></div></div>' +
-	    '</div></div>';
 }
 function caseFamily(item) {
   return String(item?.top_family || item?.report?.findings?.[0]?.failure_mode?.family || 'unclassified');
@@ -5242,18 +5426,21 @@ function renderCaseMenu(item) {
     '<button type="button" class="danger" data-delete-case-id="' + escapeHtml(caseId) + '">Delete</button>' +
     '</div></div>';
 }
-function renderCasesPage(payload) {
-  document.body.classList.remove('trace-editor-mode', 'overview-mode', 'more-mode');
-  document.body.classList.add('hub-mode', 'cases-mode');
-  setRailMode('cases');
-  CURRENT_VIEW = 'cases';
-  const crumb = document.querySelector('.crumb');
+function renderCasesPage(payload, target) {
+  const inDrawer = Boolean(target);
+  if (!inDrawer) {
+    document.body.classList.remove('trace-editor-mode', 'overview-mode');
+    document.body.classList.add('hub-mode', 'cases-mode');
+    setRailMode('cases');
+    CURRENT_VIEW = 'cases';
+  }
+  const crumb = inDrawer ? null : document.querySelector('.crumb');
   if (crumb) crumb.textContent = 'Projects  ›  checkout-agent  ›  Typical Error Database';
-  const detail = document.getElementById('detail');
+  const detail = target || document.getElementById('detail');
   if (!detail) return;
   const cases = payload.cases || [];
   const stats = caseLibraryStats(cases);
-  document.getElementById('trace-count').textContent = cases.length + ' saved cases · ' + (payload.path || CASE_DB_FILENAME);
+  if (!inDrawer) document.getElementById('trace-count').textContent = cases.length + ' saved cases · ' + (payload.path || CASE_DB_FILENAME);
   detail.innerHTML =
     '<div class="project-overview case-library-shell">' +
     '<div class="overview-top"><div><div class="kicker">Failure Pattern Library</div><h1>Curated debugging knowledge base</h1>' +
@@ -5277,15 +5464,15 @@ function renderCasesPage(payload) {
     '</div>' +
     '</div>';
   const refresh = document.getElementById('refresh-cases-btn');
-  if (refresh) refresh.onclick = () => loadCases();
+  if (refresh) refresh.onclick = () => inDrawer ? loadHubDrawer() : loadCases();
   const hint = document.getElementById('new-case-hint');
-  if (hint) hint.onclick = () => notify('Open a trace and use Save Case in the Event Inspector header.');
+  if (hint) hint.onclick = () => notify('Open a trace and use the bookmark button in Run Navigator.');
   bindCaseCards();
   bindCaseControls(cases, stats);
 }
 function renderCaseCards(cases) {
   if (!cases || !cases.length) {
-    return '<div class="empty">No typical cases saved yet. Open a trace and click Save Case to add one.</div>';
+    return '<div class="empty">No typical cases saved yet. Open a trace and use the bookmark button in Run Navigator.</div>';
   }
   return '<div class="case-grid">' + cases.map(item => {
     const traceId = item.trace_id || '';
@@ -5639,14 +5826,8 @@ function fillSelect(select, values, allLabel) {
     unique.map(value => '<option value="' + escapeHtml(value) + '">' + escapeHtml(value) + '</option>').join('');
   select.value = unique.includes(previous) ? previous : 'all';
 }
-function moreRow(label, value) {
-  return '<div class="issue-row"><div class="issue-name">' + escapeHtml(label) + '</div><div class="diagnosis-copy">' + escapeHtml(value) + '</div></div>';
-}
 function setRailMode(mode) {
-  document.querySelectorAll('.rail-btn').forEach(button => button.classList.remove('active'));
-  const id = mode === 'overview' ? 'rail-overview-btn' : (mode === 'trace' ? 'rail-trace-btn' : (mode === 'cases' ? 'rail-cases-btn' : 'rail-more-btn'));
-  const active = document.getElementById(id);
-  if (active) active.classList.add('active');
+  document.getElementById('overview-btn')?.classList.toggle('drawer-active', mode === 'overview');
 }
 function stat(label, value, klass) {
   return '<div class="stat"><div class="stat-label">' + escapeHtml(label) + '</div><div class="stat-value ' + klass + '">' + escapeHtml(value) + '</div></div>';
@@ -6314,7 +6495,8 @@ function renderDiagnosisPanel(report, findings, selectedEvent, events) {
   const ordinal = selectedEvent ? Math.max(1, (events || []).findIndex(ev => ev.event_id === selectedEvent.event_id) + 1) : '-';
   const hasIssue = Boolean(primary || hasEventSignal || selectedEvent?.event_id === report.root_cause_event_id);
   let html = '<aside class="diagnosis-panel ' + (hasIssue ? 'has-issue' : 'compact-clean') + '">';
-  html += '<div class="diagnosis-section diagnosis-hero"><div style="display:flex; align-items:center; justify-content:space-between; gap:12px;"><div class="diagnosis-label">Diagnosis</div><button class="diagnosis-toggle" type="button" data-toggle-diagnosis title="Collapse or expand Diagnosis">⇄</button></div><div class="diagnosis-title">' + escapeHtml(issue) + '</div>';
+  html += '<div class="diagnosis-section diagnosis-hero"><div class="diagnosis-hero-head"><div class="diagnosis-hero-copy"><div class="diagnosis-label">Diagnosis</div><div class="diagnosis-title">' + escapeHtml(issue) + '</div></div>';
+  html += '<button class="workspace-launcher" id="hub-btn" type="button" aria-label="Open Error Hub panel" title="Open Error Hub panel" aria-expanded="false" aria-controls="hub-drawer"><span>Error Hub</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button></div>';
   html += '<div class="lane-meta"><span class="chip ' + (primary || hasEventSignal ? 'bad' : 'good') + '">' + escapeHtml(primary ? (debug?.severity || 'high') : (hasEventSignal ? 'event signal' : 'clean')) + '</span>';
   if (selectedEvent?.event_id === report.root_cause_event_id) html += '<span class="chip warn">root cause</span>';
   html += '<span class="chip cyan">event #' + escapeHtml(ordinal) + '</span></div></div>';
@@ -6457,20 +6639,22 @@ function renderDebugBranchTree(branches, events, expandedId) {
     if (aStep !== bStep) return aStep - bStep;
     return String(a.created_at || '').localeCompare(String(b.created_at || ''));
   });
+  const modeCounts = {plan: 0, simulate: 0, live: 0};
   let html = '<div class="timeline-track debug-branch-lane" data-track="debug-tree" style="--zoom:' + escapeHtml(TIMELINE_ZOOM) + '"><div class="branch-track-stack">';
-  sorted.forEach((branch, branchIdx) => {
+  sorted.forEach((branch) => {
     const startIndex = Math.max(0, Number(branch.checkpoint_ordinal || 1) - 1);
     const generated = Array.isArray(branch.generated_events) ? branch.generated_events : [];
-    const branchTone = ['#72E8F4', '#F5BE55', '#A884FF', '#6EDB98', '#F26D5E'][branchIdx % 5];
-    const sourceLabel = 'rerun ' + (branchIdx + 1) + ' · from #' + (startIndex + 1);
+    const mode = debugBranchMode(branch);
+    modeCounts[mode.key] += 1;
+    const sourceLabel = mode.label + ' ' + modeCounts[mode.key] + ' · from #' + (startIndex + 1);
     const sourceTip = debugBranchTooltipHtml(branch, startIndex + 1);
-    html += '<div class="branch-sequence-row" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" style="--branch-start:' + escapeHtml(startIndex) + '; --branch-color:' + escapeHtml(branchTone) + '">';
+    html += '<div class="branch-sequence-row mode-' + escapeHtml(mode.key) + '" data-rerun-mode="' + escapeHtml(mode.key) + '" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" style="--branch-start:' + escapeHtml(startIndex) + '; --branch-color:' + escapeHtml(mode.color) + '">';
     for (let i = 0; i < startIndex; i += 1) {
       html += '<span class="branch-gap" aria-hidden="true"></span>';
     }
     html += '<button type="button" class="branch-origin-chip" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" data-event-id="' + escapeHtml(branch.parent_event_id || branch.event_id || '') + '" data-tooltip="' + escapeHtml(sourceTip) + '">' + escapeHtml(sourceLabel) + '</button>';
     if (!generated.length) {
-      html += '<button type="button" class="track-clip debug-branch-track-clip root" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" data-event-id="' + escapeHtml(branch.parent_event_id || branch.event_id || '') + '" data-tooltip="' + escapeHtml(sourceTip) + '">' + escapeHtml('#' + (startIndex + 1)) + '</button>';
+      html += '<button type="button" class="track-clip debug-branch-track-clip mode-' + escapeHtml(mode.key) + '" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" data-event-id="' + escapeHtml(branch.parent_event_id || branch.event_id || '') + '" data-tooltip="' + escapeHtml(sourceTip) + '">' + escapeHtml(mode.emptyLabel) + '</button>';
       html += '</div>';
       return;
     }
@@ -6482,12 +6666,24 @@ function renderDebugBranchTree(branches, events, expandedId) {
       const tip = ev?.error
         ? timelineMistakeTooltipHtml(ev, null, false, ordinal)
         : timelineTooltipHtml(ev, null, false, ordinal);
-      html += '<button type="button" class="track-clip debug-branch-track-clip ' + escapeHtml(state) + (isActive ? ' active' : '') + '" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" data-event-id="' + escapeHtml(eventId) + '" data-branch-parent-event-id="' + escapeHtml(branch.parent_event_id || branch.event_id || '') + '" data-tooltip="' + escapeHtml(tip) + '" title="' + escapeHtml((branch.label || 'rerun branch') + ' · #' + ordinal) + '">' + escapeHtml('#' + ordinal) + '</button>';
+      html += '<button type="button" class="track-clip debug-branch-track-clip mode-' + escapeHtml(mode.key) + ' ' + escapeHtml(state) + (isActive ? ' active' : '') + '" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" data-event-id="' + escapeHtml(eventId) + '" data-branch-parent-event-id="' + escapeHtml(branch.parent_event_id || branch.event_id || '') + '" data-tooltip="' + escapeHtml(tip) + '" title="' + escapeHtml(mode.label + ' · ' + (branch.label || 'rerun branch') + ' · #' + ordinal) + '">' + escapeHtml(mode.clipPrefix + ' #' + ordinal) + '</button>';
     });
     html += '</div>';
   });
   html += '</div></div>';
   return html;
+}
+function debugBranchMode(branch) {
+  const runType = String(branch?.run_type || '').toLowerCase();
+  const executionMode = String(branch?.execution_mode || '').toLowerCase();
+  if (runType === 'rerun_plan' || branch?.status === 'planned') {
+    return {key:'plan', label:'Plan', clipPrefix:'PLAN', emptyLabel:'PLAN', color:'#72E8F4'};
+  }
+  if (runType === 'simulated_rerun' || executionMode.includes('simulat')) {
+    return {key:'simulate', label:'Simulation', clipPrefix:'SIM', emptyLabel:'SIM', color:'#A884FF'};
+  }
+  const isMcp = runType === 'mcp_rerun' || executionMode === 'live_mcp';
+  return {key:'live', label:isMcp ? 'Live · MCP' : 'Live · Runner', clipPrefix:'LIVE', emptyLabel:'LIVE', color:'#6EDB98'};
 }
 function renderStepCard(ev, finding, stateClass, isRoot, isActive, ordinal, showTick) {
   const aria = timelineTooltip(ev, finding, isRoot, ordinal);
@@ -6590,13 +6786,19 @@ function timelineMistakeTooltipHtml(ev, finding, isRoot, ordinal) {
 function debugBranchTooltipHtml(branch, parentOrdinal) {
   const generatedCount = Array.isArray(branch.generated_events) ? branch.generated_events.length : 0;
   const evaluation = branch.evaluation || localBranchEvaluation(branch);
+  const mode = debugBranchMode(branch);
+  const executionNote = mode.key === 'plan'
+    ? 'Plan only · nothing executed'
+    : mode.key === 'simulate'
+      ? 'Hypothetical trajectory · unverified'
+      : 'Observed execution · tools may run';
   return '<div class="timeline-tooltip timeline-branch-tooltip">' +
     '<div class="timeline-tooltip-main"><div class="timeline-tooltip-index">#' + escapeHtml(parentOrdinal ?? '-') + '</div>' +
-    '<div class="timeline-tooltip-status ' + escapeHtml(sessionResultClass(evaluation.result)) + '">' + escapeHtml(evaluation.result || 'session') + '</div></div>' +
+    '<div class="timeline-tooltip-status ' + escapeHtml(sessionResultClass(evaluation.result)) + '">' + escapeHtml(mode.label) + '</div></div>' +
     '<div class="timeline-tooltip-type">' + escapeHtml(branch.label || branch.generated_trace_id || 'Rerun branch') + '</div>' +
     '<div class="timeline-tooltip-evidence">' + escapeHtml(truncate(evaluation.reason || branch.prompt_preview || branch.note || 'Rerun session saved locally.', 150)) + '</div>' +
-    '<div class="timeline-tooltip-meta"><span>' + escapeHtml(branch.debug_model || 'rerun model') + '</span><span>' + escapeHtml(branch.created_at || '') + '</span></div>' +
-    '<div class="timeline-tooltip-meta"><span>' + escapeHtml(generatedCount ? (generatedCount + ' generated events') : 'waiting for generated events') + '</span><span>⌫ delete in menu</span></div>' +
+    '<div class="timeline-tooltip-meta"><span>' + escapeHtml(executionNote) + '</span><span>' + escapeHtml(branch.created_at || '') + '</span></div>' +
+    '<div class="timeline-tooltip-meta"><span>' + escapeHtml(generatedCount ? (generatedCount + ' generated events') : (mode.key === 'plan' ? 'plan saved' : 'no generated events')) + '</span><span>delete in menu</span></div>' +
     '</div>';
 }
 function sessionResultClass(result) {
@@ -6981,12 +7183,6 @@ function bindRelatedEvents(traj, report) {
       pulseEditorStage();
     };
   });
-  document.querySelectorAll('[data-toggle-diagnosis]').forEach(button => {
-    button.onclick = () => {
-      document.body.classList.toggle('diagnosis-collapsed');
-      notify(document.body.classList.contains('diagnosis-collapsed') ? 'Diagnosis collapsed' : 'Diagnosis expanded');
-    };
-  });
   document.querySelectorAll('[data-info-popover]').forEach(button => {
     button.onclick = () => notify(button.dataset.infoPopover || 'No extra information.');
   });
@@ -7166,29 +7362,32 @@ function exportTraceBundle(format) {
   }
   notify('Exported ' + selected.toUpperCase() + ' bundle');
 }
-async function saveCurrentCase() {
-  if (!CURRENT_TRACE_ID || !CURRENT_TRACE_DATA) {
-    notify('Open a trace before saving a typical case');
+async function saveTraceCase(traceId, btn) {
+  if (!traceId) {
+    notify('No trace selected for this case');
     return;
   }
-  const btn = document.getElementById('save-case-btn');
-  const previous = btn ? btn.textContent : '';
+  const previousLabel = btn ? btn.getAttribute('aria-label') : '';
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Saving...';
+    btn.setAttribute('aria-label', 'Saving ' + traceId + ' as case');
+    btn.title = 'Saving...';
   }
   try {
-    const report = CURRENT_TRACE_DATA.report || {};
+    const traceData = traceId === CURRENT_TRACE_ID && CURRENT_TRACE_DATA
+      ? CURRENT_TRACE_DATA
+      : await api('/api/v1/traces/' + encodeURIComponent(traceId));
+    const report = traceData.report || {};
     const primary = (report.findings || [])[0] || {};
     const mode = primary.failure_mode || {};
-    const title = window.prompt('Case title', (mode.mode_id || mode.name || CURRENT_TRACE_ID));
+    const title = window.prompt('Case title', (mode.mode_id || mode.name || traceId));
     if (title === null) return;
     const response = await fetch('/api/v1/cases', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        trace_id: CURRENT_TRACE_ID,
-        report_id: CURRENT_TRACE_DATA?.report?.report_id || null,
+        trace_id: traceId,
+        report_id: traceId === CURRENT_TRACE_ID ? activeStoredReportId() : (report.report_id || null),
         title
       })
     });
@@ -7203,7 +7402,8 @@ async function saveCurrentCase() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = previous || 'Save Case';
+      btn.setAttribute('aria-label', previousLabel || ('Save ' + traceId + ' as case'));
+      btn.title = 'Save this trace as case';
     }
   }
 }
@@ -7379,6 +7579,8 @@ async function runContinuationRerun() {
   const modal = document.getElementById('continuation-modal');
   if (!modal) return;
   const pkg = currentContinuationPackage();
+  const rerunMode = ['plan_only', 'simulate', 'live'].includes(modal.__rerunMode) ? modal.__rerunMode : 'plan_only';
+  const liveTransport = modal.__liveTransport === 'mcp' ? 'mcp' : 'server';
   const statusNode = document.getElementById('continuation-run-status');
   if (!pkg.trace_id || !pkg.event_id) {
     if (statusNode) statusNode.textContent = 'Missing trace/event checkpoint for backend rerun.';
@@ -7390,21 +7592,54 @@ async function runContinuationRerun() {
     button.disabled = true;
     button.textContent = 'Running...';
   }
-  if (statusNode) statusNode.textContent = 'Starting configured live framework runner with the selected event diagnosis...';
+  if (rerunMode === 'live' && liveTransport === 'mcp' && !document.getElementById('rerun-mcp-endpoint')?.value.trim()) {
+    if (statusNode) statusNode.textContent = 'Enter an MCP endpoint before running.';
+    if (button) { button.disabled = false; button.textContent = previous || 'Run with MCP'; }
+    return;
+  }
+  if (statusNode) statusNode.textContent = rerunMode === 'plan_only'
+    ? 'Building an auditable rerun request...'
+    : rerunMode === 'simulate'
+      ? 'Generating a labeled hypothetical trajectory without tool execution...'
+      : liveTransport === 'mcp'
+        ? 'Connecting to MCP, discovering tools, and starting observed execution...'
+        : 'Starting the configured live framework runner...';
   try {
+    const privateEndpoint = Boolean(document.getElementById('rerun-mcp-private')?.checked);
+    const mcpToken = document.getElementById('rerun-mcp-token')?.value || '';
+    const requestPayload = {
+      event_id: pkg.event_id,
+      report_id: activeStoredReportId(),
+      selected_event: pkg.selected_event || selectedEventPayloadForRerun(pkg.event_id),
+      note: pkg.note || '',
+      rerun_mode: rerunMode,
+      checkpoint_policy: document.getElementById('rerun-checkpoint-policy')?.value || 'from_start',
+      model: rerunMode === 'simulate'
+        ? (document.getElementById('rerun-sim-model')?.value || '')
+        : (rerunMode === 'live' && liveTransport === 'mcp' ? (document.getElementById('rerun-mcp-model')?.value || '') : ''),
+      base_url: rerunMode === 'simulate'
+        ? (document.getElementById('rerun-sim-base-url')?.value || '')
+        : (rerunMode === 'live' && liveTransport === 'mcp' ? (document.getElementById('rerun-mcp-base-url')?.value || '') : ''),
+      api_key: rerunMode === 'simulate'
+        ? (document.getElementById('rerun-sim-api-key')?.value || '')
+        : (rerunMode === 'live' && liveTransport === 'mcp' ? (document.getElementById('rerun-mcp-api-key')?.value || '') : ''),
+      prompt_text: pkg.composed_prompt,
+      label: (rerunMode === 'plan_only' ? 'Rerun plan from #' : rerunMode === 'simulate' ? 'Simulation from #' : liveTransport === 'mcp' ? 'MCP live rerun from #' : 'Live rerun from #') + (pkg.checkpoint_ordinal || '?'),
+      options: pkg.prompt_config || {}
+    };
+    if (rerunMode === 'live' && liveTransport === 'mcp') {
+      requestPayload.mcp = {
+        endpoint: document.getElementById('rerun-mcp-endpoint')?.value.trim(),
+        auth: mcpToken ? {type: 'bearer', token: mcpToken} : {type: 'none'},
+        max_tool_calls: Number(document.getElementById('rerun-mcp-max-calls')?.value || 12),
+        allow_private: privateEndpoint,
+        allow_insecure: privateEndpoint
+      };
+    }
     const response = await fetch('/api/v1/traces/' + encodeURIComponent(pkg.trace_id) + '/rerun-from-event', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        event_id: pkg.event_id,
-        report_id: CURRENT_TRACE_DATA?.report?.report_id || null,
-        selected_event: pkg.selected_event || selectedEventPayloadForRerun(pkg.event_id),
-        note: pkg.note || '',
-        model: pkg.prompt_config?.debug_model || defaultDebugModel(),
-        prompt_text: pkg.composed_prompt,
-        label: 'rerun from #' + (pkg.checkpoint_ordinal || '?'),
-        options: pkg.prompt_config || {}
-      })
+      body: JSON.stringify(requestPayload)
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -7416,7 +7651,13 @@ async function runContinuationRerun() {
       statusNode.textContent = 'Backend rerun completed and saved to ' + (result.path || 'local branch store') + '.';
     }
     const effectivePolicy = result?.branch?.requested_checkpoint_policy || 'from_start';
-    notify(effectivePolicy === 'from_event' ? 'Rerun completed from selected event' : 'Full-task rerun completed with selected event guidance');
+    notify(rerunMode === 'plan_only'
+      ? 'Rerun plan created without execution'
+      : rerunMode === 'simulate'
+        ? 'Simulated rollout created; outcome is not verified'
+        : liveTransport === 'mcp'
+          ? 'Live MCP rerun completed with real tool results'
+          : (effectivePolicy === 'from_event' ? 'Live rerun completed from selected event' : 'Live full-task rerun completed'));
     if (branch) {
       modal.classList.remove('visible');
     }
@@ -7453,7 +7694,7 @@ async function startDebugContinuation() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         event_id: eventId,
-        report_id: CURRENT_TRACE_DATA?.report?.report_id || null,
+        report_id: activeStoredReportId(),
         selected_event: selectedEvent,
         mode: 'rerun',
         prompt_config: {placeholder: true}
@@ -7505,8 +7746,9 @@ function showDebugContinuation(payload) {
       '<button class="continuation-close" type="button" data-close-continuation aria-label="Close">×</button></div>' +
       '<div class="continuation-body">' +
         '<div class="continuation-builder">' +
-          '<div class="composer-section"><div class="continuation-label">Live Runner Model Label</div><input class="composer-input" id="continuation-debug-model" value="' + escapeHtml(defaultDebugModel()) + '" placeholder="configured by the server-side runner"></div>' +
-          '<div class="composer-section"><div class="continuation-label">Prompt to Rerun LLM</div><textarea class="composer-textarea prompt" id="continuation-instruction">' + escapeHtml(instruction) + '</textarea></div>' +
+          '<div class="mode-switch" role="tablist" aria-label="Rerun mode"><button class="active" type="button" data-rerun-mode="plan_only">Plan only</button><button type="button" data-rerun-mode="simulate">Simulation</button><button type="button" data-rerun-mode="live">Live execution</button></div>' +
+          '<div class="workflow-grid"><label class="composer-section"><span class="continuation-label">Checkpoint</span><select class="composer-input" id="rerun-checkpoint-policy"><option value="from_start">Full task</option><option value="from_event">Selected event</option></select></label><div class="composer-section"><div class="continuation-label">Selected event</div><div class="continuation-value">#' + escapeHtml(payload.checkpoint_ordinal || '-') + ' · step ' + escapeHtml(payload.checkpoint_step_index ?? '-') + '</div></div></div>' +
+          '<div class="composer-section"><div class="continuation-label">Recovery directive</div><textarea class="composer-textarea prompt" id="continuation-instruction">' + escapeHtml(instruction) + '</textarea></div>' +
           '<div class="composer-compact-options">' +
             '<div class="composer-section"><label class="composer-check"><input type="checkbox" id="continuation-include-report"> Error report</label></div>' +
             '<div class="composer-section"><label class="composer-check"><input type="checkbox" id="continuation-include-custom"> Custom context</label></div>' +
@@ -7516,20 +7758,38 @@ function showDebugContinuation(payload) {
           '<select class="composer-select" id="continuation-case-select" multiple disabled><option>Loading typical errors...</option></select>' +
           '<select class="composer-select" id="continuation-example-select" multiple disabled><option value="">No fix examples yet</option></select>' +
           '<textarea class="composer-textarea small" id="continuation-custom-extra" placeholder="Custom extra context for the continuation LLM..." disabled></textarea>' +
+          '<div class="rerun-mode-panel" id="rerun-plan-panel">' +
+            '<div class="composer-section locked"><div class="continuation-label">Request only</div><p class="workflow-copy">Build and store an auditable RerunPlan. No model, tools, runner, or environment will execute.</p></div>' +
+          '</div>' +
+          '<div class="rerun-mode-panel" id="rerun-simulate-panel" hidden>' +
+            '<div class="composer-section locked"><div class="continuation-label">Hypothetical rollout</div><p class="workflow-copy">Generate a labeled simulated trajectory. No tools execute and the result is never treated as verified recovery.</p></div>' +
+            '<input class="composer-input" id="rerun-sim-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)"><input class="composer-input" id="rerun-sim-api-key" type="password" placeholder="API key (never stored)"><input class="composer-input" id="rerun-sim-model" placeholder="Model (otherwise AGENTDEBUG_LLM_MODEL)">' +
+          '</div>' +
+          '<div class="rerun-mode-panel" id="rerun-live-panel" hidden>' +
+            '<div class="mode-switch" role="tablist" aria-label="Live transport"><button class="active" type="button" data-live-transport="server">Server runner</button><button type="button" data-live-transport="mcp">MCP</button></div>' +
+            '<div id="rerun-live-server-panel"><div class="composer-section locked"><div class="continuation-label">Observed execution</div><p class="workflow-copy">Run the configured HTTP or process framework runner with its real model, tools, credentials, and environment.</p></div></div>' +
+            '<div id="rerun-live-mcp-panel" hidden>' +
+              '<div class="composer-section"><div class="continuation-label">MCP Endpoint</div><input class="composer-input" id="rerun-mcp-endpoint" placeholder="https://mcp.example.com/mcp"></div>' +
+              '<div class="workflow-grid"><input class="composer-input" id="rerun-mcp-token" type="password" placeholder="Bearer token (never stored)"><input class="composer-input" id="rerun-mcp-max-calls" type="number" min="1" max="40" value="12" placeholder="Max tool calls"></div>' +
+              '<label class="composer-check"><input type="checkbox" id="rerun-mcp-private"> Allow local/private endpoint</label>' +
+              '<div class="composer-section"><div class="continuation-label">LLM for MCP orchestration</div><input class="composer-input" id="rerun-mcp-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)"><input class="composer-input" id="rerun-mcp-api-key" type="password" placeholder="API key (never stored)"><input class="composer-input" id="rerun-mcp-model" placeholder="Model (otherwise AGENTDEBUG_LLM_MODEL)"></div>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="continuation-card"><div class="continuation-label">Final Prompt Preview</div><textarea class="continuation-prompt" id="continuation-final-prompt">' + escapeHtml(basePrompt) + '</textarea></div>' +
       '</div>' +
       '<div class="continuation-inline-status" id="continuation-run-status">' + escapeHtml(rerunStatusMessage()) + '</div>' +
       '<div class="continuation-actions"><div class="continuation-action-group">' +
-        '<button class="button primary" type="button" data-run-continuation-debug>Run Rerun</button>' +
+        '<button class="button primary" type="button" data-run-continuation-debug>Build Plan</button>' +
         '<button class="button" type="button" data-copy-continuation-prompt>Copy Prompt</button>' +
-        '<button class="button primary" type="button" data-save-continuation-branch>Save Rerun Branch</button>' +
         '<button class="button" type="button" data-copy-continuation-config>Copy Config</button>' +
         '<button class="button" type="button" data-download-continuation>Download JSON</button>' +
         '<button class="button" type="button" data-copy-continuation-event>Copy Event ID</button>' +
       '</div><button class="button" type="button" data-close-continuation>Close</button></div>' +
     '</div>';
   modal.__continuationPayload = payload;
+  modal.__rerunMode = 'plan_only';
+  modal.__liveTransport = 'server';
   modal.__caseLibrary = [];
   modal.__fixExamples = [];
   modal.classList.add('visible');
@@ -7547,6 +7807,12 @@ function bindDebugContinuationModal() {
   modal.onclick = event => {
     if (event.target === modal) modal.classList.remove('visible');
   };
+  modal.querySelectorAll('[data-rerun-mode]').forEach(button => {
+    button.onclick = () => setRerunMode(button.dataset.rerunMode || 'plan_only');
+  });
+  modal.querySelectorAll('[data-live-transport]').forEach(button => {
+    button.onclick = () => setLiveTransport(button.dataset.liveTransport || 'server');
+  });
   ['continuation-debug-model', 'continuation-instruction', 'continuation-include-report', 'continuation-include-cases', 'continuation-case-select', 'continuation-include-examples', 'continuation-example-select', 'continuation-include-custom', 'continuation-custom-extra'].forEach(id => {
     const control = document.getElementById(id);
     if (!control) return;
@@ -7567,16 +7833,12 @@ function bindDebugContinuationModal() {
   });
   const runDebug = modal.querySelector('[data-run-continuation-debug]');
   if (runDebug) {
-    runDebug.disabled = !Boolean(UI_STATUS?.rerun?.configured);
-    runDebug.title = UI_STATUS?.rerun?.configured
-      ? 'Run in the configured live agent environment'
-      : 'Configure AGENTDEBUG_RUNNER_URL or AGENTDEBUG_RERUN_COMMAND on the UI server';
     runDebug.onclick = () => runContinuationRerun();
   }
+  setLiveTransport('server');
+  setRerunMode('plan_only');
   const copyPrompt = modal.querySelector('[data-copy-continuation-prompt]');
   if (copyPrompt) copyPrompt.onclick = () => copyText(currentContinuationPrompt(), 'Continuation prompt copied');
-  const saveBranch = modal.querySelector('[data-save-continuation-branch]');
-  if (saveBranch) saveBranch.onclick = () => saveCurrentContinuationAsBranch();
   const copyConfig = modal.querySelector('[data-copy-continuation-config]');
   if (copyConfig) copyConfig.onclick = () => copyText(JSON.stringify(currentContinuationPackage(), null, 2), 'Continuation config copied');
   const copyEvent = modal.querySelector('[data-copy-continuation-event]');
@@ -7585,6 +7847,53 @@ function bindDebugContinuationModal() {
   if (download) {
     download.onclick = () => downloadJson((payload.trace_id || 'trace') + '.event-' + (payload.checkpoint_ordinal || 'checkpoint') + '.continuation.json', currentContinuationPackage());
   }
+}
+function setRerunMode(mode) {
+  const modal = document.getElementById('continuation-modal');
+  if (!modal) return;
+  const resolved = ['plan_only', 'simulate', 'live'].includes(mode) ? mode : 'plan_only';
+  modal.__rerunMode = resolved;
+  modal.querySelectorAll('[data-rerun-mode]').forEach(button => button.classList.toggle('active', button.dataset.rerunMode === resolved));
+  const plan = document.getElementById('rerun-plan-panel');
+  const simulate = document.getElementById('rerun-simulate-panel');
+  const live = document.getElementById('rerun-live-panel');
+  if (plan) plan.hidden = resolved !== 'plan_only';
+  if (simulate) simulate.hidden = resolved !== 'simulate';
+  if (live) live.hidden = resolved !== 'live';
+  const run = modal.querySelector('[data-run-continuation-debug]');
+  if (run) {
+    const serverLive = resolved === 'live' && modal.__liveTransport === 'server';
+    run.disabled = serverLive && !Boolean(UI_STATUS?.rerun?.configured);
+    run.textContent = resolved === 'plan_only' ? 'Build Plan' : resolved === 'simulate' ? 'Run Simulation' : (modal.__liveTransport === 'mcp' ? 'Run Live with MCP' : 'Run Live');
+    run.title = serverLive && !UI_STATUS?.rerun?.configured
+      ? 'Configure AGENTDEBUG_RUNNER_URL or AGENTDEBUG_RERUN_COMMAND'
+      : '';
+  }
+  const status = document.getElementById('continuation-run-status');
+  if (status) status.textContent = resolved === 'plan_only'
+    ? 'Plan only builds an auditable request and executes nothing.'
+    : resolved === 'simulate'
+      ? 'Simulation generates a hypothetical trajectory; tools are not executed and recovery is not verified.'
+      : liveRerunStatusMessage();
+}
+function setLiveTransport(transport) {
+  const modal = document.getElementById('continuation-modal');
+  if (!modal) return;
+  const resolved = transport === 'mcp' ? 'mcp' : 'server';
+  modal.__liveTransport = resolved;
+  modal.querySelectorAll('[data-live-transport]').forEach(button => button.classList.toggle('active', button.dataset.liveTransport === resolved));
+  const server = document.getElementById('rerun-live-server-panel');
+  const mcp = document.getElementById('rerun-live-mcp-panel');
+  if (server) server.hidden = resolved !== 'server';
+  if (mcp) mcp.hidden = resolved !== 'mcp';
+  if (modal.__rerunMode === 'live') setRerunMode('live');
+}
+function liveRerunStatusMessage() {
+  const modal = document.getElementById('continuation-modal');
+  if (modal?.__liveTransport === 'mcp') {
+    return 'MCP is a live transport: real tool results are recorded. Credentials are used only for this request.';
+  }
+  return rerunStatusMessage();
 }
 function defaultDebugModel() {
   return loadDebugBackendConfig().debug_model || 'gpt-4o';
@@ -7596,7 +7905,7 @@ function rerunStatusMessage() {
   return 'Live rerun ready via ' + (rerun.transport || 'configured runner') + ' · policy ' + (rerun.checkpoint_policy || 'from_start') + '.';
 }
 function defaultContinuationInstruction() {
-  return 'Rerun the original agent task using the configured live framework, model, tools, credentials, and environment. Use the selected event as diagnostic guidance, apply the recovery directive, and record observable execution events. Resume from the checkpoint only when the runner supports state restoration.';
+  return 'Retry the original task using the selected diagnosis and recovery guidance. Preserve every verified task constraint, avoid repeating the failed decision, and produce an inspectable replacement trajectory.';
 }
 function traceProblemText(traj) {
   const meta = traj?.metadata || {};
@@ -7610,8 +7919,10 @@ function buildContinuationPrompt(payload, config) {
   const nextPreview = Array.isArray(payload.next_events_preview) ? payload.next_events_preview : [];
   const instruction = config.instruction || defaultContinuationInstruction();
   const debugModel = config.debugModel || defaultDebugModel();
+  const rerunMode = document.getElementById('continuation-modal')?.__rerunMode || 'plan_only';
   const sections = [
-    'Rerun model: ' + debugModel,
+    'Rerun mode: ' + rerunMode,
+    ...(rerunMode === 'plan_only' ? [] : ['Rerun model: ' + debugModel]),
     instruction,
     '## Original Task / Full Problem\\n' + traceProblemText(traj),
     '## Trace Metadata\\n' + JSON.stringify({
@@ -7690,7 +8001,7 @@ function currentContinuationConfig() {
   const includeExamples = Boolean(document.getElementById('continuation-include-examples')?.checked);
   const includeCustom = Boolean(document.getElementById('continuation-include-custom')?.checked);
   return {
-    debugModel: document.getElementById('continuation-debug-model')?.value || defaultDebugModel(),
+    debugModel: document.getElementById('rerun-sim-model')?.value || document.getElementById('rerun-mcp-model')?.value || defaultDebugModel(),
     instruction: document.getElementById('continuation-instruction')?.value || defaultContinuationInstruction(),
     includeReport,
     selectedCaseIds: includeCases ? selectedValues(document.getElementById('continuation-case-select')) : [],
@@ -7711,13 +8022,16 @@ function currentContinuationPackage() {
   const config = currentContinuationConfig();
   return {
     ...payload,
+    rerun_mode: modal?.__rerunMode || 'plan_only',
+    live_transport: modal?.__liveTransport || 'server',
+    checkpoint_policy: document.getElementById('rerun-checkpoint-policy')?.value || 'from_start',
     prompt_config: {
       debug_model: config.debugModel,
       include_agentdebug_report: config.includeReport,
       selected_typical_error_case_ids: config.selectedCaseIds,
       selected_typical_fix_example_ids: config.selectedExampleIds,
       has_custom_extra: Boolean((config.customExtra || '').trim()),
-      backend_status: 'requires server-side AGENTDEBUG_RERUN_COMMAND'
+      execution_contract: 'plan_only | simulated_rollout | live_execution'
     },
     composed_prompt: currentContinuationPrompt()
   };
@@ -7769,6 +8083,156 @@ function notify(message) {
   window.clearTimeout(notify._timer);
   notify._timer = window.setTimeout(() => toast.classList.remove('visible'), 1900);
 }
+function closeWorkflowModal(id) {
+  document.getElementById(id)?.classList.remove('visible');
+}
+function showUploadModal() {
+  let modal = document.getElementById('upload-trace-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'upload-trace-modal';
+    modal.className = 'continuation-modal';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML =
+    '<div class="continuation-shell workflow-modal-shell" role="dialog" aria-modal="true" aria-label="Upload trajectories">' +
+      '<div class="continuation-head"><div><div class="continuation-kicker">Local Ingest</div><div class="continuation-title">Upload trajectories</div><div class="continuation-sub">JSON, JSONL, message logs, framework exports, and AgentErrorBench rows</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
+      '<div class="workflow-modal-body">' +
+        '<label class="upload-drop" id="upload-drop"><span><strong>Choose or drop a file</strong><br><span class="workflow-copy">Maximum 25 MB. Imported traces stay in the active local store.</span></span><input id="upload-file" type="file" accept=".json,.jsonl,application/json" hidden></label>' +
+        '<label class="composer-check"><input type="checkbox" id="upload-allow-llm" checked> Use LLM fallback when deterministic adapters cannot recognize the format</label>' +
+        '<details><summary class="workflow-copy">Optional LLM override</summary><div class="workflow-grid">' +
+          '<input class="composer-input wide" id="upload-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)">' +
+          '<input class="composer-input" id="upload-api-key" type="password" placeholder="API key (never stored)">' +
+          '<input class="composer-input" id="upload-model" placeholder="Model">' +
+        '</div></details>' +
+        '<div class="continuation-inline-status" id="upload-status">Choose a file to begin.</div>' +
+      '</div>' +
+      '<div class="continuation-actions"><span class="workflow-copy"><a href="/api/v1/schema" target="_blank" rel="noopener">Schema reference</a></span><button class="button" type="button" data-close-workflow>Close</button></div>' +
+    '</div>';
+  modal.classList.add('visible');
+  modal.querySelectorAll('[data-close-workflow]').forEach(btn => btn.onclick = () => closeWorkflowModal('upload-trace-modal'));
+  modal.onclick = event => { if (event.target === modal) closeWorkflowModal('upload-trace-modal'); };
+  const input = document.getElementById('upload-file');
+  const drop = document.getElementById('upload-drop');
+  drop.onclick = () => input?.click();
+  input.onchange = () => uploadTrajectoryFile(input.files?.[0]);
+  drop.ondragover = event => { event.preventDefault(); drop.classList.add('dragging'); };
+  drop.ondragleave = () => drop.classList.remove('dragging');
+  drop.ondrop = event => {
+    event.preventDefault();
+    drop.classList.remove('dragging');
+    uploadTrajectoryFile(event.dataTransfer?.files?.[0]);
+  };
+}
+async function uploadTrajectoryFile(file) {
+  if (!file) return;
+  const status = document.getElementById('upload-status');
+  if (status) status.textContent = 'Reading ' + file.name + '...';
+  try {
+    const content = await file.text();
+    if (status) status.textContent = 'Converting and saving trajectories...';
+    const response = await fetch('/api/v1/traces/upload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        content,
+        filename: file.name,
+        allow_llm: Boolean(document.getElementById('upload-allow-llm')?.checked),
+        base_url: document.getElementById('upload-base-url')?.value || '',
+        api_key: document.getElementById('upload-api-key')?.value || '',
+        model: document.getElementById('upload-model')?.value || ''
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail || 'upload failed'));
+    if (status) status.textContent = 'Imported ' + payload.count + ' trace(s): ' + (payload.imported || []).join(', ');
+    const overview = await api('/api/v1/overview');
+    BOOTSTRAP.overview = overview;
+    BOOTSTRAP.traces = overview.traces || (payload.imported || []);
+    TRACE_CATALOG = (overview.trace_catalog || []).map(item => ({...item, error_count: Number(item.error_count || item.finding_count || 0)}));
+    renderTraceList(BOOTSTRAP.traces, CURRENT_TRACE_ID);
+    notify('Imported ' + payload.count + ' trace' + (payload.count === 1 ? '' : 's'));
+    const first = (payload.imported || [])[0];
+    if (first) {
+      window.setTimeout(async () => {
+        closeWorkflowModal('upload-trace-modal');
+        const loaded = await selectTrace(first, document.querySelector('.run[data-tid="' + cssEscape(first) + '"]'));
+        if (loaded) history.pushState({view: 'trace', traceId: first}, '', '/trace/' + encodeURIComponent(first));
+      }, 450);
+    }
+  } catch (error) {
+    if (status) status.textContent = 'Upload failed: ' + (error.message || error);
+    notify('Upload failed');
+  }
+}
+function bindDiagnosePipelineButton() {
+  document.querySelectorAll('[data-open-diagnose]').forEach(button => {
+    button.onclick = () => showDiagnosePipelineModal();
+  });
+}
+function showDiagnosePipelineModal() {
+  if (!CURRENT_TRACE_ID) return;
+  let modal = document.getElementById('diagnose-pipeline-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'diagnose-pipeline-modal';
+    modal.className = 'continuation-modal';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML =
+    '<div class="continuation-shell workflow-modal-shell" role="dialog" aria-modal="true" aria-label="Diagnose Pipeline">' +
+      '<div class="continuation-head"><div><div class="continuation-kicker">Detect → Attribute → Recover</div><div class="continuation-title">Diagnose Pipeline</div><div class="continuation-sub">' + escapeHtml(CURRENT_TRACE_ID) + '</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
+      '<div class="workflow-modal-body"><div class="workflow-grid">' +
+        pipelineSelect('diagnose-mode', 'Detect', [['heuristic','Heuristic'],['judge','LLM Judge'],['deep','DeepDebug'],['gui-rca','GUI RCA']]) +
+        pipelineSelect('diagnose-attributor', 'Attribute', [['heuristic','Heuristic'],['none','None'],['all_at_once','All at once'],['step_by_step','Step by step'],['binary_search','Binary search'],['counterfactual','Counterfactual']]) +
+        pipelineSelect('diagnose-recovery', 'Recover', [['none','None'],['deepdebug','DeepDebug'],['reflexion','Reflexion'],['critic','Critic'],['self_refine','Self refine'],['auto_manual','Auto manual'],['saga_rollback','Saga rollback']]) +
+        pipelineSelect('diagnose-rule-pack', 'Rule pack', [['auto','Auto'],['core','Core'],['agenterrorbench','AgentErrorBench'],['gui','GUI'],['all','All']]) +
+        '<input class="composer-input wide" id="diagnose-base-url" placeholder="LLM Base URL (optional for heuristic)">' +
+        '<input class="composer-input" id="diagnose-api-key" type="password" placeholder="API key (never stored)">' +
+        '<input class="composer-input" id="diagnose-model" placeholder="Model">' +
+      '</div><p class="workflow-copy">Heuristic runs entirely locally. Judge, DeepDebug, GUI RCA, LLM attribution, and some recovery modes require an OpenAI-compatible endpoint.</p><div class="continuation-inline-status" id="diagnose-status">Ready.</div></div>' +
+      '<div class="continuation-actions"><span></span><div class="continuation-action-group"><button class="button primary" type="button" data-run-diagnose>Run Pipeline</button><button class="button" type="button" data-close-workflow>Close</button></div></div>' +
+    '</div>';
+  modal.classList.add('visible');
+  modal.querySelectorAll('[data-close-workflow]').forEach(btn => btn.onclick = () => closeWorkflowModal('diagnose-pipeline-modal'));
+  modal.onclick = event => { if (event.target === modal) closeWorkflowModal('diagnose-pipeline-modal'); };
+  modal.querySelector('[data-run-diagnose]').onclick = event => runDiagnosePipeline(event.currentTarget);
+}
+function pipelineSelect(id, label, values) {
+  return '<label class="composer-section"><span class="continuation-label">' + label + '</span><select class="composer-input" id="' + id + '">' + values.map(item => '<option value="' + item[0] + '">' + item[1] + '</option>').join('') + '</select></label>';
+}
+async function runDiagnosePipeline(button) {
+  const status = document.getElementById('diagnose-status');
+  button.disabled = true;
+  button.textContent = 'Running...';
+  if (status) status.textContent = 'Running detect, attribution, and recovery stages...';
+  try {
+    const response = await fetch('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/diagnose', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        mode: document.getElementById('diagnose-mode')?.value,
+        attributor: document.getElementById('diagnose-attributor')?.value,
+        recovery: document.getElementById('diagnose-recovery')?.value,
+        rule_pack: document.getElementById('diagnose-rule-pack')?.value,
+        base_url: document.getElementById('diagnose-base-url')?.value || '',
+        api_key: document.getElementById('diagnose-api-key')?.value || '',
+        model: document.getElementById('diagnose-model')?.value || ''
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || 'diagnose failed');
+    if (status) status.textContent = 'Completed in ' + payload.duration_ms + ' ms. Refreshing report...';
+    closeWorkflowModal('diagnose-pipeline-modal');
+    await selectTrace(CURRENT_TRACE_ID, document.querySelector('.run.active'), payload.report?.report_id);
+    notify('Diagnose Pipeline completed');
+  } catch (error) {
+    if (status) status.textContent = 'Pipeline failed: ' + (error.message || error);
+    notify('Diagnose Pipeline failed');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Run Pipeline';
+  }
+}
 function applyTheme(theme) {
   const resolved = theme === 'light' ? 'light' : 'dark';
   document.body.classList.toggle('theme-light', resolved === 'light');
@@ -7802,55 +8266,19 @@ function bindTopActions() {
       const next = !offlinePopover.classList.contains('visible');
       offlinePopover.classList.toggle('visible', next);
       offlineBtn.setAttribute('aria-expanded', next ? 'true' : 'false');
+      offlinePopover.setAttribute('aria-hidden', next ? 'false' : 'true');
     };
     offlinePopover.onclick = event => event.stopPropagation();
     document.addEventListener('click', () => {
       offlinePopover.classList.remove('visible');
       offlineBtn.setAttribute('aria-expanded', 'false');
+      offlinePopover.setAttribute('aria-hidden', 'true');
     });
   }
-  const overviewBtn = document.getElementById('rail-overview-btn');
+  const overviewBtn = document.getElementById('overview-btn');
   if (overviewBtn) {
     overviewBtn.onclick = () => {
-      CURRENT_VIEW = 'overview';
-      CURRENT_TRACE_ID = null;
-      document.body.classList.remove('trace-editor-mode');
-      history.pushState({view: 'overview'}, '', '/overview');
-      loadOverview();
-      notify('Opened Overview dashboard');
-    };
-  }
-  const traceBtn = document.getElementById('rail-trace-btn');
-  if (traceBtn) {
-    traceBtn.onclick = async () => {
-      const traceId = CURRENT_TRACE_ID || (TRACE_CATALOG[0] && TRACE_CATALOG[0].trace_id) || ((BOOTSTRAP.traces || [])[0]);
-      if (!traceId) {
-        notify('No traces available');
-        return;
-      }
-      const run = document.querySelector('.run[data-tid="' + cssEscape(traceId) + '"]') || document.querySelector('.run[data-tid]');
-      const targetId = run?.dataset?.tid || traceId;
-      const loaded = await selectTrace(targetId, run || traceBtn);
-      if (loaded) {
-        history.pushState({view: 'trace', traceId: targetId}, '', '/trace/' + encodeURIComponent(targetId));
-        notify('Opened Trace Editor');
-      }
-    };
-  }
-  const moreBtn = document.getElementById('rail-more-btn');
-  if (moreBtn) {
-    moreBtn.onclick = () => {
-      history.pushState({view: 'more'}, '', '/overview#more');
-      renderMorePanel();
-      notify('Opened More actions');
-    };
-  }
-  const casesBtn = document.getElementById('rail-cases-btn');
-  if (casesBtn) {
-    casesBtn.onclick = () => {
-      history.pushState({view: 'cases'}, '', '/overview#cases');
-      loadCases();
-      notify('Opened Typical Error Database');
+      openWorkspaceDrawer('overview', overviewBtn);
     };
   }
   const runSearch = document.getElementById('run-search');
@@ -7874,14 +8302,10 @@ function bindTopActions() {
   }
   const crumb = document.querySelector('.crumb');
   if (crumb) {
-    crumb.title = 'Click to return to Project Overview';
+    crumb.title = 'Open Project Overview';
     crumb.style.cursor = 'pointer';
     crumb.onclick = () => {
-      CURRENT_VIEW = 'overview';
-      CURRENT_TRACE_ID = null;
-      document.body.classList.remove('trace-editor-mode');
-      history.pushState({view: 'overview'}, '', '/overview');
-      loadOverview();
+      openWorkspaceDrawer('overview', overviewBtn || crumb);
     };
   }
   document.getElementById('theme-btn').onclick = () => {
@@ -7890,6 +8314,7 @@ function bindTopActions() {
     applyTheme(next);
     notify(next === 'light' ? 'Light theme enabled' : 'Dark theme enabled');
   };
+  document.getElementById('upload-btn').onclick = () => showUploadModal();
   document.getElementById('analyze-btn').onclick = async () => {
     const active = document.querySelector('.run.active');
     const btn = document.getElementById('analyze-btn');
@@ -7908,14 +8333,18 @@ function bindTopActions() {
       btn.textContent = previous;
     }
   };
-  document.getElementById('export-btn').onclick = () => exportTraceBundle();
-  document.getElementById('hub-btn').onclick = () => {
-    const flow = document.getElementById('error-hub-flow');
-    if (flow) flow.scrollIntoView({behavior: 'smooth', block: 'start'});
-    else notify('Hub panel is available on Overview');
-  };
+  bindHubButton();
+  document.getElementById('workspace-drawer-scrim')?.addEventListener('click', () => closeWorkspaceDrawer());
+  document.querySelectorAll('[data-close-drawer]').forEach(button => {
+    button.onclick = () => closeWorkspaceDrawer();
+  });
   document.addEventListener('keydown', event => {
     const tag = (event.target && event.target.tagName || '').toLowerCase();
+    if (event.key === 'Escape' && ACTIVE_DRAWER) {
+      event.preventDefault();
+      closeWorkspaceDrawer();
+      return;
+    }
     if (tag === 'input' || tag === 'textarea' || event.target?.isContentEditable) return;
     if (CURRENT_VIEW !== 'trace') return;
     if (event.key === 'ArrowLeft') {
@@ -7951,16 +8380,15 @@ function bindTopActions() {
       const continuationModal = document.getElementById('continuation-modal');
       if (offlinePopover) offlinePopover.classList.remove('visible');
       if (offlineBtn) offlineBtn.setAttribute('aria-expanded', 'false');
+      if (offlinePopover) offlinePopover.setAttribute('aria-hidden', 'true');
       if (continuationModal) continuationModal.classList.remove('visible');
       notify('Focus overlays cleared');
     }
   });
-  document.addEventListener('click', event => {
-    const target = event.target instanceof Element ? event.target.closest('[data-save-case]') : null;
-    if (!target) return;
-    event.preventDefault();
-    saveCurrentCase();
-  });
+}
+function bindHubButton() {
+  const hubButton = document.getElementById('hub-btn');
+  if (hubButton) hubButton.onclick = () => openWorkspaceDrawer('hub', hubButton);
 }
 function field(label, value, isError) {
   return '<div class="field ' + (isError ? 'error' : '') + '"><div class="field-label">' + escapeHtml(label) + '</div><div class="field-value">' + escapeHtml(value || '-') + '</div></div>';
@@ -8222,32 +8650,35 @@ function renderScatter(items) {
   svg += '</svg>';
   return svg;
 }
-if (BOOTSTRAP && BOOTSTRAP.traces) {
-  initTheme();
-  const selected = BOOTSTRAP.selected ? BOOTSTRAP.selected.trajectory.trace_id : null;
-  if (CURRENT_VIEW === 'overview' && BOOTSTRAP.overview) renderOverview(BOOTSTRAP.overview);
-  renderTraceList(BOOTSTRAP.traces, selected);
-  if (BOOTSTRAP.selected && CURRENT_VIEW === 'trace') {
-    CURRENT_TRACE_ID = selected;
-    CURRENT_TRACE_DATA = BOOTSTRAP.selected;
-    renderTrace(BOOTSTRAP.selected.trajectory, BOOTSTRAP.selected.report);
-  } else if (BOOTSTRAP.selected && CURRENT_VIEW === 'event') {
-    CURRENT_TRACE_ID = selected;
-    CURRENT_TRACE_DATA = BOOTSTRAP.selected;
-    renderEventDetail(
-      BOOTSTRAP.selected.trajectory,
-      BOOTSTRAP.selected.report,
-      BOOTSTRAP.selected_event_id
-    );
-  } else if (CURRENT_VIEW === 'trace') {
-    document.getElementById('detail').innerHTML = '<div class="empty">No traces in store.</div>';
-  } else if (CURRENT_VIEW === 'overview' && BOOTSTRAP.overview) {
-    renderOverview(BOOTSTRAP.overview);
-  }
-}
-if (!(BOOTSTRAP && BOOTSTRAP.traces)) initTheme();
+initTheme();
 bindTopActions();
-loadTraceList(!(BOOTSTRAP && BOOTSTRAP.selected));
+(async function initializeTraceWorkspace() {
+  const requestedView = CURRENT_VIEW;
+  const traces = (BOOTSTRAP && BOOTSTRAP.traces) || [];
+  const selected = BOOTSTRAP?.selected?.trajectory?.trace_id || null;
+  CURRENT_VIEW = 'trace';
+  renderTraceList(traces, selected);
+  if (BOOTSTRAP?.selected) {
+    CURRENT_TRACE_ID = selected;
+    CURRENT_TRACE_DATA = BOOTSTRAP.selected;
+    CURRENT_EXPANDED_EVENT_ID = BOOTSTRAP.selected_event_id || null;
+    renderTrace(BOOTSTRAP.selected.trajectory, BOOTSTRAP.selected.report);
+  } else if (traces.length) {
+    const first = traces[0];
+    const run = document.querySelector('.run[data-tid="' + cssEscape(first) + '"]');
+    await selectTrace(first, run);
+  } else {
+    document.getElementById('detail').innerHTML = '<div class="empty">No traces in store.</div>';
+    setRailMode('trace');
+  }
+  if (requestedView === 'overview') {
+    const initialDrawer = window.location.hash === '#cases' ? 'hub' : 'overview';
+    const trigger = initialDrawer === 'hub'
+      ? document.getElementById('hub-btn')
+      : document.getElementById('overview-btn');
+    openWorkspaceDrawer(initialDrawer, trigger);
+  }
+})();
 </script>
 </body>
 </html>
