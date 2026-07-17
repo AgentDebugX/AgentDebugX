@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agentdebug.inspect.ui.branch_store import (
@@ -28,19 +31,22 @@ from agentdebug.inspect.ui.services import (
     build_overview,
 )
 from agentdebug.inspect.ui.views import render_page, render_space_page
+from agentdebug.inspect.ui.llm_convert import schema_payload
+from agentdebug.inspect.ui.upload import MAX_UPLOAD_BYTES, import_upload_text
 from agentdebug.runtime import TraceStore
 from agentdebug.schema import SEED_FAILURE_MODES, model_to_json
 
 
 def build_app(store: TraceStore) -> Any:
     try:
-        from fastapi import FastAPI, HTTPException
-        from fastapi.responses import HTMLResponse, JSONResponse
+        from fastapi import FastAPI, HTTPException, Request
+        from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     except ImportError as exc:  # pragma: no cover - exercised in docs
         raise ImportError(
             'AgentDebugX UI requires `fastapi` and `uvicorn`. '
             'Install with `pip install agentdebugx[ui]`.'
         ) from exc
+    globals()['_FastAPIRequest'] = Request
 
     app = FastAPI(
         title='AgentDebugX',
@@ -74,9 +80,59 @@ def build_app(store: TraceStore) -> Any:
     def healthz() -> Dict[str, str]:
         return {'status': 'ok'}
 
+    @app.get('/assets/logo.png', response_class=FileResponse)
+    def logo_asset() -> Any:
+        logo_path = Path(__file__).resolve().parents[4] / 'docs' / 'assets' / 'logo.png'
+        if not logo_path.is_file():
+            raise HTTPException(status_code=404, detail='AgentDebugX logo asset not found')
+        return FileResponse(logo_path, media_type='image/png')
+
+    @app.get('/assets/robot-avatar.svg', response_class=FileResponse)
+    def robot_avatar_asset() -> Any:
+        avatar_path = Path(__file__).resolve().parent / 'assets' / 'robot-avatar.svg'
+        if not avatar_path.is_file():
+            raise HTTPException(status_code=404, detail='AgentDebugX avatar asset not found')
+        return FileResponse(avatar_path, media_type='image/svg+xml')
+
     @app.get('/api/v1/traces')
     def list_traces() -> Dict[str, List[str]]:
         return {'traces': store.list_traces()}
+
+    @app.get('/api/v1/schema')
+    def get_upload_schema() -> Dict[str, Any]:
+        return schema_payload()
+
+    @app.post('/api/v1/traces/upload')
+    async def upload_trace(request: _FastAPIRequest) -> Dict[str, Any]:
+        raw = await request.body()
+        if len(raw) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail='file too large (>25 MB)')
+        try:
+            text = raw.decode('utf-8')
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail='file is not utf-8 text') from exc
+
+        options: Dict[str, Any] = {}
+        content_type = str(request.headers.get('content-type') or '')
+        if 'application/json' in content_type:
+            try:
+                candidate = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=f'invalid JSON: {exc}') from exc
+            if isinstance(candidate, dict) and isinstance(candidate.get('content'), str):
+                options = candidate
+                text = candidate['content']
+        try:
+            return import_upload_text(
+                store,
+                text,
+                allow_llm=bool(options.get('allow_llm', True)),
+                base_url=str(options.get('base_url') or ''),
+                api_key=str(options.get('api_key') or ''),
+                model=str(options.get('model') or ''),
+            )
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get('/api/v1/overview')
     def get_overview() -> Dict[str, Any]:
@@ -154,6 +210,9 @@ def build_app(store: TraceStore) -> Any:
 
     @app.get('/', response_class=HTMLResponse)
     def index() -> str:
+        trace_ids = store.list_traces()
+        if trace_ids:
+            return render_page(store, view='trace', trace_id=trace_ids[0])
         return render_page(store, view='overview')
 
     @app.get('/overview', response_class=HTMLResponse)
@@ -205,6 +264,114 @@ def build_app(store: TraceStore) -> Any:
             'report': _to_dict(report),
             'report_source': analysis['report_source'],
             'reports': analysis['reports'],
+        }
+
+    @app.get('/api/v1/diagnose/options')
+    def get_diagnose_options() -> Dict[str, Any]:
+        return {
+            'modes': ['heuristic', 'judge', 'deep', 'gui-rca'],
+            'attributors': ['none', 'heuristic', 'all_at_once', 'step_by_step', 'binary_search', 'counterfactual'],
+            'recoveries': ['none', 'deepdebug', 'reflexion', 'critic', 'self_refine', 'auto_manual', 'saga_rollback'],
+            'rule_packs': ['auto', 'core', 'agenterrorbench', 'gui', 'all'],
+            'llm_configured': bool(
+                os.environ.get('AGENTDEBUG_LLM_BASE_URL')
+                and os.environ.get('AGENTDEBUG_LLM_API_KEY')
+            ),
+        }
+
+    @app.post('/api/v1/traces/{trace_id}/diagnose')
+    def run_diagnose_pipeline(
+        trace_id: str,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        from agentdebug.cli import legacy as cli_legacy
+
+        trajectory = store.load_trajectory(trace_id)
+        if trajectory is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        body = payload or {}
+        try:
+            diagnose_mode = cli_legacy._normalize_choice(
+                str(body.get('mode') or 'heuristic'),
+                cli_legacy._DIAGNOSE_MODE_ALIASES,
+                'diagnose mode',
+            )
+            attributor_mode = cli_legacy._normalize_choice(
+                str(body.get('attributor') or 'heuristic'),
+                cli_legacy._ATTRIBUTOR_ALIASES,
+                'attributor',
+            )
+            recovery_mode = cli_legacy._normalize_choice(
+                str(body.get('recovery') or 'none'),
+                cli_legacy._RECOVERY_ALIASES,
+                'recovery mode',
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        raw_rule_pack = body.get('rule_pack', 'auto')
+        rule_pack = raw_rule_pack if isinstance(raw_rule_pack, list) else [raw_rule_pack]
+        rule_pack = [str(item) for item in rule_pack if str(item or '').strip()] or ['auto']
+        allowed_packs = {'auto', 'core', 'agenterrorbench', 'gui', 'all'}
+        invalid_packs = [item for item in rule_pack if item not in allowed_packs]
+        if invalid_packs:
+            raise HTTPException(status_code=400, detail='unknown rule_pack: ' + ', '.join(invalid_packs))
+
+        args = argparse.Namespace(
+            rule_pack=rule_pack,
+            model=body.get('model') or None,
+            base_url=body.get('base_url') or None,
+            api_key=body.get('api_key') or None,
+            embedding_model=body.get('embedding_model') or None,
+        )
+        needs_llm = (
+            diagnose_mode in {'judge', 'deep', 'gui-rca'}
+            or attributor_mode in cli_legacy._LLM_ATTRIBUTORS
+            or recovery_mode in cli_legacy._LLM_RECOVERIES
+        )
+        llm = cli_legacy._build_llm(args, command_name='local UI diagnose') if needs_llm else None
+        if needs_llm and llm is None:
+            raise HTTPException(
+                status_code=400,
+                detail='This pipeline requires an LLM. Configure AGENTDEBUG_LLM_* or provide Base URL, API Key, and Model.',
+            )
+        started = time.monotonic()
+        try:
+            report = cli_legacy._run_diagnose_pipeline(
+                args,
+                trajectory,
+                diagnose_mode=diagnose_mode,
+                attributor_mode=attributor_mode,
+                recovery_mode=recovery_mode,
+                llm=llm,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f'diagnose pipeline failed: {exc}') from exc
+        duration_ms = int((time.monotonic() - started) * 1000)
+        report.metadata.update({
+            'source': 'diagnose_pipeline',
+            'diagnose_mode': diagnose_mode,
+            'attributor': attributor_mode,
+            'recovery': recovery_mode,
+            'rule_pack': rule_pack,
+            'duration_ms': duration_ms,
+        })
+        save_report = getattr(store, 'save_report', None)
+        if callable(save_report):
+            save_report(report)
+        return {
+            'trace_id': trace_id,
+            'duration_ms': duration_ms,
+            'pipeline': {
+                'mode': diagnose_mode,
+                'attributor': attributor_mode,
+                'recovery': recovery_mode,
+                'rule_pack': rule_pack,
+                'model': args.model or getattr(llm, 'model', None) or '',
+                'llm_required': needs_llm,
+            },
+            'report': _to_dict(report),
+            'stored': callable(save_report),
         }
 
     @app.post('/api/v1/traces/{trace_id}/debug-continuation')
@@ -323,20 +490,15 @@ def build_app(store: TraceStore) -> Any:
         event_id = str(payload.get('event_id') or '').strip()
         if not event_id:
             raise HTTPException(status_code=400, detail='event_id is required')
+        rerun_mode = str(payload.get('rerun_mode') or 'live').strip().lower()
+        if rerun_mode not in {'plan_only', 'simulate', 'live'}:
+            raise HTTPException(status_code=400, detail=f'unknown rerun_mode: {rerun_mode}')
         model = str(payload.get('model') or 'live-runner').strip() or 'live-runner'
         prompt_text = str(payload.get('prompt_text') or '').strip()
         if not prompt_text:
             raise HTTPException(status_code=400, detail='prompt_text is required')
         runner_url = str(os.environ.get('AGENTDEBUG_RUNNER_URL') or '').strip()
         runner_command = str(os.environ.get('AGENTDEBUG_RERUN_COMMAND') or '').strip()
-        if not runner_url and not runner_command:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    'live rerun is not configured; set AGENTDEBUG_RUNNER_URL or '
-                    'AGENTDEBUG_RERUN_COMMAND on the UI server'
-                ),
-            )
 
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
@@ -351,13 +513,21 @@ def build_app(store: TraceStore) -> Any:
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         report.suggestions = [prompt_text]
-        checkpoint_policy = str(
+        live_checkpoint_policy = str(
             os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'
         ).strip()
-        if checkpoint_policy not in {'from_start', 'from_event'}:
+        if live_checkpoint_policy not in {'from_start', 'from_event'}:
             raise HTTPException(
                 status_code=503,
                 detail='AGENTDEBUG_UI_RERUN_POLICY must be from_start or from_event',
+            )
+        requested_checkpoint_policy = str(
+            payload.get('checkpoint_policy') or 'from_start'
+        ).strip()
+        if requested_checkpoint_policy not in {'from_start', 'from_event'}:
+            raise HTTPException(
+                status_code=400,
+                detail='checkpoint_policy must be from_start or from_event',
             )
         try:
             checkpoint = _build_debug_continuation_context(
@@ -370,6 +540,233 @@ def build_app(store: TraceStore) -> Any:
             )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        if rerun_mode == 'plan_only':
+            from agentdebug.rerun import RerunWorkflow
+
+            plan = RerunWorkflow.suggest_only().plan(
+                report,
+                trajectory,
+                checkpoint_policy=requested_checkpoint_policy,
+                checkpoint_event_id=(
+                    event_id if requested_checkpoint_policy == 'from_event' else None
+                ),
+            )
+            branch_id = 'branch_' + datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
+            record = {
+                'branch_id': branch_id,
+                'session_id': branch_id,
+                'trace_id': trace_id,
+                'report_id': report.report_id,
+                'event_id': event_id,
+                'parent_event_id': event_id,
+                'checkpoint_ordinal': checkpoint.get('checkpoint_ordinal'),
+                'checkpoint_step_index': checkpoint.get('checkpoint_step_index'),
+                'requested_checkpoint_policy': requested_checkpoint_policy,
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'label': str(payload.get('label') or f'Rerun plan from #{checkpoint.get("checkpoint_ordinal") or "?"}'),
+                'run_type': 'rerun_plan',
+                'status': 'planned',
+                'execution_mode': None,
+                'tools_executed': False,
+                'prompt_preview': prompt_text[:240] + ('...' if len(prompt_text) > 240 else ''),
+                'prompt_text': prompt_text,
+                'plan': plan.to_dict(),
+                'generated_events': [],
+            }
+            _append_debug_branch_record(record)
+            return {
+                'ok': True,
+                'trace_id': trace_id,
+                'branch_id': branch_id,
+                'path': str(_debug_branch_db_path()),
+                'mode': 'plan_only',
+                'plan': plan.to_dict(),
+                'branch': record,
+            }
+
+        if rerun_mode == 'simulate':
+            from agentdebug.core.llm import OpenAICompatClient
+            from agentdebug.rerun import (
+                RerunWorkflow,
+                RolloutContext,
+                SimulatedRerunExecutor,
+            )
+
+            base_url = str(payload.get('base_url') or os.environ.get('AGENTDEBUG_LLM_BASE_URL') or '').strip()
+            api_key = str(payload.get('api_key') or os.environ.get('AGENTDEBUG_LLM_API_KEY') or '').strip()
+            simulation_model = str(payload.get('model') or os.environ.get('AGENTDEBUG_LLM_MODEL') or '').strip()
+            if not base_url or not api_key or not simulation_model:
+                raise HTTPException(
+                    status_code=400,
+                    detail='Simulation requires Base URL, API Key, and Model (or AGENTDEBUG_LLM_*).',
+                )
+            llm = OpenAICompatClient(
+                base_url=base_url.removesuffix('/chat/completions').rstrip('/'),
+                api_key=api_key,
+                model=simulation_model,
+                default_max_tokens=8192,
+                timeout=180.0,
+            )
+            executor = SimulatedRerunExecutor(
+                llm,
+                RolloutContext(
+                    trajectory,
+                    start_event_id=(
+                        event_id if requested_checkpoint_policy == 'from_event' else None
+                    ),
+                ),
+            )
+            try:
+                workflow_result = RerunWorkflow(
+                    executor,
+                    allow_simulated=True,
+                ).run(
+                    report,
+                    trajectory,
+                    execute=True,
+                    checkpoint_policy=requested_checkpoint_policy,
+                    checkpoint_event_id=(
+                        event_id if requested_checkpoint_policy == 'from_event' else None
+                    ),
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f'simulated rerun failed: {exc}') from exc
+            execution = workflow_result.execution
+            if execution is None:
+                raise HTTPException(status_code=502, detail='simulation produced no execution')
+            generated_events = [_to_dict(event) for event in execution.trajectory.events]
+            evaluation = _build_rerun_evaluation(
+                _to_dict(trajectory),
+                _to_dict(report),
+                event_id=event_id,
+                generated_events=generated_events,
+                checkpoint=checkpoint,
+            )
+            branch_id = 'branch_' + datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
+            record = {
+                'branch_id': branch_id,
+                'session_id': branch_id,
+                'trace_id': trace_id,
+                'report_id': report.report_id,
+                'event_id': event_id,
+                'parent_event_id': event_id,
+                'checkpoint_ordinal': checkpoint.get('checkpoint_ordinal'),
+                'checkpoint_step_index': checkpoint.get('checkpoint_step_index'),
+                'requested_checkpoint_policy': requested_checkpoint_policy,
+                'debug_model': simulation_model,
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'label': str(payload.get('label') or f'Simulation from #{checkpoint.get("checkpoint_ordinal") or "?"}'),
+                'run_type': 'simulated_rerun',
+                'status': 'simulated',
+                'execution_mode': execution.execution_mode,
+                'tools_executed': False,
+                'verified': False,
+                'artifact_type': 'hypothetical_trajectory',
+                'prompt_preview': prompt_text[:240] + ('...' if len(prompt_text) > 240 else ''),
+                'prompt_text': prompt_text,
+                'generated_trace_id': execution.trajectory.trace_id,
+                'generated_events': generated_events,
+                'execution_metadata': execution.metadata,
+                'workflow': workflow_result.to_dict(),
+                'evaluation': evaluation,
+            }
+            _append_debug_branch_record(record)
+            return {
+                'ok': True,
+                'trace_id': trace_id,
+                'branch_id': branch_id,
+                'path': str(_debug_branch_db_path()),
+                'mode': 'simulate',
+                'branch': record,
+            }
+
+        mcp_config = payload.get('mcp') if isinstance(payload.get('mcp'), dict) else None
+        if mcp_config is not None:
+            from agentdebug.core.llm import OpenAICompatClient
+            from agentdebug.inspect.ui.mcp_rerun import McpRerunError, run_mcp_rerun
+
+            base_url = str(payload.get('base_url') or os.environ.get('AGENTDEBUG_LLM_BASE_URL') or '').strip()
+            api_key = str(payload.get('api_key') or os.environ.get('AGENTDEBUG_LLM_API_KEY') or '').strip()
+            llm_model = str(payload.get('model') or os.environ.get('AGENTDEBUG_LLM_MODEL') or '').strip()
+            if not base_url or not api_key or not llm_model:
+                raise HTTPException(
+                    status_code=400,
+                    detail='MCP rerun requires Base URL, API Key, and Model (or AGENTDEBUG_LLM_*).',
+                )
+            try:
+                llm = OpenAICompatClient(
+                    base_url=base_url.removesuffix('/chat/completions').rstrip('/'),
+                    api_key=api_key,
+                    model=llm_model,
+                    default_max_tokens=2048,
+                    timeout=90.0,
+                )
+                mcp_result = run_mcp_rerun(
+                    trajectory=trajectory,
+                    checkpoint_context=checkpoint,
+                    directive=prompt_text,
+                    mcp_config=mcp_config,
+                    llm=llm,
+                )
+            except McpRerunError as exc:
+                raise HTTPException(status_code=400, detail=f'MCP rerun rejected: {exc}') from exc
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f'MCP rerun failed: {exc}') from exc
+
+            branch_id = 'branch_' + datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
+            generated_events = mcp_result.get('generated_events') or []
+            evaluation = _build_rerun_evaluation(
+                _to_dict(trajectory),
+                _to_dict(report),
+                event_id=event_id,
+                generated_events=generated_events,
+                checkpoint=checkpoint,
+            )
+            record = {
+                'branch_id': branch_id,
+                'session_id': branch_id,
+                'trace_id': trace_id,
+                'report_id': report.report_id,
+                'event_id': event_id,
+                'parent_event_id': event_id,
+                'checkpoint_ordinal': checkpoint.get('checkpoint_ordinal'),
+                'checkpoint_step_index': checkpoint.get('checkpoint_step_index'),
+                'requested_checkpoint_policy': requested_checkpoint_policy,
+                'debug_model': llm_model,
+                'execution_mode': 'live_mcp',
+                'tools_executed': mcp_result.get('tools_executed'),
+                'tool_call_count': mcp_result.get('tool_call_count'),
+                'mcp_server_host': mcp_result.get('mcp_server_host'),
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'label': str(payload.get('label') or f'MCP rerun from #{checkpoint.get("checkpoint_ordinal") or "?"}'),
+                'run_type': 'mcp_rerun',
+                'status': 'completed',
+                'prompt_preview': prompt_text[:240] + ('...' if len(prompt_text) > 240 else ''),
+                'prompt_text': prompt_text,
+                'generated_trace_id': f'{trace_id}__{branch_id}',
+                'generated_events': generated_events,
+                'transcript': mcp_result.get('transcript') or [],
+                'elapsed_ms': mcp_result.get('elapsed_ms'),
+                'evaluation': evaluation,
+            }
+            _append_debug_branch_record(record)
+            return {
+                'ok': True,
+                'trace_id': trace_id,
+                'branch_id': branch_id,
+                'path': str(_debug_branch_db_path()),
+                'branch': record,
+            }
+
+        if not runner_url and not runner_command:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    'live rerun is not configured; set AGENTDEBUG_RUNNER_URL or '
+                    'AGENTDEBUG_RERUN_COMMAND on the UI server'
+                ),
+            )
 
         from agentdebug.rerun import (
             HttpLiveExecutor,
@@ -417,9 +814,9 @@ def build_app(store: TraceStore) -> Any:
                 report,
                 trajectory,
                 execute=True,
-                checkpoint_policy=checkpoint_policy,
+                checkpoint_policy=live_checkpoint_policy,
                 checkpoint_event_id=(
-                    event_id if checkpoint_policy == 'from_event' else None
+                    event_id if live_checkpoint_policy == 'from_event' else None
                 ),
             )
         except Exception as exc:
@@ -458,7 +855,7 @@ def build_app(store: TraceStore) -> Any:
             'parent_event_id': event_id,
             'checkpoint_ordinal': checkpoint.get('checkpoint_ordinal'),
             'checkpoint_step_index': checkpoint.get('checkpoint_step_index'),
-            'requested_checkpoint_policy': checkpoint_policy,
+            'requested_checkpoint_policy': live_checkpoint_policy,
             'debug_model': model,
             'execution_mode': execution.metadata.get('execution_mode'),
             'tools_executed': execution.metadata.get('tools_executed'),

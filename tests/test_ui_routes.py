@@ -49,6 +49,278 @@ def test_health_trace_and_taxonomy_routes(ui_client: TestClient) -> None:
     assert ui_client.get('/api/v1/taxonomy').json()['modes']
 
 
+def test_upload_schema_and_native_trace_import(ui_client: TestClient) -> None:
+    schema = ui_client.get('/api/v1/schema')
+    assert schema.status_code == 200
+    assert schema.json()['format'] == 'AgentTrajectory'
+
+    uploaded = ui_client.post(
+        '/api/v1/traces/upload',
+        json={
+            'allow_llm': False,
+            'content': json.dumps({
+                'trace_id': 'trace_uploaded',
+                'goal': 'Inspect an uploaded run',
+                'events': [{
+                    'trace_id': 'trace_uploaded',
+                    'event_id': 'upload_evt_1',
+                    'agent_name': 'agent',
+                    'event_type': 'run.start',
+                    'step_index': 0,
+                }],
+            }),
+        },
+    )
+    assert uploaded.status_code == 200
+    assert uploaded.json()['imported'] == ['trace_uploaded']
+    assert uploaded.json()['converters']['trace_uploaded'] == 'native'
+    assert ui_client.get('/api/v1/traces/trace_uploaded').status_code == 200
+
+
+def test_upload_converts_message_log_without_llm(ui_client: TestClient) -> None:
+    uploaded = ui_client.post(
+        '/api/v1/traces/upload',
+        json={
+            'allow_llm': False,
+            'content': json.dumps([
+                {'role': 'user', 'content': 'Find a hotel'},
+                {'role': 'assistant', 'content': 'I will search.'},
+            ]),
+        },
+    )
+    assert uploaded.status_code == 200
+    trace_id = uploaded.json()['imported'][0]
+    assert uploaded.json()['converters'][trace_id] == 'adapter'
+    assert len(ui_client.get(f'/api/v1/traces/{trace_id}').json()['trajectory']['events']) == 2
+
+
+def test_heuristic_diagnose_pipeline_stores_report(ui_client: TestClient) -> None:
+    response = ui_client.post(
+        '/api/v1/traces/trace_failed/diagnose',
+        json={
+            'mode': 'heuristic',
+            'attributor': 'heuristic',
+            'recovery': 'none',
+            'rule_pack': 'auto',
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['pipeline']['mode'] == 'heuristic'
+    assert payload['stored'] is True
+    report_id = payload['report']['report_id']
+    selected = ui_client.get('/api/v1/traces/trace_failed', params={'report_id': report_id})
+    assert selected.status_code == 200
+    assert selected.json()['report_source'] == 'stored'
+
+
+def test_mcp_rerun_does_not_require_classic_runner(
+    ui_client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv('AGENTDEBUG_RUNNER_URL', raising=False)
+    monkeypatch.delenv('AGENTDEBUG_RERUN_COMMAND', raising=False)
+
+    def fake_mcp_rerun(**kwargs):
+        trace_id = kwargs['trajectory'].trace_id
+        return {
+            'generated_events': [{
+                'trace_id': trace_id,
+                'event_id': 'mcp_evt_1',
+                'agent_name': 'tool',
+                'event_type': 'tool.result',
+                'step_index': 2,
+                'output': 'real result',
+                'metadata': {'source': 'mcp_rerun'},
+            }],
+            'tools_executed': True,
+            'tool_call_count': 1,
+            'mcp_server_host': 'localhost',
+            'execution_mode': 'live_mcp',
+            'transcript': [],
+            'elapsed_ms': 12,
+        }
+
+    monkeypatch.setattr(
+        'agentdebug.inspect.ui.mcp_rerun.run_mcp_rerun',
+        fake_mcp_rerun,
+    )
+    event_id = ui_client.get('/api/v1/traces/trace_failed').json()['trajectory']['events'][0]['event_id']
+    response = ui_client.post(
+        '/api/v1/traces/trace_failed/rerun-from-event',
+        json={
+            'event_id': event_id,
+            'prompt_text': 'Recover using the available tools.',
+            'base_url': 'http://llm.local/v1',
+            'api_key': 'test-key',
+            'model': 'test-model',
+            'mcp': {
+                'endpoint': 'http://localhost:8000/mcp',
+                'allow_private': True,
+                'allow_insecure': True,
+            },
+        },
+    )
+    assert response.status_code == 200
+    branch = response.json()['branch']
+    assert branch['run_type'] == 'mcp_rerun'
+    assert branch['tool_call_count'] == 1
+    assert 'test-key' not in json.dumps(branch)
+
+
+def test_plan_only_rerun_executes_nothing(
+    ui_client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv('AGENTDEBUG_RUNNER_URL', raising=False)
+    monkeypatch.delenv('AGENTDEBUG_RERUN_COMMAND', raising=False)
+    event_id = ui_client.get('/api/v1/traces/trace_failed').json()['trajectory']['events'][0]['event_id']
+    response = ui_client.post(
+        '/api/v1/traces/trace_failed/rerun-from-event',
+        json={
+            'event_id': event_id,
+            'rerun_mode': 'plan_only',
+            'checkpoint_policy': 'from_event',
+            'prompt_text': 'Retry without repeating the diagnosed failure.',
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['mode'] == 'plan_only'
+    assert payload['branch']['status'] == 'planned'
+    assert payload['branch']['execution_mode'] is None
+    assert payload['branch']['tools_executed'] is False
+    assert payload['branch']['generated_events'] == []
+    assert payload['plan']['request']['checkpoint']['policy'] == 'from_event'
+
+
+def test_simulated_rerun_is_labeled_and_unverified(
+    ui_client: TestClient,
+    monkeypatch,
+) -> None:
+    from agentdebug.runtime.llm import CompletionResult
+
+    def fake_complete(self, messages, **kwargs):
+        return CompletionResult(
+            text=json.dumps({
+                'summary': 'A hypothetical corrected outcome.',
+                'success': True,
+                'events': [{
+                    'agent_name': 'agent',
+                    'event_type': 'run.end',
+                    'step_index': 1,
+                    'output': 'Hypothetical completion.',
+                    'error': None,
+                    'metadata': {},
+                }],
+            }),
+            raw={'choices': [{'finish_reason': 'stop'}]},
+        )
+
+    monkeypatch.setattr(
+        'agentdebug.runtime.llm.OpenAICompatClient.complete',
+        fake_complete,
+    )
+    event_id = ui_client.get('/api/v1/traces/trace_failed').json()['trajectory']['events'][0]['event_id']
+    response = ui_client.post(
+        '/api/v1/traces/trace_failed/rerun-from-event',
+        json={
+            'event_id': event_id,
+            'rerun_mode': 'simulate',
+            'checkpoint_policy': 'from_start',
+            'prompt_text': 'Simulate a corrected attempt.',
+            'base_url': 'http://llm.local/v1',
+            'api_key': 'simulation-secret',
+            'model': 'simulation-model',
+        },
+    )
+    assert response.status_code == 200
+    branch = response.json()['branch']
+    assert branch['run_type'] == 'simulated_rerun'
+    assert branch['execution_mode'] == 'simulated_rollout'
+    assert branch['verified'] is False
+    assert branch['tools_executed'] is False
+    assert branch['artifact_type'] == 'hypothetical_trajectory'
+    assert branch['generated_events'][0]['metadata']['simulated'] is True
+    assert 'simulation-secret' not in json.dumps(branch)
+
+
+def test_rerun_composer_exposes_three_core_modes(ui_client: TestClient) -> None:
+    html = ui_client.get('/').text
+    assert 'data-rerun-mode="plan_only"' in html
+    assert 'data-rerun-mode="simulate"' in html
+    assert 'data-rerun-mode="live"' in html
+    assert 'data-live-transport="server"' in html
+    assert 'data-live-transport="mcp"' in html
+    assert 'data-rerun-mode="classic"' not in html
+
+
+def test_local_shell_places_case_action_on_each_run_and_uses_logo(
+    ui_client: TestClient,
+) -> None:
+    html = ui_client.get('/trace/trace_failed').text
+    assert 'id="run-save-case-btn"' not in html
+    assert 'class="run-save-case" type="button" data-save-case' in html
+    assert "saveCaseButton.dataset.traceId = tid" in html
+    assert "saveTraceCase(tid, saveCaseButton)" in html
+    assert 'event.stopPropagation()' in html
+    assert 'id="save-case-btn"' not in html
+    assert 'id="offline-status-btn"' in html
+    assert 'id="offline-popover" role="dialog"' in html
+    assert 'id="runtime-status-title">Local UI</span>' in html
+    assert '<img src="/assets/robot-avatar.svg" alt="" />' in html
+
+    avatar = ui_client.get('/assets/robot-avatar.svg')
+    assert avatar.status_code == 200
+    assert avatar.headers['content-type'].startswith('image/svg+xml')
+    assert b'<svg' in avatar.content
+
+
+def test_rerun_attempts_have_mode_specific_visual_contract(
+    ui_client: TestClient,
+) -> None:
+    html = ui_client.get('/').text
+    assert "runType === 'rerun_plan'" in html
+    assert "runType === 'simulated_rerun'" in html
+    assert "runType === 'mcp_rerun'" in html
+    assert "label:'Plan'" in html
+    assert "label:'Simulation'" in html
+    assert "'Live · MCP'" in html
+    assert 'mode-plan' in html
+    assert 'mode-simulate' in html
+    assert 'mode-live' in html
+
+
+def test_trace_workspace_uses_left_overview_and_right_hub_drawers(
+    ui_client: TestClient,
+) -> None:
+    html = ui_client.get('/trace/trace_failed').text
+    assert 'id="overview-drawer" role="dialog"' in html
+    assert 'class="workspace-drawer left"' in html
+    assert 'id="hub-drawer" role="dialog"' in html
+    assert 'class="workspace-drawer right"' in html
+    assert 'id="workspace-drawer-scrim"' in html
+    assert 'aria-controls="overview-drawer"' in html
+    assert 'aria-controls="hub-drawer"' in html
+    assert 'class="diagnosis-hero-head"' in html
+    assert '<nav class="workspace-launchers"' not in html
+    assert 'id="overview-btn"' in html
+    assert '<span>Overview</span>' in html
+    assert '<span>Error Hub</span>' in html
+    assert 'class="top-brand-avatar"' in html
+    assert '<nav class="icon-rail"' not in html
+    assert 'id="rail-overview-btn"' not in html
+    assert 'id="rail-trace-btn"' not in html
+    assert 'id="rail-cases-btn"' not in html
+    assert "openWorkspaceDrawer('overview'" in html
+    assert "openWorkspaceDrawer('hub'" in html
+    assert 'function closeWorkspaceDrawer' in html
+
+    root_html = ui_client.get('/').text
+    assert '"view": "trace"' in root_html
+    assert '"trace_id": "trace_failed"' in root_html
+
+
 def test_trace_prefers_and_switches_stored_reports(
     tmp_path,
     monkeypatch,

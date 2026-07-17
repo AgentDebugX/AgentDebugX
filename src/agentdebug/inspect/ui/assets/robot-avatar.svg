@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">AgentDebugX robot avatar</title>
+  <desc id="desc">A compact front-facing robot head on a dark circular background.</desc>
+  <circle cx="48" cy="48" r="46" fill="#07111d" stroke="#72e8f4" stroke-width="4"/>
+  <path d="M48 20v-8" fill="none" stroke="#dffcff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="48" cy="10" r="5" fill="#2f6bff" stroke="#dffcff" stroke-width="2"/>
+  <path d="M23 42v25c0 9 7 16 16 16h18c9 0 16-7 16-16V42c0-9-7-16-16-16H39c-9 0-16 7-16 16Z" fill="#eefcff" stroke="#0b2037" stroke-width="4"/>
+  <path d="M19 47h4v18h-4c-4 0-7-3-7-7v-4c0-4 3-7 7-7Zm58 0h-4v18h4c4 0 7-3 7-7v-4c0-4-3-7-7-7Z" fill="#2f6bff" stroke="#0b2037" stroke-width="4"/>
+  <rect x="31" y="42" width="34" height="24" rx="10" fill="#081a2d"/>
+  <rect x="37" y="49" width="7" height="11" rx="3.5" fill="#72e8f4"/>
+  <rect x="52" y="49" width="7" height="11" rx="3.5" fill="#72e8f4"/>
+  <path d="M39 73h18" fill="none" stroke="#2f6bff" stroke-width="4" stroke-linecap="round"/>
+</svg>
