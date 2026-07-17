@@ -7,13 +7,13 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.inspect.ui.branch_store import (
     _append_case_record,
     _append_debug_branch_record,
     _case_db_path,
     _debug_branch_db_path,
     _delete_case_record,
+    _delete_debug_branch_record,
     _read_case_records,
     _read_debug_branch_records,
     _write_debug_branch_records,
@@ -22,12 +22,15 @@ from agentdebug.inspect.ui.services import (
     _build_debug_continuation_context,
     _build_rerun_evaluation,
     _decorate_debug_branch_record,
+    _resolve_trace_analysis,
     _to_dict,
+    _ui_runtime_status,
     build_overview,
 )
-from agentdebug.inspect.ui.views import render_gui_page, render_page, render_space_page
+from agentdebug.inspect.ui.views import render_page, render_space_page
 from agentdebug.runtime import TraceStore
 from agentdebug.schema import SEED_FAILURE_MODES, model_to_json
+
 
 def build_app(store: TraceStore) -> Any:
     try:
@@ -45,6 +48,28 @@ def build_app(store: TraceStore) -> Any:
         version='0.1.0',
     )
 
+    @app.middleware('http')
+    async def add_local_ui_security_headers(
+        request: Any,
+        call_next: Any,
+    ) -> Any:
+        response = await call_next(request)
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-src 'none'; "
+            "object-src 'none'; base-uri 'none'; form-action 'self'; "
+            "frame-ancestors 'self'"
+        )
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        return response
+
     @app.get('/healthz')
     def healthz() -> Dict[str, str]:
         return {'status': 'ok'}
@@ -56,6 +81,10 @@ def build_app(store: TraceStore) -> Any:
     @app.get('/api/v1/overview')
     def get_overview() -> Dict[str, Any]:
         return build_overview(store)
+
+    @app.get('/api/v1/status')
+    def get_ui_status() -> Dict[str, Any]:
+        return _ui_runtime_status()
 
     @app.get('/api/v1/cases')
     def list_cases() -> Dict[str, Any]:
@@ -74,7 +103,15 @@ def build_app(store: TraceStore) -> Any:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
             raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
-        report = HeuristicAnalyzer().analyze(trajectory)
+        report_id = str(payload.get('report_id') or '').strip() or None
+        try:
+            report = _resolve_trace_analysis(
+                store,
+                trajectory,
+                report_id=report_id,
+            )['report']
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         trajectory_payload = _to_dict(trajectory)
         report_payload = _to_dict(report)
         primary = report_payload.get('findings', [{}])[0] if report_payload.get('findings') else {}
@@ -84,6 +121,7 @@ def build_app(store: TraceStore) -> Any:
             'case_id': f'{trace_id}::{created_at}',
             'created_at': created_at,
             'trace_id': trace_id,
+            'report_id': report.report_id,
             'title': payload.get('title') or trace_id,
             'note': payload.get('note') or '',
             'dataset': trajectory_payload.get('metadata', {}).get('task_type') or trajectory_payload.get('framework') or '',
@@ -126,22 +164,18 @@ def build_app(store: TraceStore) -> Any:
     def space_page() -> str:
         return render_space_page(store)
 
-    @app.get('/gui', response_class=HTMLResponse)
-    def gui_page() -> str:
-        return render_gui_page()
-
     @app.get('/trace/{trace_id}', response_class=HTMLResponse)
     def trace_page(trace_id: str) -> str:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
-            return render_page(store, view='overview')
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
         return render_page(store, view='trace', trace_id=trace_id)
 
     @app.get('/trace/{trace_id}/event/{event_id}', response_class=HTMLResponse)
     def trace_event_page(trace_id: str, event_id: str) -> str:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
-            return render_page(store, view='overview')
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
         if not any(evt.event_id == event_id for evt in trajectory.events):
             raise HTTPException(
                 status_code=404,
@@ -150,14 +184,27 @@ def build_app(store: TraceStore) -> Any:
         return render_page(store, view='event', trace_id=trace_id, event_id=event_id)
 
     @app.get('/api/v1/traces/{trace_id}')
-    def get_trace(trace_id: str) -> Dict[str, Any]:
+    def get_trace(
+        trace_id: str,
+        report_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
             raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
-        report = HeuristicAnalyzer().analyze(trajectory)
+        try:
+            analysis = _resolve_trace_analysis(
+                store,
+                trajectory,
+                report_id=report_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = analysis['report']
         return {
             'trajectory': _to_dict(trajectory),
             'report': _to_dict(report),
+            'report_source': analysis['report_source'],
+            'reports': analysis['reports'],
         }
 
     @app.post('/api/v1/traces/{trace_id}/debug-continuation')
@@ -168,7 +215,15 @@ def build_app(store: TraceStore) -> Any:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
             raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
-        report = HeuristicAnalyzer().analyze(trajectory)
+        report_id = str(payload.get('report_id') or '').strip() or None
+        try:
+            report = _resolve_trace_analysis(
+                store,
+                trajectory,
+                report_id=report_id,
+            )['report']
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         try:
             return _build_debug_continuation_context(
                 trajectory,
@@ -184,7 +239,13 @@ def build_app(store: TraceStore) -> Any:
     @app.get('/api/v1/traces/{trace_id}/debug-branches')
     def list_debug_branches(trace_id: str) -> Dict[str, Any]:
         trajectory = store.load_trajectory(trace_id)
-        report = HeuristicAnalyzer().analyze(trajectory) if trajectory is not None else None
+        if trajectory is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        report = (
+            _resolve_trace_analysis(store, trajectory)['report']
+            if trajectory is not None
+            else None
+        )
         trajectory_payload = _to_dict(trajectory) if trajectory is not None else {'events': []}
         report_payload = _to_dict(report) if report is not None else {'findings': []}
         branches = [
@@ -206,6 +267,8 @@ def build_app(store: TraceStore) -> Any:
 
     @app.patch('/api/v1/traces/{trace_id}/debug-sessions/{session_id:path}')
     def update_debug_session(trace_id: str, session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if store.load_trajectory(trace_id) is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
         records = _read_debug_branch_records()
         updated: Optional[Dict[str, Any]] = None
         for record in records:
@@ -227,12 +290,32 @@ def build_app(store: TraceStore) -> Any:
             raise HTTPException(status_code=404, detail=f'unknown debug session: {session_id}')
         _write_debug_branch_records(records)
         trajectory = store.load_trajectory(trace_id)
-        report = HeuristicAnalyzer().analyze(trajectory) if trajectory is not None else None
+        report = (
+            _resolve_trace_analysis(store, trajectory)['report']
+            if trajectory is not None
+            else None
+        )
         trajectory_payload = _to_dict(trajectory) if trajectory is not None else {'events': []}
         report_payload = _to_dict(report) if report is not None else {'findings': []}
         return {
             'ok': True,
             'session': _decorate_debug_branch_record(updated, trajectory_payload, report_payload),
+            'path': str(_debug_branch_db_path()),
+        }
+
+    @app.delete('/api/v1/traces/{trace_id}/debug-sessions/{session_id:path}')
+    def delete_debug_session(trace_id: str, session_id: str) -> Dict[str, Any]:
+        if store.load_trajectory(trace_id) is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        if not _delete_debug_branch_record(trace_id, session_id):
+            raise HTTPException(
+                status_code=404,
+                detail=f'unknown debug session: {session_id}',
+            )
+        return {
+            'ok': True,
+            'trace_id': trace_id,
+            'session_id': session_id,
             'path': str(_debug_branch_db_path()),
         }
 
@@ -258,7 +341,15 @@ def build_app(store: TraceStore) -> Any:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
             raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
-        report = HeuristicAnalyzer().analyze(trajectory)
+        report_id = str(payload.get('report_id') or '').strip() or None
+        try:
+            report = _resolve_trace_analysis(
+                store,
+                trajectory,
+                report_id=report_id,
+            )['report']
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         report.suggestions = [prompt_text]
         checkpoint_policy = str(
             os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'
@@ -295,21 +386,31 @@ def build_app(store: TraceStore) -> Any:
                     status_code=503,
                     detail=f'runner token environment variable is not set: {token_env}',
                 )
+            try:
+                timeout = _positive_env_float('AGENTDEBUG_RERUN_TIMEOUT', 1800)
+                poll_interval = _positive_env_float(
+                    'AGENTDEBUG_RUNNER_POLL_INTERVAL',
+                    1,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
             executor = HttpLiveExecutor(
                 runner_url,
                 trajectory,
                 token=token,
-                timeout=float(os.environ.get('AGENTDEBUG_RERUN_TIMEOUT') or 1800),
-                poll_interval=float(
-                    os.environ.get('AGENTDEBUG_RUNNER_POLL_INTERVAL') or 1
-                ),
+                timeout=timeout,
+                poll_interval=poll_interval,
             )
         else:
+            try:
+                timeout = _positive_env_float('AGENTDEBUG_RERUN_TIMEOUT', 1800)
+            except ValueError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
             executor = ProcessLiveExecutor(
                 runner_command,
                 trajectory,
                 cwd=os.environ.get('AGENTDEBUG_RERUN_CWD'),
-                timeout=float(os.environ.get('AGENTDEBUG_RERUN_TIMEOUT') or 1800),
+                timeout=timeout,
             )
         try:
             workflow_result = RerunWorkflow(executor).run(
@@ -352,6 +453,7 @@ def build_app(store: TraceStore) -> Any:
             'branch_id': branch_id,
             'session_id': branch_id,
             'trace_id': trace_id,
+            'report_id': report.report_id,
             'event_id': event_id,
             'parent_event_id': event_id,
             'checkpoint_ordinal': checkpoint.get('checkpoint_ordinal'),
@@ -405,3 +507,14 @@ def build_app(store: TraceStore) -> Any:
         }
 
     return app
+
+
+def _positive_env_float(name: str, default: float) -> float:
+    raw = str(os.environ.get(name) or default).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f'{name} must be a positive number') from exc
+    if value <= 0:
+        raise ValueError(f'{name} must be a positive number')
+    return value

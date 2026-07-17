@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
@@ -15,6 +16,97 @@ from agentdebug.schema import (
     model_to_dict,
 )
 
+
+def _report_descriptor(report: DiagnosticReport, *, source: str) -> Dict[str, Any]:
+    analyzer = str(
+        report.metadata.get('analyzer')
+        or report.metadata.get('mode')
+        or report.metadata.get('diagnose_mode')
+        or 'unknown'
+    )
+    return {
+        'report_id': report.report_id,
+        'generated_at': report.generated_at.isoformat(),
+        'analyzer': analyzer,
+        'finding_count': len(report.findings),
+        'summary': report.summary,
+        'source': source,
+    }
+
+
+def _resolve_trace_analysis(
+    store: TraceStore,
+    trajectory: AgentTrajectory,
+    *,
+    report_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return one selected report plus the reports available for this trace."""
+
+    stored_reports: List[DiagnosticReport] = []
+    list_reports = getattr(store, 'list_reports', None)
+    if callable(list_reports):
+        try:
+            stored_reports = [
+                report
+                for report in list_reports(trajectory.trace_id)
+                if isinstance(report, DiagnosticReport)
+                and report.trace_id == trajectory.trace_id
+            ]
+        except (OSError, ValueError):
+            stored_reports = []
+
+    if report_id:
+        selected = next(
+            (report for report in stored_reports if report.report_id == report_id),
+            None,
+        )
+        if selected is None:
+            raise ValueError(
+                f'unknown report_id {report_id!r} for trace_id {trajectory.trace_id!r}'
+            )
+    elif stored_reports:
+        selected = stored_reports[0]
+    else:
+        selected = HeuristicAnalyzer().analyze(trajectory)
+
+    source = 'stored' if selected in stored_reports else 'generated_heuristic'
+    reports = [
+        _report_descriptor(report, source='stored') for report in stored_reports
+    ]
+    if not stored_reports:
+        reports.append(_report_descriptor(selected, source=source))
+    return {
+        'report': selected,
+        'report_source': source,
+        'reports': reports,
+    }
+
+
+def _ui_runtime_status() -> Dict[str, Any]:
+    runner_url = bool(str(os.environ.get('AGENTDEBUG_RUNNER_URL') or '').strip())
+    runner_command = bool(
+        str(os.environ.get('AGENTDEBUG_RERUN_COMMAND') or '').strip()
+    )
+    policy = str(
+        os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'
+    ).strip()
+    policy_valid = policy in {'from_start', 'from_event'}
+    transport = 'http' if runner_url else ('process' if runner_command else None)
+    return {
+        'local_ui': True,
+        'rerun': {
+            'configured': bool(transport and policy_valid),
+            'transport': transport,
+            'checkpoint_policy': policy,
+            'configuration_error': (
+                None
+                if policy_valid
+                else 'AGENTDEBUG_UI_RERUN_POLICY must be from_start or from_event'
+            ),
+        },
+    }
+
+
 def _to_dict(model: Any) -> Dict[str, Any]:
     """Pydantic v1/v2 compatible serialization to dict."""
     if isinstance(model, DiagnosticReport):
@@ -22,8 +114,6 @@ def _to_dict(model: Any) -> Dict[str, Any]:
     if hasattr(model, 'model_dump'):
         return cast(Dict[str, Any], model.model_dump(mode='json'))
     return cast(Dict[str, Any], json.loads(model.json()))
-
-
 
 def _extract_chat_content(payload: Dict[str, Any]) -> str:
     choices = payload.get('choices') or []
@@ -420,6 +510,7 @@ def _build_debug_continuation_context(
         'ok': True,
         'mode': mode,
         'trace_id': trajectory_payload.get('trace_id'),
+        'report_id': report_payload.get('report_id'),
         'event_id': event_id,
         'checkpoint_ordinal': checkpoint_ordinal,
         'checkpoint_step_index': selected.get('step_index'),
@@ -442,7 +533,6 @@ def _build_debug_continuation_context(
 
 def build_overview(store: TraceStore) -> Dict[str, Any]:
     trace_ids = store.list_traces()
-    analyzer = HeuristicAnalyzer()
     event_counts: List[int] = []
     finding_counts: List[int] = []
     error_event_counts: List[int] = []
@@ -481,7 +571,7 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
         event_count = len(trajectory.events)
         event_counts.append(event_count)
         total_events += event_count
-        report = analyzer.analyze(trajectory)
+        report = _resolve_trace_analysis(store, trajectory)['report']
         finding_count = len(report.findings)
         finding_counts.append(finding_count)
         total_findings += finding_count
@@ -682,4 +772,3 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
         'trace_length_findings_scatter': scatter_points,
         'trace_catalog': trace_catalog,
     }
-

@@ -451,6 +451,27 @@ frontend. It is intentionally a surface layer:
 - local case and branch stores live in `inspect/ui/branch_store.py`
 - `inspect/ui/server.py` remains a compatibility import path
 
+### Launch from the CLI
+
+Install the optional UI dependencies, then point the server at an existing
+AgentDebugX trace store:
+
+```bash
+pip install "agentdebugx[ui]"
+
+agentdebug serve \
+  --store-sqlite .agentdebug/traces.sqlite \
+  --host 127.0.0.1 \
+  --port 7777
+```
+
+Open [http://127.0.0.1:7777](http://127.0.0.1:7777) in a browser. For a JSONL
+store, replace `--store-sqlite` with
+`--store-jsonl .agentdebug/traces.jsonl`. Keep the default loopback host unless
+the UI is deployed behind appropriate authentication and transport security.
+
+![AgentDebugX local inspection UI](docs/assets/UI.png)
+
 The UI can inspect traces, save typical error cases, prepare debug
 continuations, and invoke a server-controlled live runner. Set
 `AGENTDEBUG_RUNNER_URL` for the preferred persistent HTTP transport or

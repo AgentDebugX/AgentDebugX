@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
-import os
 from html import escape as html_escape
 from typing import Any, Dict, Optional
 
-from agentdebug.diagnose.detect import HeuristicAnalyzer
-from agentdebug.inspect.ui.services import _to_dict, build_overview
+from agentdebug.inspect.ui.services import (
+    _resolve_trace_analysis,
+    _to_dict,
+    _ui_runtime_status,
+    build_overview,
+)
 from agentdebug.runtime import TraceStore
+
 
 def render_page(
     store: TraceStore,
@@ -39,14 +43,18 @@ def _build_bootstrap(
         'overview': build_overview(store),
         'selected': None,
         'selected_event_id': event_id,
+        'ui_status': _ui_runtime_status(),
     }
     if view in {'trace', 'event'} and trace_id is not None:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is not None:
-            report = HeuristicAnalyzer().analyze(trajectory)
+            analysis = _resolve_trace_analysis(store, trajectory)
+            report = analysis['report']
             bootstrap['selected'] = {
                 'trajectory': _to_dict(trajectory),
                 'report': _to_dict(report),
+                'report_source': analysis['report_source'],
+                'reports': analysis['reports'],
             }
     return bootstrap
 
@@ -81,16 +89,6 @@ def render_space_page(store: TraceStore) -> str:
         '__SPACE_BOOTSTRAP__',
         json.dumps(payload).replace('</', '<\\/'),
     )
-
-
-def gui_embed_url() -> str:
-    """URL of the vendored CUA Streamlit debugger to embed under /gui."""
-    return os.environ.get('AGENTDEBUGX_GUI_URL', 'http://localhost:8501')
-
-
-def render_gui_page() -> str:
-    """Embed the vendored CUA GUI-trajectory debugger as a console sub-tab."""
-    return _GUI_HTML.replace('__GUI_URL__', gui_embed_url())
 
 
 def _space_project_card(item: Dict[str, Any], idx: int) -> str:
@@ -161,57 +159,6 @@ def _url_quote(value: str) -> str:
 
     return quote(value, safe='')
 
-
-
-_GUI_HTML = """<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>GUI 轨迹调试器 · AgentDebugX</title>
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:#0e1112; color:#e7ece9;
-    font-family:'Figtree','Segoe UI',system-ui,sans-serif; }
-  .gui-shell { display:flex; flex-direction:column; height:100vh; }
-  .gui-bar { display:flex; align-items:center; gap:14px; padding:10px 16px;
-    background:#151818; border-bottom:1px solid #262b2b; flex:0 0 auto; }
-  .gui-bar a.back { color:#9fe7c9; text-decoration:none; font-size:13px;
-    padding:4px 10px; border:1px solid #2c3231; border-radius:6px; }
-  .gui-bar a.back:hover { background:#1c2120; }
-  .gui-bar .title { font-weight:700; font-size:14px; }
-  .gui-bar .sub { color:#7f8a86; font-size:12px; }
-  .gui-bar .spacer { flex:1; }
-  .gui-bar a.ext { color:#7f8a86; text-decoration:none; font-size:12px; }
-  .gui-bar a.ext:hover { color:#e7ece9; }
-  .gui-frame-wrap { position:relative; flex:1 1 auto; min-height:0; }
-  iframe.gui-frame { position:absolute; inset:0; width:100%; height:100%; border:0; background:#0e1112; }
-  .gui-hint { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    text-align:center; padding:24px; color:#7f8a86; font-size:13px; pointer-events:none; z-index:0; }
-  .gui-hint code { color:#9fe7c9; background:#151818; padding:2px 6px; border-radius:4px; }
-</style>
-</head>
-<body>
-<div class="gui-shell">
-  <div class="gui-bar">
-    <a class="back" href="/space">← 工作区</a>
-    <span class="title">GUI 轨迹调试器</span>
-    <span class="sub">CUA · OSWorld</span>
-    <span class="spacer"></span>
-    <a class="ext" href="__GUI_URL__" target="_blank" rel="noopener">在新标签打开 ↗</a>
-  </div>
-  <div class="gui-frame-wrap">
-    <div class="gui-hint">
-      若下方空白,请确认 CUA Streamlit 已在 <code>__GUI_URL__</code> 运行<br/>
-      (在 <code>cua_debugger</code> 目录: <code>streamlit run debugger/vis/debugger_app.py</code>)
-    </div>
-    <iframe class="gui-frame" src="__GUI_URL__" title="CUA GUI Trajectory Debugger"></iframe>
-  </div>
-</div>
-</body>
-</html>
-"""
 
 
 _SPACE_HTML = """<!doctype html>
@@ -409,7 +356,6 @@ _SPACE_HTML = """<!doctype html>
     <label class="side-search"><input id="side-search" type="search" placeholder="搜索项目..." /></label>
     <nav class="nav" aria-label="Space navigation">
       <a class="nav-link active" href="/space"><span class="nav-icon">⌘</span>工作区</a>
-      <a class="nav-link" href="/gui"><span class="nav-icon">▤</span>GUI 轨迹</a>
       <a class="nav-link" href="/overview"><span class="nav-icon">♙</span>个人主页</a>
       <a class="nav-link" href="/overview#more"><span class="nav-icon">◉</span>基线社区</a>
       <button class="nav-link" type="button" data-placeholder><span class="nav-icon">⚙</span>设置<span class="chev">›</span></button>
@@ -2819,6 +2765,12 @@ _INDEX_HTML = r"""<!doctype html>
     border-color:rgba(114,232,244,.66) !important;
     box-shadow:0 14px 34px rgba(0,0,0,.26), 0 0 24px rgba(114,232,244,.13) !important;
   }
+  .report-select {
+    min-height:34px; max-width:260px; padding:0 30px 0 10px;
+    border:1px solid var(--line); border-radius:6px;
+    background:var(--surface-2); color:var(--text); font:inherit;
+  }
+  button:disabled, select:disabled { opacity:.48; cursor:not-allowed; }
   .continuation-modal {
     position:fixed; inset:0; z-index:160; display:grid; place-items:center;
     padding:28px; background:rgba(2,7,11,.64); backdrop-filter:blur(10px);
@@ -4560,7 +4512,6 @@ _INDEX_HTML = r"""<!doctype html>
       <button class="rail-btn active" id="rail-overview-btn" type="button" aria-label="Overview dashboard" title="Overview dashboard"><span>⌂</span></button>
       <button class="rail-btn" id="rail-trace-btn" type="button" aria-label="Trace editor" title="Trace editor"><span>⌁</span></button>
       <button class="rail-btn" id="rail-cases-btn" type="button" aria-label="Typical error database" title="Typical error database"><span>▣</span></button>
-      <a class="rail-btn" href="/gui" aria-label="GUI trajectory debugger" title="GUI 轨迹调试器" style="text-decoration:none;"><span>▤</span></a>
       <button class="rail-btn" id="rail-more-btn" type="button" aria-label="More actions" title="More actions"><span>•••</span></button>
     </div>
     <button class="rail-user" id="offline-status-btn" type="button" aria-label="Local offline status" aria-expanded="false"></button>
@@ -4595,8 +4546,7 @@ _INDEX_HTML = r"""<!doctype html>
       </div>
       <div class="top-actions">
         <button class="button" id="theme-btn" type="button">Theme</button>
-        <a class="button" href="/gui" style="text-decoration:none;">GUI 轨迹</a>
-        <button class="button" id="analyze-btn" type="button">Run Analysis</button>
+        <button class="button" id="analyze-btn" type="button">Refresh View</button>
         <button class="button" id="export-btn" type="button">Export Bundle</button>
         <button class="button primary" id="hub-btn" type="button">Open Hub</button>
       </div>
@@ -4611,13 +4561,14 @@ _INDEX_HTML = r"""<!doctype html>
 </div>
 <div id="chart-tooltip" class="chart-tooltip" role="status" aria-live="polite"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<div id="offline-popover" class="offline-popover" role="dialog" aria-label="Offline mode status">
-  <div class="offline-title"><span class="offline-dot"></span><span>Offline Mode</span></div>
-  <div class="offline-copy">AgentDebugX is running locally. Traces are loaded from the current local store, and no remote sync is active.</div>
-  <div class="offline-meta"><span class="chip good">local</span><span class="chip">read-only UI</span><span class="chip cyan">127.0.0.1</span></div>
+<div id="offline-popover" class="offline-popover" role="dialog" aria-label="Runtime status">
+  <div class="offline-title"><span class="offline-dot"></span><span id="runtime-status-title">Local UI</span></div>
+  <div class="offline-copy" id="runtime-status-copy">Loading runtime capabilities...</div>
+  <div class="offline-meta" id="runtime-status-meta"><span class="chip good">local store</span></div>
 </div>
 <script>
 const BOOTSTRAP = __BOOTSTRAP_JSON__;
+const UI_STATUS = (BOOTSTRAP && BOOTSTRAP.ui_status) || {rerun: {configured: false, checkpoint_policy: 'from_start'}};
 let CURRENT_TRACE_ID = null;
 let CURRENT_TRACE_DATA = null;
 let CURRENT_VIEW = (BOOTSTRAP && BOOTSTRAP.view) || 'overview';
@@ -4879,14 +4830,15 @@ function statusLabel(item) {
 function statusClassForItem(item) {
   return Number(item.finding_count || 0) ? 'failed' : 'passed';
 }
-async function selectTrace(tid, li) {
+async function selectTrace(tid, li, reportId) {
   document.querySelectorAll('.run').forEach(el => el.classList.remove('active'));
   if (li && li.classList) li.classList.add('active');
   CURRENT_TRACE_ID = tid;
   CURRENT_VIEW = 'trace';
   document.getElementById('detail').innerHTML = loadingState('Loading trace analysis...');
   try {
-    const data = await api('/api/v1/traces/' + encodeURIComponent(tid));
+    const reportQuery = reportId ? '?report_id=' + encodeURIComponent(reportId) : '';
+    const data = await api('/api/v1/traces/' + encodeURIComponent(tid) + reportQuery);
     CURRENT_TRACE_DATA = data;
     renderTrace(data.trajectory, data.report);
     syncDebugBranches(tid, true);
@@ -4939,8 +4891,15 @@ function renderTrace(traj, report) {
     html += '<span class="chip good">Completed</span>';
     html += '<span class="chip">' + escapeHtml(events.length) + ' steps</span>';
     html += '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>';
-    html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Rerun From Here</button>';
+    html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Prepare Rerun</button>';
     html += '<button class="timeline-tool" id="save-case-btn" type="button" data-save-case>Save Case</button>';
+    const reportOptions = Array.isArray(CURRENT_TRACE_DATA?.reports) ? CURRENT_TRACE_DATA.reports : [];
+    if (reportOptions.length) {
+      html += '<select class="report-select" id="report-select" aria-label="Diagnostic report">' +
+        reportOptions.map(item => '<option value="' + escapeHtml(item.report_id || '') + '" ' + (item.report_id === report.report_id ? 'selected' : '') + '>' + escapeHtml(reportOptionLabel(item)) + '</option>').join('') +
+        '</select>';
+      html += '<span class="chip cyan">' + escapeHtml(CURRENT_TRACE_DATA?.report_source === 'stored' ? 'stored report' : 'heuristic fallback') + '</span>';
+    }
   }
   html += '</div></div>';
   html += '<div class="editor-stage-body">';
@@ -4954,6 +4913,7 @@ function renderTrace(traj, report) {
   html += '</div></section>';
 
   document.getElementById('detail').innerHTML = html;
+  positionTimelinePlayhead(CURRENT_EXPANDED_EVENT_ID);
   syncDebugBranches(traj.trace_id || '', false);
   bindInspectorTabs();
   bindStepExplorer(traj, report);
@@ -4966,6 +4926,22 @@ function renderTrace(traj, report) {
   bindDebugSessionActions(traj, report);
   bindTimelineScrollSync();
   bindChartTooltips();
+  bindReportSelector(traj.trace_id || '');
+}
+function reportOptionLabel(item) {
+  const analyzer = item?.analyzer && item.analyzer !== 'unknown' ? item.analyzer : 'diagnostic report';
+  const count = Number(item?.finding_count || 0);
+  return analyzer + ' · ' + count + ' finding' + (count === 1 ? '' : 's');
+}
+function bindReportSelector(traceId) {
+  const select = document.getElementById('report-select');
+  if (!select) return;
+  select.onchange = async () => {
+    select.disabled = true;
+    const active = document.querySelector('.run.active');
+    const loaded = await selectTrace(traceId, active, select.value);
+    if (loaded) notify('Diagnostic report changed');
+  };
 }
 function renderEventDetail(traj, report, eventId) {
   document.body.classList.remove('trace-editor-mode');
@@ -5082,7 +5058,6 @@ function renderMorePanel() {
     moreRow('JSON', 'Full trace, report, findings, and metadata') +
     moreRow('CSV', 'Event table for spreadsheet review') +
     moreRow('PDF', 'Browser print dialog for report snapshots') +
-    moreRow('ZIP', 'Local bundle payload placeholder for this no-build UI') +
     '</div><div class="lane-meta"><button class="button primary" type="button" onclick="exportTraceBundle()">Export current run</button></div></div></div>' +
 	    '</div></div>';
 }
@@ -5251,7 +5226,7 @@ function renderPatternSummary(stats, selected) {
   return '<div class="pattern-summary" id="pattern-summary"><div><div class="case-id-kicker">Pattern Summary</div><div class="pattern-summary-title">' + escapeHtml(label) + '</div>' +
     '<div class="pattern-summary-copy">Representative cases are grouped by failure family and mode so the team can reuse them for debugging, detector validation, and regression review.</div>' +
     '<div class="case-tags"><span class="case-tag">' + escapeHtml(count) + ' representative cases</span><span class="case-tag">' + escapeHtml(stats.familyCounts.size) + ' families</span><span class="case-tag">' + escapeHtml(stats.tags.size) + ' tags</span></div></div>' +
-    '<div class="pattern-summary-actions"><button class="button" type="button" data-info-popover="Pattern detail drawer is represented by the right-side case detail in this local build.">Open Pattern Detail</button><button class="button" type="button" data-info-popover="Regression execution is not wired in this local UI yet.">Run Regression</button><button class="button" type="button" data-info-popover="Case export is represented by the project-local typical_error_cases.jsonl file.">Export Cases</button></div></div>';
+    '<div class="pattern-summary-actions"><button class="button" type="button" data-focus-case-detail>Open Selected Case</button><button class="button" type="button" disabled title="Regression execution is not available in this build.">Run Regression</button><button class="button" type="button" data-export-cases>Export Cases</button></div></div>';
 }
 function renderCaseMenu(item) {
   const traceId = item?.trace_id || '';
@@ -5259,11 +5234,11 @@ function renderCaseMenu(item) {
   return '<div class="case-card-actions"><button type="button" class="case-menu-btn" aria-label="Case actions">⋮</button>' +
     '<div class="case-menu">' +
     '<button type="button" data-open-case-trace="' + escapeHtml(traceId) + '">Open Trace</button>' +
-    '<button type="button" data-info-popover="Case comparison is planned for this local UI.">Compare</button>' +
-    '<button type="button" data-info-popover="Regression suite binding can be stored as JSONL metadata.">Add to Regression Suite</button>' +
-    '<button type="button" data-info-popover="Metadata editing is not wired yet.">Edit Metadata</button>' +
+    '<button type="button" disabled title="Case comparison is not available in this build.">Compare</button>' +
+    '<button type="button" disabled title="Regression suites are not available in this build.">Add to Regression Suite</button>' +
+    '<button type="button" disabled title="Metadata editing is not available in this build.">Edit Metadata</button>' +
     '<button type="button" data-copy-case-id="' + escapeHtml(caseId) + '">Copy Case ID</button>' +
-    '<button type="button" data-info-popover="Export JSON uses the local case record in this no-build UI.">Export JSON</button>' +
+    '<button type="button" data-export-case-id="' + escapeHtml(caseId) + '">Export JSON</button>' +
     '<button type="button" class="danger" data-delete-case-id="' + escapeHtml(caseId) + '">Delete</button>' +
     '</div></div>';
 }
@@ -5397,7 +5372,7 @@ function renderCaseDetailContent(item) {
     caseMeta('Sub-pattern', caseSubPattern(item)) +
     '</div><div class="case-tags">' + caseTags(item).map(tag => '<span class="case-tag">' + escapeHtml(tag) + '</span>').join('') + '</div></div>' +
     '<div class="case-detail-section"><div class="case-detail-section-title">Root Cause Summary</div><div class="case-detail-text">' + escapeHtml(rootCauseSummary(item)) + '</div><div class="case-meta-grid">' + caseMeta('Primary Rule', primaryCaseRule(item)) + caseMeta('Confidence', caseConfidence(item)) + '</div></div>' +
-    '<div class="case-detail-section"><div class="case-detail-section-title">Suggested Fix</div><div class="case-detail-text">' + escapeHtml(suggestedCaseFix(item)) + '</div><div class="case-detail-actions"><button class="button" type="button" data-copy-case-fix="' + escapeHtml(suggestedCaseFix(item)) + '">Copy Fix</button><button class="button" type="button" data-info-popover="Detector rule editing is not wired in this local UI yet.">Open Detector Rule</button></div></div>' +
+    '<div class="case-detail-section"><div class="case-detail-section-title">Suggested Fix</div><div class="case-detail-text">' + escapeHtml(suggestedCaseFix(item)) + '</div><div class="case-detail-actions"><button class="button" type="button" data-copy-case-fix="' + escapeHtml(suggestedCaseFix(item)) + '">Copy Fix</button><button class="button" type="button" disabled title="Detector rule editing is not available in this build.">Open Detector Rule</button></div></div>' +
     '<div class="case-detail-section"><div class="case-detail-section-title">Usage & Review</div><div class="case-meta-grid">' +
     caseMeta('Regression Suite', caseRegressionSuite(item)) +
     caseMeta('Review Status', caseReviewStatus(item)) +
@@ -5407,8 +5382,8 @@ function renderCaseDetailContent(item) {
     '<div class="case-detail-section"><div class="case-detail-section-title">Notes</div><div class="case-detail-text">' + escapeHtml(item.note || 'No team note yet. Use this case as a stable reference for future annotations.') + '</div></div>' +
     '<div class="case-detail-actions">' +
     '<button class="button primary" type="button" data-open-case-trace="' + escapeHtml(traceId) + '">Open Trace</button>' +
-    '<button class="button" type="button" data-info-popover="Regression binding is represented as metadata in this local JSONL build.">Add to Regression Suite</button>' +
-    '<button class="button" type="button" data-info-popover="Review workflow metadata can be added to the JSONL case record.">Mark as Reviewed</button>' +
+    '<button class="button" type="button" disabled title="Regression suites are not available in this build.">Add to Regression Suite</button>' +
+    '<button class="button" type="button" disabled title="Review workflow is not available in this build.">Mark as Reviewed</button>' +
     '<button class="button" type="button" data-copy-case-id="' + escapeHtml(item.case_id || '') + '">Copy Case ID</button>' +
     '</div>';
 }
@@ -5510,6 +5485,26 @@ function bindCaseCards() {
   document.querySelectorAll('[data-copy-case-fix]').forEach(button => {
     button.onclick = () => copyText(button.dataset.copyCaseFix || '', 'Suggested fix copied');
   });
+  document.querySelectorAll('[data-export-case-id]').forEach(button => {
+    button.onclick = event => {
+      event.stopPropagation();
+      const item = caseByCurrentDomId(button.dataset.exportCaseId || '');
+      if (!item) return notify('Case record is unavailable');
+      const name = String(item.case_id || 'case').replace(/[^a-z0-9._-]+/gi, '_');
+      downloadJson(name + '.json', item);
+      notify('Case exported');
+    };
+  });
+  document.querySelectorAll('[data-export-cases]').forEach(button => {
+    button.onclick = () => {
+      const records = currentCaseRecords();
+      downloadJson('agentdebugx.cases.json', records);
+      notify('Cases exported');
+    };
+  });
+  document.querySelectorAll('[data-focus-case-detail]').forEach(button => {
+    button.onclick = () => document.getElementById('case-detail-content')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+  });
   document.querySelectorAll('[data-info-popover]').forEach(button => {
     button.onclick = event => {
       event.stopPropagation();
@@ -5518,11 +5513,15 @@ function bindCaseCards() {
   });
 }
 function caseByCurrentDomId(caseId) {
+  return currentCaseRecords().find(item => String(item.case_id || '') === String(caseId || '')) || null;
+}
+function currentCaseRecords() {
   const raw = document.getElementById('case-payload-cache')?.textContent || '[]';
   try {
-    return JSON.parse(raw).find(item => String(item.case_id || '') === String(caseId || '')) || null;
+    const records = JSON.parse(raw);
+    return Array.isArray(records) ? records : [];
   } catch {
-    return null;
+    return [];
   }
 }
 function bindCaseControls(cases, stats) {
@@ -6393,8 +6392,8 @@ function renderTimelineRow(traj, ev, isRoot, finding) {
 }
 function renderStepExplorer(traj, events, findings, rootId, expandedId) {
   const activeIndex = Math.max(0, events.findIndex(ev => ev.event_id === expandedId));
-  const clipWidth = Math.max(28, Math.min(86, 48 * TIMELINE_ZOOM));
-  const playheadLeft = 10 + activeIndex * (clipWidth + 4) + clipWidth / 2;
+  const clipWidth = Math.max(70, Math.min(132, 86 * TIMELINE_ZOOM));
+  const playheadLeft = 22 + activeIndex * (clipWidth + 10) + clipWidth / 2;
   const branches = getDebugBranches(traj.trace_id || '');
   let html = '<div class="timeline-editor unified' + (branches.length ? ' has-branches' : '') + '" id="full-trajectory">';
   html += '<div class="timeline-fixed-labels">';
@@ -6684,6 +6683,7 @@ function renderSessionDetail(branch) {
         '<button class="button" type="button" data-session-eval="improved" data-session-id="' + escapeHtml(branchSessionId(branch)) + '">Improved</button>' +
         '<button class="button" type="button" data-session-eval="unchanged" data-session-id="' + escapeHtml(branchSessionId(branch)) + '">Still Failed</button>' +
         '<button class="button" type="button" data-session-eval="worse" data-session-id="' + escapeHtml(branchSessionId(branch)) + '">Worse</button>' +
+        '<button class="button" type="button" data-delete-session="' + escapeHtml(branchSessionId(branch)) + '">Delete</button>' +
       '</div>' +
       '<div class="compare-summary"><strong>Path changed:</strong> ' + escapeHtml(summary.path_changed_from || 'original suffix') + ' → ' + escapeHtml(summary.path_changed_to || 'rerun branch') + '</div>' +
     '</div></div>';
@@ -6734,6 +6734,20 @@ function bindSessionModal() {
   });
   modal.querySelectorAll('[data-session-eval]').forEach(button => {
     button.onclick = () => updateSessionEvaluation(button.dataset.sessionId || '', button.dataset.sessionEval || 'unknown');
+  });
+  modal.querySelectorAll('[data-delete-session]').forEach(button => {
+    button.onclick = async () => {
+      const sessionId = button.dataset.deleteSession || '';
+      if (!sessionId || !window.confirm('Delete this rerun session?')) return;
+      try {
+        await removeDebugBranch(CURRENT_TRACE_ID || '', sessionId);
+        notify('Rerun session deleted');
+        showDebugSessionsModal(CURRENT_TRACE_ID || '');
+        if (CURRENT_TRACE_DATA) renderTrace(CURRENT_TRACE_DATA.trajectory, CURRENT_TRACE_DATA.report);
+      } catch (error) {
+        notify('Delete failed: ' + (error.message || error));
+      }
+    };
   });
 }
 function showSessionCompare(branch) {
@@ -6880,14 +6894,18 @@ function bindClipBrowser(traj, report) {
       document.querySelectorAll('.timeline-sync-scroll').forEach(track => { track.scrollLeft = scrollLeft; });
       pulseEditorStage();
     };
-    button.oncontextmenu = event => {
+    button.oncontextmenu = async event => {
       event.preventDefault();
       const branchId = button.dataset.debugBranchId || '';
       if (!branchId) return;
       if (window.confirm('Delete this local rerun branch?')) {
-        removeDebugBranch(traj.trace_id || '', branchId);
-        renderTrace(traj, report);
-        notify('Rerun branch deleted');
+        try {
+          await removeDebugBranch(traj.trace_id || '', branchId);
+          renderTrace(traj, report);
+          notify('Rerun branch deleted');
+        } catch (error) {
+          notify('Delete failed: ' + (error.message || error));
+        }
       }
     };
   });
@@ -7073,6 +7091,22 @@ function scrollToTrajectoryEvent(eventId) {
     window.setTimeout(() => target.classList.remove('focus-pulse'), 950);
   });
 }
+function positionTimelinePlayhead(eventId) {
+  if (!eventId) return;
+  document.querySelectorAll('.track-strip').forEach(strip => {
+    const playhead = Array.from(strip.children).find(child => child.classList.contains('playhead'));
+    const clip = Array.from(strip.children).find(child =>
+      child.classList.contains('track-clip') && child.dataset.eventId === eventId
+    );
+    if (!playhead || !clip) return;
+    const stripRect = strip.getBoundingClientRect();
+    const clipRect = clip.getBoundingClientRect();
+    const playheadWidth = playhead.getBoundingClientRect().width;
+    playhead.style.left = (
+      clipRect.left - stripRect.left + clipRect.width / 2 - playheadWidth / 2
+    ) + 'px';
+  });
+}
 function focusTimelineClip(eventId) {
   if (!eventId) return;
   window.requestAnimationFrame(() => {
@@ -7117,19 +7151,18 @@ function exportTraceBundle(format) {
     return;
   }
   const base = CURRENT_TRACE_ID || 'trace';
-  const selected = (format || window.prompt('Export format: json, csv, zip, pdf', 'json') || 'json').toLowerCase();
+  const selected = (format || window.prompt('Export format: json, csv, pdf', 'json') || 'json').toLowerCase();
   if (selected === 'csv') {
     downloadBlob(base + '.events.csv', traceCsv(CURRENT_TRACE_DATA), 'text/csv');
-  } else if (selected === 'zip') {
-    downloadBlob(base + '.debug-bundle.zip.txt', JSON.stringify(CURRENT_TRACE_DATA, null, 2), 'text/plain');
-    notify('Zip export is represented as a bundle payload in this local UI build');
-    return;
   } else if (selected === 'pdf') {
     window.print();
     notify('Opened browser print dialog for PDF export');
     return;
-  } else {
+  } else if (selected === 'json') {
     downloadJson(base + '.agentdebugx.report.json', CURRENT_TRACE_DATA);
+  } else {
+    notify('Unsupported export format: ' + selected);
+    return;
   }
   notify('Exported ' + selected.toUpperCase() + ' bundle');
 }
@@ -7153,7 +7186,11 @@ async function saveCurrentCase() {
     const response = await fetch('/api/v1/cases', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({trace_id: CURRENT_TRACE_ID, title})
+      body: JSON.stringify({
+        trace_id: CURRENT_TRACE_ID,
+        report_id: CURRENT_TRACE_DATA?.report?.report_id || null,
+        title
+      })
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
@@ -7277,8 +7314,13 @@ function addDebugBranch(traceId, branch) {
   persistDebugBranches();
   return saved;
 }
-function removeDebugBranch(traceId, branchId) {
+async function removeDebugBranch(traceId, branchId) {
   if (!traceId || !branchId) return;
+  const response = await fetch('/api/v1/traces/' + encodeURIComponent(traceId) + '/debug-sessions/' + encodeURIComponent(branchId), {method: 'DELETE'});
+  if (!response.ok && response.status !== 404) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || 'delete failed');
+  }
   DEBUG_BRANCHES[traceId] = getDebugBranches(traceId).filter(item => item.branch_id !== branchId);
   persistDebugBranches();
 }
@@ -7355,6 +7397,7 @@ async function runContinuationRerun() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         event_id: pkg.event_id,
+        report_id: CURRENT_TRACE_DATA?.report?.report_id || null,
         selected_event: pkg.selected_event || selectedEventPayloadForRerun(pkg.event_id),
         note: pkg.note || '',
         model: pkg.prompt_config?.debug_model || defaultDebugModel(),
@@ -7410,6 +7453,7 @@ async function startDebugContinuation() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         event_id: eventId,
+        report_id: CURRENT_TRACE_DATA?.report?.report_id || null,
         selected_event: selectedEvent,
         mode: 'rerun',
         prompt_config: {placeholder: true}
@@ -7429,7 +7473,7 @@ async function startDebugContinuation() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = previous || 'Rerun From Here';
+      btn.textContent = previous || 'Prepare Rerun';
     }
   }
 }
@@ -7475,7 +7519,7 @@ function showDebugContinuation(payload) {
         '</div>' +
         '<div class="continuation-card"><div class="continuation-label">Final Prompt Preview</div><textarea class="continuation-prompt" id="continuation-final-prompt">' + escapeHtml(basePrompt) + '</textarea></div>' +
       '</div>' +
-      '<div class="continuation-inline-status" id="continuation-run-status">Ready to rerun with this selected event as diagnostic guidance.</div>' +
+      '<div class="continuation-inline-status" id="continuation-run-status">' + escapeHtml(rerunStatusMessage()) + '</div>' +
       '<div class="continuation-actions"><div class="continuation-action-group">' +
         '<button class="button primary" type="button" data-run-continuation-debug>Run Rerun</button>' +
         '<button class="button" type="button" data-copy-continuation-prompt>Copy Prompt</button>' +
@@ -7522,7 +7566,13 @@ function bindDebugContinuationModal() {
     };
   });
   const runDebug = modal.querySelector('[data-run-continuation-debug]');
-  if (runDebug) runDebug.onclick = () => runContinuationRerun();
+  if (runDebug) {
+    runDebug.disabled = !Boolean(UI_STATUS?.rerun?.configured);
+    runDebug.title = UI_STATUS?.rerun?.configured
+      ? 'Run in the configured live agent environment'
+      : 'Configure AGENTDEBUG_RUNNER_URL or AGENTDEBUG_RERUN_COMMAND on the UI server';
+    runDebug.onclick = () => runContinuationRerun();
+  }
   const copyPrompt = modal.querySelector('[data-copy-continuation-prompt]');
   if (copyPrompt) copyPrompt.onclick = () => copyText(currentContinuationPrompt(), 'Continuation prompt copied');
   const saveBranch = modal.querySelector('[data-save-continuation-branch]');
@@ -7538,6 +7588,12 @@ function bindDebugContinuationModal() {
 }
 function defaultDebugModel() {
   return loadDebugBackendConfig().debug_model || 'gpt-4o';
+}
+function rerunStatusMessage() {
+  const rerun = UI_STATUS?.rerun || {};
+  if (rerun.configuration_error) return 'Rerun configuration error: ' + rerun.configuration_error;
+  if (!rerun.configured) return 'Live rerun is unavailable. You can still copy or download this rerun request.';
+  return 'Live rerun ready via ' + (rerun.transport || 'configured runner') + ' · policy ' + (rerun.checkpoint_policy || 'from_start') + '.';
 }
 function defaultContinuationInstruction() {
   return 'Rerun the original agent task using the configured live framework, model, tools, credentials, and environment. Use the selected event as diagnostic guidance, apply the recovery directive, and record observable execution events. Resume from the checkpoint only when the runner supports state restoration.';
@@ -7723,7 +7779,21 @@ function initTheme() {
   const saved = localStorage.getItem('agentdebugx-theme') || 'dark';
   applyTheme(saved);
 }
+function renderRuntimeStatus() {
+  const rerun = UI_STATUS?.rerun || {};
+  const title = document.getElementById('runtime-status-title');
+  const copy = document.getElementById('runtime-status-copy');
+  const meta = document.getElementById('runtime-status-meta');
+  if (title) title.textContent = rerun.configured ? 'Local UI · Runner Ready' : 'Local UI';
+  if (copy) copy.textContent = rerun.configuration_error || (rerun.configured
+    ? 'Traces stay in the local store. Live reruns use the server-configured agent environment.'
+    : 'Traces stay in the local store. No live agent runner is configured.');
+  if (meta) meta.innerHTML = '<span class="chip good">local store</span>' +
+    '<span class="chip ' + (rerun.configured ? 'cyan' : 'warn') + '">' + escapeHtml(rerun.configured ? (rerun.transport || 'runner') : 'rerun unavailable') + '</span>' +
+    '<span class="chip">' + escapeHtml(rerun.checkpoint_policy || 'from_start') + '</span>';
+}
 function bindTopActions() {
+  renderRuntimeStatus();
   const offlineBtn = document.getElementById('offline-status-btn');
   const offlinePopover = document.getElementById('offline-popover');
   if (offlineBtn && offlinePopover) {
@@ -7986,13 +8056,25 @@ function bindChartTooltips() {
   if (!tooltip) return;
   document.querySelectorAll('[data-tooltip]').forEach(el => {
     el.onmouseenter = event => {
-      tooltip.innerHTML = el.getAttribute('data-tooltip') || '';
+      tooltip.textContent = tooltipText(el.getAttribute('data-tooltip') || '');
       tooltip.classList.add('visible');
       positionChartTooltip(event, tooltip);
     };
     el.onmousemove = event => positionChartTooltip(event, tooltip);
     el.onmouseleave = () => tooltip.classList.remove('visible');
   });
+}
+function tooltipText(value) {
+  return String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 function positionChartTooltip(event, tooltip) {
   const pad = 14;

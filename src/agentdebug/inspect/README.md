@@ -27,11 +27,43 @@ The FastAPI UI is a surface layer:
 - `ui/branch_store.py` owns local case and debug-branch persistence.
 - `ui/server.py` remains a compatibility import path.
 
+## Report selection
+
+The UI displays the newest stored diagnostic report for a trace by default.
+When a trace has multiple reports, the Trace Editor exposes a report selector
+and keeps the selected `report_id` attached to saved cases, continuation
+requests, and rerun sessions. A heuristic report is generated only when the
+store has no report for that trace; the UI labels this as a heuristic fallback.
+
+Unknown trace, event, report, case, and debug-session identifiers return an
+explicit `404` response instead of silently opening a different view.
+
 Live UI reruns prefer `AGENTDEBUG_RUNNER_URL` and may use
 `AGENTDEBUG_RERUN_COMMAND` as a process fallback. They default to `from_start`.
 True `from_event` execution requires both runner capability and
 `AGENTDEBUG_UI_RERUN_POLICY=from_event`. Runner credentials and commands stay on
 the server and are never supplied by the browser.
+
+The runtime status popover reports whether a live runner is configured without
+returning runner URLs, tokens, or commands to the browser. When no runner is
+available, users can still copy or download the prepared rerun request, but the
+live execution control is disabled.
+
+## Local data and security
+
+The built-in server binds to `127.0.0.1` by default. Keep that default unless
+the UI is placed behind authentication and transport security; the local UI
+does not implement user accounts or remote-access authorization.
+
+Case records are stored in `typical_error_cases.jsonl`. Debug and rerun session
+records are stored in `.agentdebug/debug_branches.jsonl`. Create, update, and
+delete actions are persisted by the server rather than only in browser storage.
+The built-in single-process server serializes these JSONL writes to prevent
+concurrent UI actions from dropping records.
+
+UI responses disable caching because rendered pages and API payloads can
+contain complete trajectories. The server also emits restrictive content,
+framing, MIME-sniffing, and referrer headers.
 
 ## Dependencies
 

@@ -39,20 +39,13 @@ from agentdebug.inspect.ui.services import (
     _to_dict,
     build_overview,
 )
-from agentdebug.inspect.ui.views import (
-    gui_embed_url,
-    render_gui_page,
-    render_page,
-    render_space_page,
-)
+from agentdebug.inspect.ui.views import render_page, render_space_page
 
 __all__ = [
     'CASE_DB_FILENAME',
     'DEBUG_BRANCH_DB_FILENAME',
     'build_app',
     'build_overview',
-    'gui_embed_url',
-    'render_gui_page',
     'render_page',
     'render_space_page',
     'serve',
