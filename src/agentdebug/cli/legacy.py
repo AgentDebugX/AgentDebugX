@@ -318,7 +318,16 @@ def _add_rerun_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('diagnostic_report', help='Path to a diagnose report JSON')
     parser.add_argument(
         '--trajectory',
-        help='Original trajectory path or trace_id used for full-task rerun context',
+        help='Original trajectory path or trace_id used for rerun context',
+    )
+    parser.add_argument(
+        '--start-event',
+        type=int,
+        metavar='N',
+        help=(
+            'Start from the Nth event in --trajectory (1-based). '
+            'Without this option, rerun starts from the beginning.'
+        ),
     )
     _add_store_args(parser, required=False)
     _add_llm_args(parser)
@@ -941,11 +950,28 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
             print(f'rerun failed: {exc}', file=sys.stderr)
             return 2
 
+    checkpoint_policy = 'from_start'
+    checkpoint_event_id = None
+    if args.start_event is not None:
+        if trajectory is None:
+            print('rerun --start-event requires --trajectory.', file=sys.stderr)
+            return 2
+        if args.start_event < 1 or args.start_event > len(trajectory.events):
+            print(
+                f'rerun failed: --start-event must be between 1 and '
+                f'{len(trajectory.events)} for this trajectory.',
+                file=sys.stderr,
+            )
+            return 2
+        checkpoint_policy = 'from_event'
+        checkpoint_event_id = trajectory.events[args.start_event - 1].event_id
+
     if args.plan_only:
         plan = RerunWorkflow.suggest_only().plan(
             report,
             trajectory,
-            checkpoint_policy='from_start',
+            checkpoint_policy=checkpoint_policy,
+            checkpoint_event_id=checkpoint_event_id,
         )
         if args.actor_task_format:
             if trajectory is None:
@@ -1059,7 +1085,8 @@ def _cmd_rerun(args: argparse.Namespace) -> int:
             report,
             trajectory,
             execute=True,
-            checkpoint_policy='from_start',
+            checkpoint_policy=checkpoint_policy,
+            checkpoint_event_id=checkpoint_event_id,
         )
     except Exception as exc:
         print(f'rerun failed: {exc}', file=sys.stderr)
