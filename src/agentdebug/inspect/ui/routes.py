@@ -268,15 +268,46 @@ def build_app(store: TraceStore) -> Any:
 
     @app.get('/api/v1/diagnose/options')
     def get_diagnose_options() -> Dict[str, Any]:
+        from agentdebug.cli import legacy as cli_legacy
+        from agentdebug.diagnose.detect.rules import available_rule_packs
+
+        llm_args = argparse.Namespace(
+            base_url=None,
+            api_key=None,
+            model=None,
+            embedding_model=None,
+        )
+        base_url = cli_legacy._resolve_llm_option(
+            llm_args,
+            attr='base_url',
+            env_name='AGENTDEBUG_LLM_BASE_URL',
+            config_key='base_url',
+        )
+        api_key = cli_legacy._resolve_llm_option(
+            llm_args,
+            attr='api_key',
+            env_name='AGENTDEBUG_LLM_API_KEY',
+            config_key='api_key',
+        )
+        model = cli_legacy._resolve_llm_option(
+            llm_args,
+            attr='model',
+            env_name='AGENTDEBUG_LLM_MODEL',
+            config_key='model',
+            default='gemini-3-flash',
+        )
         return {
-            'modes': ['heuristic', 'judge', 'deep', 'gui-rca'],
-            'attributors': ['none', 'heuristic', 'all_at_once', 'step_by_step', 'binary_search', 'counterfactual'],
-            'recoveries': ['none', 'deepdebug', 'reflexion', 'critic', 'self_refine', 'auto_manual', 'saga_rollback'],
-            'rule_packs': ['auto', 'core', 'agenterrorbench', 'gui', 'all'],
-            'llm_configured': bool(
-                os.environ.get('AGENTDEBUG_LLM_BASE_URL')
-                and os.environ.get('AGENTDEBUG_LLM_API_KEY')
-            ),
+            'modes': list(dict.fromkeys(cli_legacy._DIAGNOSE_MODE_ALIASES.values())),
+            'attributors': list(dict.fromkeys(cli_legacy._ATTRIBUTOR_ALIASES.values())),
+            'recoveries': list(dict.fromkeys(cli_legacy._RECOVERY_ALIASES.values())),
+            'rule_packs': ['auto', *available_rule_packs(), 'all'],
+            'llm_configured': bool(base_url and api_key),
+            'llm_model': str(model or ''),
+            'llm_required_for': {
+                'modes': ['judge', 'deep', 'gui-rca'],
+                'attributors': sorted(cli_legacy._LLM_ATTRIBUTORS),
+                'recoveries': sorted(cli_legacy._LLM_RECOVERIES),
+            },
         }
 
     @app.post('/api/v1/traces/{trace_id}/diagnose')
@@ -308,6 +339,16 @@ def build_app(store: TraceStore) -> Any:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if diagnose_mode == 'deep' and attributor_mode != 'none':
+            raise HTTPException(
+                status_code=400,
+                detail='DeepDebug owns attribution; select attributor=none.',
+            )
+        if diagnose_mode == 'deep' and recovery_mode not in {'none', 'deepdebug'}:
+            raise HTTPException(
+                status_code=400,
+                detail='DeepDebug recovery must be none or deepdebug.',
+            )
 
         raw_rule_pack = body.get('rule_pack', 'auto')
         rule_pack = raw_rule_pack if isinstance(raw_rule_pack, list) else [raw_rule_pack]
@@ -513,22 +554,18 @@ def build_app(store: TraceStore) -> Any:
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         report.suggestions = [prompt_text]
-        live_checkpoint_policy = str(
+        default_checkpoint_policy = str(
             os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'
         ).strip()
-        if live_checkpoint_policy not in {'from_start', 'from_event'}:
-            raise HTTPException(
-                status_code=503,
-                detail='AGENTDEBUG_UI_RERUN_POLICY must be from_start or from_event',
-            )
         requested_checkpoint_policy = str(
-            payload.get('checkpoint_policy') or 'from_start'
+            payload.get('checkpoint_policy') or default_checkpoint_policy
         ).strip()
         if requested_checkpoint_policy not in {'from_start', 'from_event'}:
             raise HTTPException(
                 status_code=400,
                 detail='checkpoint_policy must be from_start or from_event',
             )
+        live_checkpoint_policy = requested_checkpoint_policy
         try:
             checkpoint = _build_debug_continuation_context(
                 trajectory,

@@ -114,6 +114,51 @@ def test_heuristic_diagnose_pipeline_stores_report(ui_client: TestClient) -> Non
     assert selected.json()['report_source'] == 'stored'
 
 
+def test_diagnose_options_follow_cli_registry(ui_client: TestClient) -> None:
+    response = ui_client.get('/api/v1/diagnose/options')
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['modes'] == ['heuristic', 'judge', 'deep', 'gui-rca']
+    assert payload['attributors'] == [
+        'none',
+        'heuristic',
+        'all_at_once',
+        'step_by_step',
+        'binary_search',
+        'counterfactual',
+    ]
+    assert payload['recoveries'] == [
+        'none',
+        'deepdebug',
+        'reflexion',
+        'critic',
+        'self_refine',
+        'auto_manual',
+        'saga_rollback',
+    ]
+    assert payload['rule_packs'] == ['auto', 'core', 'agenterrorbench', 'gui', 'all']
+    assert isinstance(payload['llm_configured'], bool)
+    assert isinstance(payload['llm_model'], str)
+
+
+def test_deepdebug_diagnose_rejects_external_pipeline_stages(
+    ui_client: TestClient,
+) -> None:
+    attribution = ui_client.post(
+        '/api/v1/traces/trace_failed/diagnose',
+        json={'mode': 'deep', 'attributor': 'heuristic', 'recovery': 'none'},
+    )
+    assert attribution.status_code == 400
+    assert 'owns attribution' in attribution.json()['detail']
+
+    recovery = ui_client.post(
+        '/api/v1/traces/trace_failed/diagnose',
+        json={'mode': 'deep', 'attributor': 'none', 'recovery': 'self_refine'},
+    )
+    assert recovery.status_code == 400
+    assert 'must be none or deepdebug' in recovery.json()['detail']
+
+
 def test_mcp_rerun_does_not_require_classic_runner(
     ui_client: TestClient,
     monkeypatch,
@@ -253,6 +298,55 @@ def test_rerun_composer_exposes_three_core_modes(ui_client: TestClient) -> None:
     assert 'data-live-transport="server"' in html
     assert 'data-live-transport="mcp"' in html
     assert 'data-rerun-mode="classic"' not in html
+    assert 'id="rerun-checkpoint-policy"' not in html
+    assert 'Checkpoint: event #' in html
+    assert "checkpoint_policy: 'from_event'" in html
+
+
+def test_diagnose_modal_uses_backend_options_and_deepdebug_constraints(
+    ui_client: TestClient,
+) -> None:
+    html = ui_client.get('/trace/trace_failed').text
+    assert "await api('/api/v1/diagnose/options')" in html
+    assert 'id="diagnose-embedding-model"' in html
+    assert "embedding_model: document.getElementById('diagnose-embedding-model')" in html
+    assert "attributor.value = 'none'" in html
+    assert "recovery.value = 'deepdebug'" in html
+    assert "['none', 'deepdebug'].includes(option.value)" in html
+
+
+def test_diagnose_result_is_applied_to_the_outer_workspace(
+    ui_client: TestClient,
+) -> None:
+    html = ui_client.get('/trace/trace_failed').text
+    assert 'async function applyDiagnoseResult(traceId, reportId)' in html
+    assert "'?report_id=' + encodeURIComponent(reportId)" in html
+    assert "data?.report_source !== 'stored'" in html
+    assert 'updateTraceCatalogFromAnalysis(data);' in html
+    assert 'renderTraceList(traceIds, traceId);' in html
+    assert 'renderTrace(data.trajectory, data.report);' in html
+    apply_index = html.index('await applyDiagnoseResult(traceId, payload.report?.report_id);')
+    close_index = html.index("closeWorkflowModal('diagnose-pipeline-modal');", apply_index)
+    assert apply_index < close_index
+    assert 'Diagnose report applied to workspace' in html
+
+
+def test_global_llm_settings_prefill_all_llm_workflows(
+    ui_client: TestClient,
+) -> None:
+    html = ui_client.get('/trace/trace_failed').text
+    assert 'id="llm-settings-btn"' in html
+    assert "modal.id = 'llm-settings-modal'" in html
+    assert "const LLM_SETTINGS_STORAGE_KEY = 'agentdebugx-llm-settings-v1'" in html
+    assert "const LLM_API_KEY_SESSION_KEY = 'agentdebugx-llm-api-key-v1'" in html
+    assert 'sessionStorage.setItem(LLM_API_KEY_SESSION_KEY' in html
+    assert "api_key: String(persisted?.api_key" not in html
+    assert "base_url: ['upload-base-url', 'diagnose-base-url', 'rerun-sim-base-url', 'rerun-mcp-base-url']" in html
+    assert "api_key: ['upload-api-key', 'diagnose-api-key', 'rerun-sim-api-key', 'rerun-mcp-api-key']" in html
+    assert "model: ['upload-model', 'diagnose-model', 'rerun-sim-model', 'rerun-mcp-model']" in html
+    assert 'data-password-toggle="' in html
+    assert "input.type = visible ? 'text' : 'password'" in html
+    assert "loadLLMSettings().model || loadDebugBackendConfig().debug_model" in html
 
 
 def test_local_shell_places_case_action_on_each_run_and_uses_logo(
@@ -274,6 +368,19 @@ def test_local_shell_places_case_action_on_each_run_and_uses_logo(
     assert avatar.status_code == 200
     assert avatar.headers['content-type'].startswith('image/svg+xml')
     assert b'<svg' in avatar.content
+
+
+def test_summary_cards_size_to_their_content(ui_client: TestClient) -> None:
+    html = ui_client.get('/trace/trace_failed').text
+    adaptive_rule = (
+        'body.trace-editor-mode .summary-primary,\n'
+        '  body.trace-editor-mode .summary-observation,\n'
+        '  body.trace-editor-mode .summary-plan {'
+    )
+    assert adaptive_rule in html
+    assert 'min-height:0 !important;' in html[html.index(adaptive_rule):]
+    assert 'height:auto !important;' in html[html.index(adaptive_rule):]
+    assert 'align-self:start !important;' in html[html.index(adaptive_rule):]
 
 
 def test_rerun_attempts_have_mode_specific_visual_contract(
@@ -638,6 +745,7 @@ def test_ui_rerun_uses_persistent_http_runner(
         '/api/v1/traces/trace_failed/rerun-from-event',
         json={
             'event_id': 'evt_plan',
+            'checkpoint_policy': 'from_event',
             'model': 'server-runner',
             'prompt_text': 'Preserve refund policy.',
         },
@@ -645,5 +753,6 @@ def test_ui_rerun_uses_persistent_http_runner(
 
     assert response.status_code == 200
     assert calls
-    assert calls[0].checkpoint.policy == 'from_start'
+    assert calls[0].checkpoint.policy == 'from_event'
+    assert calls[0].checkpoint.event_id == 'evt_plan'
     assert response.json()['branch']['execution_mode'] == 'live_execution'
