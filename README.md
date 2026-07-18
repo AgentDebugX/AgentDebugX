@@ -286,6 +286,19 @@ agentdebug rerun report.json \
   --out rerun.live.json
 ```
 
+To branch from a specific trajectory event, pass its 1-based event number:
+
+```bash
+agentdebug rerun report.json \
+  --trajectory trace.json \
+  --start-event 4 \
+  --out rerun.from-event.json
+```
+
+`--start-event N` resolves the Nth event to its stable event ID and sends a
+`from_event` checkpoint to plan, simulation, and live runner modes. The selected
+runner must support restoring or continuing from event checkpoints.
+
 The service owns the framework, real model, tools, credentials, environment,
 job lifecycle, and trajectory recorder. A chat-completions URL alone is not an
 Agent environment. Submissions are idempotent, transient failures use bounded
@@ -473,12 +486,13 @@ the UI is deployed behind appropriate authentication and transport security.
 ![AgentDebugX local inspection UI](docs/assets/UI.png)
 
 The UI can inspect traces, save typical error cases, prepare debug
-continuations, and invoke a server-controlled live runner. Set
+continuations, and invoke a server-controlled live runner. Rerun Composer is
+opened from a selected event and uses that event as its checkpoint. Set
 `AGENTDEBUG_RUNNER_URL` for the preferred persistent HTTP transport or
-`AGENTDEBUG_RERUN_COMMAND` for process compatibility. UI reruns default to a
-full `from_start` rollout; `from_event` requires runner capability plus the
-explicit server policy `AGENTDEBUG_UI_RERUN_POLICY=from_event`. The browser does
-not accept or persist runner commands, bearer tokens, or model API keys.
+`AGENTDEBUG_RERUN_COMMAND` for process compatibility. The selected runner must
+advertise or implement `from_event` checkpoint support. The browser does not
+accept or persist runner commands or bearer tokens; LLM API keys configured in
+the local UI are retained only for the current browser tab.
 
 ## Privacy and Safety
 

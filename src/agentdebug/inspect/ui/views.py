@@ -2870,6 +2870,24 @@ _INDEX_HTML = r"""<!doctype html>
   .workflow-copy { margin:0; color:#AAB8C2; font-size:13px; line-height:1.55; }
   .workflow-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
   .workflow-grid .wide { grid-column:1 / -1; }
+  .password-field { position:relative; width:100%; margin-top:9px; }
+  .password-field.wide { grid-column:1 / -1; }
+  .password-field .composer-input { margin-top:0; padding-right:48px; }
+  .password-toggle {
+    position:absolute; top:50%; right:6px; width:36px; height:34px; padding:0;
+    display:grid; place-items:center; transform:translateY(-50%); border:0; border-radius:7px;
+    background:transparent; color:#91A2AD; cursor:pointer;
+  }
+  .password-toggle:hover { color:#E4FDFF; background:rgba(114,232,244,.09); }
+  .password-toggle:focus-visible { outline:2px solid var(--cyan); outline-offset:1px; }
+  .password-toggle svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .settings-modal-shell { width:min(620px, 100%); }
+  .settings-fields { display:flex; flex-direction:column; gap:12px; }
+  .settings-field { display:block; }
+  .settings-field .composer-input { margin-top:7px; }
+  .settings-field .password-field { margin-top:7px; }
+  .top-actions .llm-settings-button { display:inline-flex; align-items:center; gap:7px; }
+  .llm-settings-button svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
   .mode-switch {
     display:inline-grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:4px; padding:4px;
     border:1px solid rgba(151,170,181,.14); border-radius:10px; background:rgba(5,10,15,.5);
@@ -4439,13 +4457,15 @@ _INDEX_HTML = r"""<!doctype html>
     min-height:58px !important;
     height:58px !important;
     padding:0 22px !important;
-    display:flex !important;
+    display:grid !important;
+    grid-template-columns:minmax(132px, 156px) minmax(0, 1fr) !important;
     align-items:center !important;
     justify-content:space-between !important;
     gap:18px !important;
   }
   body.trace-editor-mode .editor-stage-title {
     min-width:0 !important;
+    width:auto !important;
   }
   body.trace-editor-mode .editor-stage-title .panel-title {
     font-size:15px !important;
@@ -4458,9 +4478,17 @@ _INDEX_HTML = r"""<!doctype html>
     text-overflow:ellipsis !important;
   }
   body.trace-editor-mode .editor-stage-head .lane-meta {
+    min-width:0 !important;
     flex-wrap:nowrap !important;
     gap:8px !important;
     margin-left:auto !important;
+    justify-content:flex-end !important;
+    width:100% !important;
+  }
+  body.trace-editor-mode .editor-stage-head .report-select {
+    min-width:140px !important;
+    width:min(260px, 28vw) !important;
+    max-width:260px !important;
   }
   body.trace-editor-mode .editor-stage-body {
     min-height:0 !important;
@@ -4537,12 +4565,12 @@ _INDEX_HTML = r"""<!doctype html>
   body.trace-editor-mode .detail-field {
     border-radius:12px !important;
   }
-  body.trace-editor-mode .summary-primary {
-    min-height:188px !important;
-  }
+  body.trace-editor-mode .summary-primary,
   body.trace-editor-mode .summary-observation,
   body.trace-editor-mode .summary-plan {
-    min-height:96px !important;
+    min-height:0 !important;
+    height:auto !important;
+    align-self:start !important;
   }
   body.trace-editor-mode .timeline-dock {
     position:fixed !important;
@@ -4563,14 +4591,29 @@ _INDEX_HTML = r"""<!doctype html>
     body.trace-editor-mode .editor-stage-head .lane-meta .chip:nth-child(3) {
       display:none !important;
     }
+    body.trace-editor-mode .editor-stage-head .report-select + .chip {
+      display:none !important;
+    }
   }
   @media (max-width: 1500px) {
+    .top-actions #theme-btn { display:none !important; }
     body.trace-editor-mode .editor-workbench {
       display:grid !important;
       grid-template-columns:minmax(440px, 1fr) 340px !important;
     }
     body.trace-editor-mode .editor-stage-title .panel-hint {
       display:none !important;
+    }
+    body.trace-editor-mode .editor-stage-head {
+      grid-template-columns:118px minmax(0, 1fr) !important;
+      gap:12px !important;
+    }
+    body.trace-editor-mode .editor-stage-head > .lane-meta > .chip {
+      display:none !important;
+    }
+    body.trace-editor-mode .editor-stage-head .report-select {
+      min-width:120px !important;
+      width:min(220px, 24vw) !important;
     }
     body.trace-editor-mode .event-head-right {
       display:flex !important;
@@ -4604,7 +4647,7 @@ _INDEX_HTML = r"""<!doctype html>
   }
   @media (max-width: 640px) {
     .topbar { display:grid; grid-template-columns:1fr; align-items:start; padding:14px 16px; }
-    .top-actions { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .top-actions { width:100%; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); }
     .button { width:100%; min-width:0; padding:0 8px; overflow:hidden; text-overflow:ellipsis; }
     .content { padding:22px 16px; }
     h1 { font-size:27px; line-height:1.1; }
@@ -4666,6 +4709,7 @@ _INDEX_HTML = r"""<!doctype html>
       </div>
       <div class="top-actions">
         <button class="button" id="theme-btn" type="button">Theme</button>
+        <button class="button llm-settings-button" id="llm-settings-btn" type="button" aria-label="Open LLM settings" title="Configure the shared LLM connection"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"></path><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"></path></svg><span>LLM Settings</span></button>
         <button class="button" id="upload-btn" type="button">Upload Trace</button>
         <button class="button" id="analyze-btn" type="button">Refresh View</button>
       </div>
@@ -4709,6 +4753,8 @@ let TIMELINE_AXIS_MODE = 'Step Count';
 const HIDDEN_TRACKS = new Set();
 const DEBUG_BRANCH_STORAGE_KEY = 'agentdebugx-debug-branches-v1';
 const DEBUG_BACKEND_STORAGE_KEY = 'agentdebugx-debug-backend-v1';
+const LLM_SETTINGS_STORAGE_KEY = 'agentdebugx-llm-settings-v1';
+const LLM_API_KEY_SESSION_KEY = 'agentdebugx-llm-api-key-v1';
 const DEBUG_BRANCH_SYNCED = new Set();
 let DEBUG_BRANCHES = loadDebugBranches();
 let CURRENT_BRANCH_EVENT_MAP = new Map();
@@ -7613,7 +7659,7 @@ async function runContinuationRerun() {
       selected_event: pkg.selected_event || selectedEventPayloadForRerun(pkg.event_id),
       note: pkg.note || '',
       rerun_mode: rerunMode,
-      checkpoint_policy: document.getElementById('rerun-checkpoint-policy')?.value || 'from_start',
+      checkpoint_policy: 'from_event',
       model: rerunMode === 'simulate'
         ? (document.getElementById('rerun-sim-model')?.value || '')
         : (rerunMode === 'live' && liveTransport === 'mcp' ? (document.getElementById('rerun-mcp-model')?.value || '') : ''),
@@ -7742,12 +7788,11 @@ function showDebugContinuation(payload) {
     '<div class="continuation-shell" role="dialog" aria-modal="true" aria-label="Rerun from event workspace">' +
       '<div class="continuation-head"><div><div class="continuation-kicker">Rerun Composer</div>' +
       '<div class="continuation-title">Rerun from event #' + escapeHtml(payload.checkpoint_ordinal || '-') + '</div>' +
-      '<div class="continuation-sub">' + escapeHtml(payload.trace_id || '-') + ' · step ' + escapeHtml(payload.checkpoint_step_index ?? '-') + '</div><div class="composer-pill-row"><span class="composer-pill locked">Default: full task</span><span class="composer-pill locked">Default: compact checkpoint context</span></div></div>' +
+      '<div class="continuation-sub">' + escapeHtml(payload.trace_id || '-') + ' · step ' + escapeHtml(payload.checkpoint_step_index ?? '-') + '</div><div class="composer-pill-row"><span class="composer-pill locked">Checkpoint: event #' + escapeHtml(payload.checkpoint_ordinal || '-') + '</span><span class="composer-pill locked">Context: compact</span></div></div>' +
       '<button class="continuation-close" type="button" data-close-continuation aria-label="Close">×</button></div>' +
       '<div class="continuation-body">' +
         '<div class="continuation-builder">' +
           '<div class="mode-switch" role="tablist" aria-label="Rerun mode"><button class="active" type="button" data-rerun-mode="plan_only">Plan only</button><button type="button" data-rerun-mode="simulate">Simulation</button><button type="button" data-rerun-mode="live">Live execution</button></div>' +
-          '<div class="workflow-grid"><label class="composer-section"><span class="continuation-label">Checkpoint</span><select class="composer-input" id="rerun-checkpoint-policy"><option value="from_start">Full task</option><option value="from_event">Selected event</option></select></label><div class="composer-section"><div class="continuation-label">Selected event</div><div class="continuation-value">#' + escapeHtml(payload.checkpoint_ordinal || '-') + ' · step ' + escapeHtml(payload.checkpoint_step_index ?? '-') + '</div></div></div>' +
           '<div class="composer-section"><div class="continuation-label">Recovery directive</div><textarea class="composer-textarea prompt" id="continuation-instruction">' + escapeHtml(instruction) + '</textarea></div>' +
           '<div class="composer-compact-options">' +
             '<div class="composer-section"><label class="composer-check"><input type="checkbox" id="continuation-include-report"> Error report</label></div>' +
@@ -7763,7 +7808,7 @@ function showDebugContinuation(payload) {
           '</div>' +
           '<div class="rerun-mode-panel" id="rerun-simulate-panel" hidden>' +
             '<div class="composer-section locked"><div class="continuation-label">Hypothetical rollout</div><p class="workflow-copy">Generate a labeled simulated trajectory. No tools execute and the result is never treated as verified recovery.</p></div>' +
-            '<input class="composer-input" id="rerun-sim-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)"><input class="composer-input" id="rerun-sim-api-key" type="password" placeholder="API key (never stored)"><input class="composer-input" id="rerun-sim-model" placeholder="Model (otherwise AGENTDEBUG_LLM_MODEL)">' +
+            '<input class="composer-input" id="rerun-sim-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)">' + passwordField('rerun-sim-api-key', 'API key from LLM Settings', '') + '<input class="composer-input" id="rerun-sim-model" placeholder="Model (otherwise AGENTDEBUG_LLM_MODEL)">' +
           '</div>' +
           '<div class="rerun-mode-panel" id="rerun-live-panel" hidden>' +
             '<div class="mode-switch" role="tablist" aria-label="Live transport"><button class="active" type="button" data-live-transport="server">Server runner</button><button type="button" data-live-transport="mcp">MCP</button></div>' +
@@ -7772,7 +7817,7 @@ function showDebugContinuation(payload) {
               '<div class="composer-section"><div class="continuation-label">MCP Endpoint</div><input class="composer-input" id="rerun-mcp-endpoint" placeholder="https://mcp.example.com/mcp"></div>' +
               '<div class="workflow-grid"><input class="composer-input" id="rerun-mcp-token" type="password" placeholder="Bearer token (never stored)"><input class="composer-input" id="rerun-mcp-max-calls" type="number" min="1" max="40" value="12" placeholder="Max tool calls"></div>' +
               '<label class="composer-check"><input type="checkbox" id="rerun-mcp-private"> Allow local/private endpoint</label>' +
-              '<div class="composer-section"><div class="continuation-label">LLM for MCP orchestration</div><input class="composer-input" id="rerun-mcp-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)"><input class="composer-input" id="rerun-mcp-api-key" type="password" placeholder="API key (never stored)"><input class="composer-input" id="rerun-mcp-model" placeholder="Model (otherwise AGENTDEBUG_LLM_MODEL)"></div>' +
+              '<div class="composer-section"><div class="continuation-label">LLM for MCP orchestration</div><input class="composer-input" id="rerun-mcp-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)">' + passwordField('rerun-mcp-api-key', 'API key from LLM Settings', '') + '<input class="composer-input" id="rerun-mcp-model" placeholder="Model (otherwise AGENTDEBUG_LLM_MODEL)"></div>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -7793,6 +7838,8 @@ function showDebugContinuation(payload) {
   modal.__caseLibrary = [];
   modal.__fixExamples = [];
   modal.classList.add('visible');
+  hydrateLLMInputs(false);
+  bindPasswordToggles(modal);
   bindDebugContinuationModal();
   hydrateContinuationCasePickers();
   updateContinuationPrompt();
@@ -7896,7 +7943,7 @@ function liveRerunStatusMessage() {
   return rerunStatusMessage();
 }
 function defaultDebugModel() {
-  return loadDebugBackendConfig().debug_model || 'gpt-4o';
+  return loadLLMSettings().model || loadDebugBackendConfig().debug_model || 'gpt-4o';
 }
 function rerunStatusMessage() {
   const rerun = UI_STATUS?.rerun || {};
@@ -8024,7 +8071,7 @@ function currentContinuationPackage() {
     ...payload,
     rerun_mode: modal?.__rerunMode || 'plan_only',
     live_transport: modal?.__liveTransport || 'server',
-    checkpoint_policy: document.getElementById('rerun-checkpoint-policy')?.value || 'from_start',
+    checkpoint_policy: 'from_event',
     prompt_config: {
       debug_model: config.debugModel,
       include_agentdebug_report: config.includeReport,
@@ -8086,6 +8133,128 @@ function notify(message) {
 function closeWorkflowModal(id) {
   document.getElementById(id)?.classList.remove('visible');
 }
+function loadLLMSettings() {
+  let persisted = {};
+  try {
+    const raw = localStorage.getItem(LLM_SETTINGS_STORAGE_KEY);
+    persisted = raw ? JSON.parse(raw) : {};
+  } catch (_e) {
+    persisted = {};
+  }
+  let apiKey = '';
+  try {
+    apiKey = sessionStorage.getItem(LLM_API_KEY_SESSION_KEY) || '';
+  } catch (_e) {
+    apiKey = '';
+  }
+  return {
+    base_url: String(persisted?.base_url || ''),
+    api_key: apiKey,
+    model: String(persisted?.model || '')
+  };
+}
+function persistLLMSettings(settings) {
+  try {
+    localStorage.setItem(LLM_SETTINGS_STORAGE_KEY, JSON.stringify({
+      base_url: String(settings.base_url || '').trim(),
+      model: String(settings.model || '').trim()
+    }));
+    if (settings.api_key) sessionStorage.setItem(LLM_API_KEY_SESSION_KEY, settings.api_key);
+    else sessionStorage.removeItem(LLM_API_KEY_SESSION_KEY);
+    return true;
+  } catch (_e) {
+    notify('Browser storage is unavailable; LLM settings were not saved');
+    return false;
+  }
+}
+function passwordField(id, placeholder, extraClass) {
+  return '<div class="password-field ' + escapeHtml(extraClass || '') + '">' +
+    '<input class="composer-input" id="' + escapeHtml(id) + '" type="password" autocomplete="off" placeholder="' + escapeHtml(placeholder) + '">' +
+    '<button class="password-toggle" type="button" data-password-toggle="' + escapeHtml(id) + '" aria-label="Show API key" title="Show API key">' + passwordToggleIcon(false) + '</button>' +
+  '</div>';
+}
+function passwordToggleIcon(visible) {
+  if (visible) {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 4.2A10.8 10.8 0 0 1 12 4c5 0 9 4.2 10 8a12.4 12.4 0 0 1-2.1 4.2"></path><path d="M6.6 6.6A12 12 0 0 0 2 12c1 3.8 5 8 10 8 1.5 0 2.9-.4 4.1-1"></path></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+}
+function bindPasswordToggles(scope) {
+  (scope || document).querySelectorAll('[data-password-toggle]').forEach(button => {
+    button.onclick = () => {
+      const input = document.getElementById(button.dataset.passwordToggle || '');
+      if (!input) return;
+      const visible = input.type === 'password';
+      input.type = visible ? 'text' : 'password';
+      button.innerHTML = passwordToggleIcon(visible);
+      button.setAttribute('aria-label', visible ? 'Hide API key' : 'Show API key');
+      button.title = visible ? 'Hide API key' : 'Show API key';
+    };
+  });
+}
+function hydrateLLMInputs(overwrite) {
+  const settings = loadLLMSettings();
+  const groups = {
+    base_url: ['upload-base-url', 'diagnose-base-url', 'rerun-sim-base-url', 'rerun-mcp-base-url'],
+    api_key: ['upload-api-key', 'diagnose-api-key', 'rerun-sim-api-key', 'rerun-mcp-api-key'],
+    model: ['upload-model', 'diagnose-model', 'rerun-sim-model', 'rerun-mcp-model']
+  };
+  Object.entries(groups).forEach(([key, ids]) => {
+    ids.forEach(id => {
+      const input = document.getElementById(id);
+      if (input && (overwrite || !input.value)) input.value = settings[key] || '';
+    });
+  });
+}
+function showLLMSettingsModal() {
+  const settings = loadLLMSettings();
+  let modal = document.getElementById('llm-settings-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'llm-settings-modal';
+    modal.className = 'continuation-modal';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML =
+    '<form class="continuation-shell workflow-modal-shell settings-modal-shell" id="llm-settings-form" role="dialog" aria-modal="true" aria-label="LLM Settings">' +
+      '<div class="continuation-head"><div><div class="continuation-kicker">Shared Connection</div><div class="continuation-title">LLM Settings</div><div class="continuation-sub">Used automatically by Diagnose, trace conversion, Simulation, and MCP reruns.</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
+      '<div class="workflow-modal-body settings-fields">' +
+        '<label class="settings-field"><span class="continuation-label">Base URL</span><input class="composer-input" id="llm-settings-base-url" inputmode="url" placeholder="https://api.example.com/v1"></label>' +
+        '<label class="settings-field"><span class="continuation-label">API Key</span>' + passwordField('llm-settings-api-key', 'API key', '') + '</label>' +
+        '<label class="settings-field"><span class="continuation-label">Model</span><input class="composer-input" id="llm-settings-model" placeholder="Model name"></label>' +
+        '<p class="workflow-copy">URL and model are saved in this browser. The API key is kept only for this browser tab and is cleared when the tab closes.</p>' +
+      '</div>' +
+      '<div class="continuation-actions"><button class="button" type="button" data-clear-llm-settings>Clear</button><div class="continuation-action-group"><button class="button primary" type="submit">Save Settings</button><button class="button" type="button" data-close-workflow>Close</button></div></div>' +
+    '</form>';
+  document.getElementById('llm-settings-base-url').value = settings.base_url;
+  document.getElementById('llm-settings-api-key').value = settings.api_key;
+  document.getElementById('llm-settings-model').value = settings.model;
+  bindPasswordToggles(modal);
+  modal.querySelectorAll('[data-close-workflow]').forEach(btn => btn.onclick = () => closeWorkflowModal('llm-settings-modal'));
+  modal.querySelector('[data-clear-llm-settings]').onclick = () => {
+    persistLLMSettings({base_url: '', api_key: '', model: ''});
+    document.getElementById('llm-settings-base-url').value = '';
+    document.getElementById('llm-settings-api-key').value = '';
+    document.getElementById('llm-settings-model').value = '';
+    hydrateLLMInputs(true);
+    notify('LLM settings cleared');
+  };
+  modal.querySelector('#llm-settings-form').onsubmit = event => {
+    event.preventDefault();
+    const saved = persistLLMSettings({
+      base_url: document.getElementById('llm-settings-base-url').value,
+      api_key: document.getElementById('llm-settings-api-key').value,
+      model: document.getElementById('llm-settings-model').value
+    });
+    if (!saved) return;
+    hydrateLLMInputs(true);
+    closeWorkflowModal('llm-settings-modal');
+    notify('LLM settings saved');
+  };
+  modal.onclick = event => { if (event.target === modal) closeWorkflowModal('llm-settings-modal'); };
+  modal.classList.add('visible');
+  window.requestAnimationFrame(() => document.getElementById('llm-settings-base-url')?.focus());
+}
 function showUploadModal() {
   let modal = document.getElementById('upload-trace-modal');
   if (!modal) {
@@ -8102,7 +8271,7 @@ function showUploadModal() {
         '<label class="composer-check"><input type="checkbox" id="upload-allow-llm" checked> Use LLM fallback when deterministic adapters cannot recognize the format</label>' +
         '<details><summary class="workflow-copy">Optional LLM override</summary><div class="workflow-grid">' +
           '<input class="composer-input wide" id="upload-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)">' +
-          '<input class="composer-input" id="upload-api-key" type="password" placeholder="API key (never stored)">' +
+          passwordField('upload-api-key', 'API key from LLM Settings', '') +
           '<input class="composer-input" id="upload-model" placeholder="Model">' +
         '</div></details>' +
         '<div class="continuation-inline-status" id="upload-status">Choose a file to begin.</div>' +
@@ -8110,6 +8279,8 @@ function showUploadModal() {
       '<div class="continuation-actions"><span class="workflow-copy"><a href="/api/v1/schema" target="_blank" rel="noopener">Schema reference</a></span><button class="button" type="button" data-close-workflow>Close</button></div>' +
     '</div>';
   modal.classList.add('visible');
+  hydrateLLMInputs(false);
+  bindPasswordToggles(modal);
   modal.querySelectorAll('[data-close-workflow]').forEach(btn => btn.onclick = () => closeWorkflowModal('upload-trace-modal'));
   modal.onclick = event => { if (event.target === modal) closeWorkflowModal('upload-trace-modal'); };
   const input = document.getElementById('upload-file');
@@ -8170,8 +8341,22 @@ function bindDiagnosePipelineButton() {
     button.onclick = () => showDiagnosePipelineModal();
   });
 }
-function showDiagnosePipelineModal() {
+async function showDiagnosePipelineModal() {
   if (!CURRENT_TRACE_ID) return;
+  const fallbackOptions = {
+    modes: ['heuristic', 'judge', 'deep', 'gui-rca'],
+    attributors: ['none', 'heuristic', 'all_at_once', 'step_by_step', 'binary_search', 'counterfactual'],
+    recoveries: ['none', 'deepdebug', 'reflexion', 'critic', 'self_refine', 'auto_manual', 'saga_rollback'],
+    rule_packs: ['auto', 'core', 'agenterrorbench', 'gui', 'all'],
+    llm_configured: false,
+    llm_model: ''
+  };
+  let options = fallbackOptions;
+  try {
+    options = await api('/api/v1/diagnose/options');
+  } catch (error) {
+    notify('Using built-in Diagnose options: ' + (error.message || error));
+  }
   let modal = document.getElementById('diagnose-pipeline-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -8183,31 +8368,116 @@ function showDiagnosePipelineModal() {
     '<div class="continuation-shell workflow-modal-shell" role="dialog" aria-modal="true" aria-label="Diagnose Pipeline">' +
       '<div class="continuation-head"><div><div class="continuation-kicker">Detect → Attribute → Recover</div><div class="continuation-title">Diagnose Pipeline</div><div class="continuation-sub">' + escapeHtml(CURRENT_TRACE_ID) + '</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
       '<div class="workflow-modal-body"><div class="workflow-grid">' +
-        pipelineSelect('diagnose-mode', 'Detect', [['heuristic','Heuristic'],['judge','LLM Judge'],['deep','DeepDebug'],['gui-rca','GUI RCA']]) +
-        pipelineSelect('diagnose-attributor', 'Attribute', [['heuristic','Heuristic'],['none','None'],['all_at_once','All at once'],['step_by_step','Step by step'],['binary_search','Binary search'],['counterfactual','Counterfactual']]) +
-        pipelineSelect('diagnose-recovery', 'Recover', [['none','None'],['deepdebug','DeepDebug'],['reflexion','Reflexion'],['critic','Critic'],['self_refine','Self refine'],['auto_manual','Auto manual'],['saga_rollback','Saga rollback']]) +
-        pipelineSelect('diagnose-rule-pack', 'Rule pack', [['auto','Auto'],['core','Core'],['agenterrorbench','AgentErrorBench'],['gui','GUI'],['all','All']]) +
+        pipelineSelect('diagnose-mode', 'Detect', diagnoseOptionPairs(options.modes, 'heuristic')) +
+        pipelineSelect('diagnose-attributor', 'Attribute', diagnoseOptionPairs(options.attributors, 'heuristic')) +
+        pipelineSelect('diagnose-recovery', 'Recover', diagnoseOptionPairs(options.recoveries, 'none')) +
+        pipelineSelect('diagnose-rule-pack', 'Rule pack', diagnoseOptionPairs(options.rule_packs, 'auto')) +
         '<input class="composer-input wide" id="diagnose-base-url" placeholder="LLM Base URL (optional for heuristic)">' +
-        '<input class="composer-input" id="diagnose-api-key" type="password" placeholder="API key (never stored)">' +
+        passwordField('diagnose-api-key', 'API key from LLM Settings', '') +
         '<input class="composer-input" id="diagnose-model" placeholder="Model">' +
-      '</div><p class="workflow-copy">Heuristic runs entirely locally. Judge, DeepDebug, GUI RCA, LLM attribution, and some recovery modes require an OpenAI-compatible endpoint.</p><div class="continuation-inline-status" id="diagnose-status">Ready.</div></div>' +
+        '<input class="composer-input" id="diagnose-embedding-model" placeholder="Embedding model (optional for DeepDebug)">' +
+      '</div><p class="workflow-copy">Heuristic runs entirely locally. Judge, DeepDebug, GUI RCA, LLM attribution, and Self refine require an OpenAI-compatible endpoint.</p><div class="continuation-inline-status" id="diagnose-status">' + escapeHtml(options.llm_configured ? ('Ready · configured model: ' + (options.llm_model || 'default')) : 'Ready · no configured LLM endpoint') + '</div></div>' +
       '<div class="continuation-actions"><span></span><div class="continuation-action-group"><button class="button primary" type="button" data-run-diagnose>Run Pipeline</button><button class="button" type="button" data-close-workflow>Close</button></div></div>' +
     '</div>';
   modal.classList.add('visible');
+  hydrateLLMInputs(false);
+  bindPasswordToggles(modal);
   modal.querySelectorAll('[data-close-workflow]').forEach(btn => btn.onclick = () => closeWorkflowModal('diagnose-pipeline-modal'));
   modal.onclick = event => { if (event.target === modal) closeWorkflowModal('diagnose-pipeline-modal'); };
   modal.querySelector('[data-run-diagnose]').onclick = event => runDiagnosePipeline(event.currentTarget);
+  bindDiagnoseChoiceConstraints();
+}
+function diagnoseOptionPairs(values, preferred) {
+  const labels = {
+    heuristic:'Heuristic', judge:'LLM Judge', deep:'DeepDebug', 'gui-rca':'GUI RCA',
+    none:'None', all_at_once:'All at once', step_by_step:'Step by step',
+    binary_search:'Binary search', counterfactual:'Counterfactual', deepdebug:'DeepDebug',
+    reflexion:'Reflexion', critic:'Critic', self_refine:'Self refine',
+    auto_manual:'Auto manual', saga_rollback:'Saga rollback', auto:'Auto', core:'Core',
+    agenterrorbench:'AgentErrorBench', gui:'GUI', all:'All'
+  };
+  const ordered = Array.from(values || []);
+  if (ordered.includes(preferred)) ordered.splice(ordered.indexOf(preferred), 1), ordered.unshift(preferred);
+  return ordered.map(value => [value, labels[value] || value]);
+}
+function bindDiagnoseChoiceConstraints() {
+  const mode = document.getElementById('diagnose-mode');
+  const attributor = document.getElementById('diagnose-attributor');
+  const recovery = document.getElementById('diagnose-recovery');
+  if (!mode || !attributor || !recovery) return;
+  const apply = () => {
+    const deep = mode.value === 'deep';
+    Array.from(attributor.options).forEach(option => { option.disabled = deep && option.value !== 'none'; });
+    Array.from(recovery.options).forEach(option => { option.disabled = deep && !['none', 'deepdebug'].includes(option.value); });
+    if (deep) {
+      attributor.value = 'none';
+      if (recovery.value !== 'none') recovery.value = 'deepdebug';
+    }
+  };
+  mode.onchange = () => {
+    if (mode.value === 'deep') recovery.value = 'deepdebug';
+    apply();
+  };
+  apply();
 }
 function pipelineSelect(id, label, values) {
   return '<label class="composer-section"><span class="continuation-label">' + label + '</span><select class="composer-input" id="' + id + '">' + values.map(item => '<option value="' + item[0] + '">' + item[1] + '</option>').join('') + '</select></label>';
 }
+function updateTraceCatalogFromAnalysis(data) {
+  const trajectory = data?.trajectory || {};
+  const report = data?.report || {};
+  const traceId = trajectory.trace_id || '';
+  if (!traceId) return;
+  const findings = Array.isArray(report.findings) ? report.findings : [];
+  const errorEventIds = new Set(findings.map(item => item?.event_id).filter(Boolean));
+  const existingIndex = TRACE_CATALOG.findIndex(item => item.trace_id === traceId);
+  const existing = existingIndex >= 0 ? TRACE_CATALOG[existingIndex] : {trace_id: traceId};
+  const firstFinding = findings[0] || {};
+  const next = {
+    ...existing,
+    event_count: Array.isArray(trajectory.events) ? trajectory.events.length : Number(existing.event_count || 0),
+    finding_count: findings.length,
+    error_count: errorEventIds.size,
+    status: findings.length ? 'failed' : 'passed',
+    first_error_step: findings.reduce((first, item) => {
+      const step = Number(item?.step_index);
+      return Number.isFinite(step) ? (first === null ? step : Math.min(first, step)) : first;
+    }, null),
+    root_cause_step_index: report.root_cause_step_index,
+    root_cause_found: Boolean(report.root_cause_event_id),
+    summary: report.summary || '',
+    top_family: firstFinding?.failure_mode?.family || '',
+    top_error_type: firstFinding?.failure_mode?.mode_id || ''
+  };
+  if (existingIndex >= 0) TRACE_CATALOG.splice(existingIndex, 1, next);
+  else TRACE_CATALOG.unshift(next);
+}
+async function applyDiagnoseResult(traceId, reportId) {
+  if (!reportId) throw new Error('pipeline completed without a report id');
+  const data = await api(
+    '/api/v1/traces/' + encodeURIComponent(traceId) +
+    '?report_id=' + encodeURIComponent(reportId)
+  );
+  if (data?.report?.report_id !== reportId || data?.report_source !== 'stored') {
+    throw new Error('the saved report could not be selected in the workspace');
+  }
+  CURRENT_TRACE_ID = traceId;
+  CURRENT_TRACE_DATA = data;
+  CURRENT_VIEW = 'trace';
+  updateTraceCatalogFromAnalysis(data);
+  const traceIds = (BOOTSTRAP && BOOTSTRAP.traces) || TRACE_CATALOG.map(item => item.trace_id);
+  renderTraceList(traceIds, traceId);
+  renderTrace(data.trajectory, data.report);
+  syncDebugBranches(traceId, true);
+}
 async function runDiagnosePipeline(button) {
   const status = document.getElementById('diagnose-status');
+  const traceId = CURRENT_TRACE_ID;
   button.disabled = true;
   button.textContent = 'Running...';
   if (status) status.textContent = 'Running detect, attribution, and recovery stages...';
   try {
-    const response = await fetch('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/diagnose', {
+    const response = await fetch('/api/v1/traces/' + encodeURIComponent(traceId) + '/diagnose', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         mode: document.getElementById('diagnose-mode')?.value,
@@ -8216,18 +8486,20 @@ async function runDiagnosePipeline(button) {
         rule_pack: document.getElementById('diagnose-rule-pack')?.value,
         base_url: document.getElementById('diagnose-base-url')?.value || '',
         api_key: document.getElementById('diagnose-api-key')?.value || '',
-        model: document.getElementById('diagnose-model')?.value || ''
+        model: document.getElementById('diagnose-model')?.value || '',
+        embedding_model: document.getElementById('diagnose-embedding-model')?.value || ''
       })
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || 'diagnose failed');
-    if (status) status.textContent = 'Completed in ' + payload.duration_ms + ' ms. Refreshing report...';
+    if (status) status.textContent = 'Report saved. Applying it to the workspace...';
+    await applyDiagnoseResult(traceId, payload.report?.report_id);
+    if (status) status.textContent = 'Applied in ' + payload.duration_ms + ' ms.';
     closeWorkflowModal('diagnose-pipeline-modal');
-    await selectTrace(CURRENT_TRACE_ID, document.querySelector('.run.active'), payload.report?.report_id);
-    notify('Diagnose Pipeline completed');
+    notify('Diagnose report applied to workspace');
   } catch (error) {
-    if (status) status.textContent = 'Pipeline failed: ' + (error.message || error);
-    notify('Diagnose Pipeline failed');
+    if (status) status.textContent = 'Diagnose did not update the workspace: ' + (error.message || error);
+    notify('Diagnose workspace update failed');
   } finally {
     button.disabled = false;
     button.textContent = 'Run Pipeline';
@@ -8314,6 +8586,7 @@ function bindTopActions() {
     applyTheme(next);
     notify(next === 'light' ? 'Light theme enabled' : 'Dark theme enabled');
   };
+  document.getElementById('llm-settings-btn').onclick = () => showLLMSettingsModal();
   document.getElementById('upload-btn').onclick = () => showUploadModal();
   document.getElementById('analyze-btn').onclick = async () => {
     const active = document.querySelector('.run.active');

@@ -567,6 +567,57 @@ def test_rerun_plan_exports_actor_task_jsonl(
     assert record['checkpoint_policy'] == 'from_start'
 
 
+def test_rerun_start_event_selects_one_based_trajectory_event(
+    tmp_path,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    report_path = tmp_path / 'report.json'
+    trace_path = tmp_path / 'trace.json'
+    report_path.write_text(model_to_json(diagnostic_report), encoding='utf-8')
+    trace_path.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+
+    result = main(
+        [
+            'rerun',
+            str(report_path),
+            '--trajectory',
+            str(trace_path),
+            '--start-event',
+            '2',
+            '--plan-only',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    checkpoint = payload['plan']['request']['checkpoint']
+
+    assert result == 0
+    assert checkpoint['policy'] == 'from_event'
+    assert checkpoint['event_id'] == failed_trajectory.events[1].event_id
+    assert checkpoint['step_index'] == failed_trajectory.events[1].step_index
+
+
+def test_rerun_start_event_validates_trajectory_bounds(
+    tmp_path,
+    capsys,
+    failed_trajectory: AgentTrajectory,
+    diagnostic_report: DiagnosticReport,
+) -> None:
+    report_path = tmp_path / 'report.json'
+    trace_path = tmp_path / 'trace.json'
+    report_path.write_text(model_to_json(diagnostic_report), encoding='utf-8')
+    trace_path.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+
+    result = main([
+        'rerun', str(report_path), '--trajectory', str(trace_path),
+        '--start-event', str(len(failed_trajectory.events) + 1), '--plan-only',
+    ])
+
+    assert result == 2
+    assert '--start-event must be between 1 and' in capsys.readouterr().err
+
+
 def test_rerun_modes_are_mutually_exclusive(
     tmp_path,
     capsys,
