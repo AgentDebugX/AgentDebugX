@@ -553,6 +553,30 @@ release workflows.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for test organization, optional CUA
 tests, quality checks, and pull request expectations.
 
+## Citation
+
+```bibtex
+@article{agentdebug2025,
+  title={Where LLM Agents Fail and How They Can Learn From Failures},
+  author={Zhu, Kunlun and Liu, Zijia and Li, Bingxuan and Tian, Muxin and Yang Yingxuan and Zhang, Jiaxun and others},
+  journal={arXiv preprint arXiv:2509.25370},
+  year={2025}
+}
+```
+
+```bibtex
+@misc{zhu2026agentdebugxopensourcetoolkitfailure,
+      title={AgentDebugX: An Open-Source Toolkit for Failure Observability, Attribution, and Recovery in LLM Agents}, 
+      author={Kunlun Zhu and Xuyan Ye and Zhiguang Han and Yuchen Zhao and Bingxuan Li and Weijia Zhang and Muxin Tian and Xiangru Tang and Pan Lu and James Zou and Jiaxuan You and Heng Ji},
+      year={2026},
+      eprint={2607.18754},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2607.18754}, 
+}
+```
+
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
