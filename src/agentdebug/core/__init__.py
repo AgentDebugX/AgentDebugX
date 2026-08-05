@@ -5,6 +5,7 @@
 from agentdebug.runtime.events import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
 from agentdebug.runtime.llm import (
     CompletionResult,
+    TokenUsage,
     EmbeddingClient,
     LLMClient,
     OpenAICompatClient,
@@ -37,6 +38,7 @@ __all__ = [
     'Artifact',
     'BusEvent',
     'CompletionResult',
+    'TokenUsage',
     'DEFAULT_BUS',
     'DiagnosticAuditEntry',
     'DiagnosticReport',
