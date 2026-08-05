@@ -3,6 +3,7 @@
 from agentdebug.runtime.events import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
 from agentdebug.runtime.llm import (
     CompletionResult,
+    TokenUsage,
     EmbeddingClient,
     LLMClient,
     OpenAICompatClient,
@@ -13,6 +14,7 @@ from agentdebug.runtime.storage import JsonlTraceStore, SQLiteTraceStore, TraceS
 __all__ = [
     'BusEvent',
     'CompletionResult',
+    'TokenUsage',
     'DEFAULT_BUS',
     'EmbeddingClient',
     'EventBus',

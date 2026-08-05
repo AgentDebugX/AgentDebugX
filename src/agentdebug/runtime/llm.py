@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 
 import httpx
@@ -24,9 +24,66 @@ LOG = logging.getLogger('agentdebug.llm')
 
 
 @dataclass
+class TokenUsage:
+    """Tokens billed for one call, or accumulated over many.
+
+    Every OpenAI-compatible endpoint already returns this in ``raw['usage']``; before this
+    existed the information reached ``CompletionResult.raw`` and stopped there, so a caller
+    driving thousands of attributions had no way to bill them. Downstream cost tables
+    reported 0.0 for every AgentDebugX diagnosis, which makes the cheap and the expensive
+    attributor look identical.
+    """
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    calls: int = 0
+    cost_usd: float = 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    def __add__(self, other: 'TokenUsage') -> 'TokenUsage':
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            calls=self.calls + other.calls,
+            cost_usd=round(self.cost_usd + other.cost_usd, 8),
+        )
+
+    @classmethod
+    def from_response(
+        cls,
+        raw: Dict[str, Any],
+        *,
+        price_in: float = 0.0,
+        price_out: float = 0.0,
+    ) -> 'TokenUsage':
+        """Parse ``raw['usage']``, tolerating gateways that omit or rename fields.
+
+        Prices are USD per 1M tokens. Left at 0.0 the usage is still counted, so token
+        accounting works even when a gateway bills opaquely and only the token counts are
+        trustworthy.
+        """
+        usage = raw.get('usage') or {}
+        prompt = int(usage.get('prompt_tokens') or usage.get('input_tokens') or 0)
+        completion = int(
+            usage.get('completion_tokens') or usage.get('output_tokens') or 0
+        )
+        return cls(
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            calls=1,
+            cost_usd=round(prompt * price_in / 1e6 + completion * price_out / 1e6, 8),
+        )
+
+
+@dataclass
 class CompletionResult:
     text: str
     raw: Dict[str, Any]
+    #: Defaulted so every existing construction site keeps working unchanged.
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
 
 class LLMClient(Protocol):
@@ -85,6 +142,9 @@ class OpenAICompatClient:
         default_max_tokens: int = 2048,
         timeout: float = 60.0,
         extra_body: Optional[Dict[str, Any]] = None,
+        price_in: float = 0.0,
+        price_out: float = 0.0,
+        on_usage: Optional[Any] = None,
     ) -> None:
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
@@ -95,6 +155,16 @@ class OpenAICompatClient:
         self.default_max_tokens = default_max_tokens
         self.timeout = timeout
         self.extra_body = extra_body
+        # USD per 1M tokens. Optional: token counts are accumulated regardless, so a
+        # gateway that bills opaquely still yields usable usage data.
+        self.price_in = price_in
+        self.price_out = price_out
+        #: Cumulative usage over the client's lifetime. Read it after a batch to learn what
+        #: that batch cost without threading a meter through every attributor.
+        self.usage_total = TokenUsage()
+        #: Optional callback invoked with each call's TokenUsage, so an external cost meter
+        #: or budget gate can observe spend as it happens rather than after the fact.
+        self._on_usage = on_usage
 
     @classmethod
     def from_env(
@@ -171,7 +241,21 @@ class OpenAICompatClient:
                 choice.get('finish_reason'),
                 data.get('usage'),
             )
-        return CompletionResult(text=text, raw=data)
+        return CompletionResult(text=text, raw=data, usage=self._record_usage(data))
+
+    def _record_usage(self, data: Dict[str, Any]) -> TokenUsage:
+        """Parse, accumulate and publish the usage for one response."""
+        usage = TokenUsage.from_response(
+            data, price_in=self.price_in, price_out=self.price_out
+        )
+        self.usage_total = self.usage_total + usage
+        if self._on_usage is not None:
+            try:
+                self._on_usage(usage)
+            except Exception:  # pragma: no cover
+                # A misbehaving meter must never lose a completion the caller paid for.
+                LOG.warning('on_usage callback raised; usage still accumulated')
+        return usage
 
     def chat(
         self,
@@ -231,6 +315,9 @@ class OpenAICompatClient:
                 choice.get('finish_reason'),
                 data.get('usage'),
             )
+        # chat() returns the raw choice, so the usage has to be accumulated here as well —
+        # otherwise every tool-calling attributor bills invisibly. Return value unchanged.
+        self._record_usage(data)
         return choice
 
     def embed(
