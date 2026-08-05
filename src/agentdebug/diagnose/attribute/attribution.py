@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
 # from the helper render path; defined later in the module.
 
 from agentdebug.runtime import LLMClient, extract_json_block
+from agentdebug.runtime.llm import TokenUsage
 from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
@@ -55,6 +56,12 @@ class AttributionResult:
     hypotheses: List[Blame]
     elapsed_ms: int = 0
     raw: Dict[str, Any] = field(default_factory=dict)
+    #: Tokens and cost this attribution consumed. Defaulted, so every existing construction
+    #: site and every third-party Attributor keeps working unchanged; LLM-backed attributors
+    #: fill it in. Without it, comparing a cheap attributor against an expensive one on the
+    #: same trace is impossible — which is the comparison anyone choosing between
+    #: all_at_once, binary_search and ensemble actually needs to make.
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
 
 class Attributor(Protocol):
