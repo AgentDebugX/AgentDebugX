@@ -67,6 +67,14 @@ class AttributionResult:
 class Attributor(Protocol):
     id: str
 
+    #: Whether this attributor needs detector findings to produce anything at all.
+    #:
+    #: Read it with `getattr(attributor, 'requires_findings', False)`: it is documented on the
+    #: protocol so callers can branch on it, but every existing third-party Attributor that
+    #: predates this field keeps satisfying the protocol without declaring it, and False is
+    #: the correct default for an attributor that reads the trajectory directly.
+    requires_findings: bool
+
     def attribute(
         self,
         trajectory: AgentTrajectory,
@@ -76,9 +84,29 @@ class Attributor(Protocol):
 
 
 class HeuristicAttributor:
-    """Cheap, model-free fallback that picks the earliest highest-confidence finding."""
+    """Cheap, model-free fallback that picks the earliest highest-confidence finding.
+
+    Requires detector findings. It ranks findings; it does not derive them, so calling
+    `attribute(trajectory)` with no `findings` can only ever return zero hypotheses. Run it
+    through `DiagnosePipeline` (which detects first and passes findings in), or pass findings
+    yourself. See `requires_findings`.
+    """
 
     id = 'heuristic'
+
+    #: This attributor cannot produce hypotheses from a trajectory alone.
+    #:
+    #: Exposed so callers can tell "no findings were supplied" apart from "the trajectory
+    #: contains no attributable failure" BEFORE spending anything. The motivating case: a
+    #: downstream harness used the bare attributor as a fallback for when `DiagnosePipeline`
+    #: raised, and measured `heuristic` as returning no hypotheses on 5 of 5 trajectories --
+    #: not because the trajectories were clean, but because a findings-less call is empty by
+    #: construction. Under the pipeline the same attributor produced hypotheses on 3 of those
+    #: 5. A fallback to the bare attributor is therefore not a safety net for this attributor;
+    #: it is a guaranteed empty result that looks like a verdict.
+    #:
+    #: Other attributors in this module leave it False: they read the trajectory directly.
+    requires_findings: bool = True
 
     def attribute(
         self,
@@ -87,7 +115,21 @@ class HeuristicAttributor:
     ) -> AttributionResult:
         findings = findings or []
         if not findings:
-            return AttributionResult(method=self.id, hypotheses=[])
+            # Empty, as before -- but say why, so an empty result is self-describing rather
+            # than indistinguishable from "nothing to blame here". `raw` is already a
+            # defaulted dict on AttributionResult, so nothing about the shape changes.
+            return AttributionResult(
+                method=self.id,
+                hypotheses=[],
+                raw={
+                    'reason': 'no_findings_supplied',
+                    'detail': (
+                        'HeuristicAttributor ranks detector findings and cannot derive them. '
+                        'Call it through DiagnosePipeline, or pass findings= explicitly.'
+                    ),
+                    'requires_findings': True,
+                },
+            )
         ranked = sorted(
             findings,
             key=lambda f: (
