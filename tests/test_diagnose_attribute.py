@@ -36,6 +36,30 @@ def test_heuristic_attributor_handles_no_findings(
     assert HeuristicAttributor().attribute(failed_trajectory).hypotheses == []
 
 
+def test_heuristic_attributor_says_why_it_returned_nothing(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    """An empty result must be distinguishable from "nothing to blame in this trajectory".
+
+    A downstream harness used the bare attributor as a fallback for a failing
+    DiagnosePipeline and measured heuristic returning no hypotheses on 5 of 5 trajectories.
+    Those trajectories were not clean: a findings-less call is empty by construction, and
+    under the pipeline the same attributor produced hypotheses on 3 of the 5. The emptiness
+    now carries its own explanation.
+    """
+    result = HeuristicAttributor().attribute(failed_trajectory)
+    assert result.hypotheses == []
+    assert result.raw['reason'] == 'no_findings_supplied'
+    assert 'findings' in result.raw['detail']
+
+
+def test_requires_findings_lets_a_caller_check_before_spending() -> None:
+    """Callers choose attributors dynamically; this is how they avoid a guaranteed-empty call."""
+    assert HeuristicAttributor.requires_findings is True
+    # Attributors that read the trajectory directly need not declare it; absent means False.
+    assert getattr(AllAtOnceAttributor, 'requires_findings', False) is False
+
+
 def test_all_at_once_normalizes_ordinal_to_real_event(
     failed_trajectory: AgentTrajectory,
 ) -> None:
