@@ -3,6 +3,11 @@
 Attribution traces observed failures back to the responsible step or agent.
 """
 
+from agentdebug.diagnose.attribute.async_api import (
+    attribute_async,
+    attribute_many_async,
+    supports_native_async,
+)
 from agentdebug.diagnose.attribute.attribution import (
     AllAtOnceAttributor,
     AttributionBudget,
@@ -37,4 +42,7 @@ __all__ = [
     'HeuristicAttributor',
     'SBFLAttributor',
     'StepByStepAttributor',
+    'attribute_async',
+    'attribute_many_async',
+    'supports_native_async',
 ]
