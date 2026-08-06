@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Tuple, cast
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple, cast
 
 
 # Forward decl so BinarySearchAttributor.attribute can reference _EllipsisEvent
@@ -676,7 +676,8 @@ class BinarySearchAttributor:
         *,
         fallback: Optional[Attributor] = None,
         max_tokens: int = 4096,
-        context_window: int = 6,
+        context_window: Optional[int] = 6,
+        always_include_steps: Optional[Sequence[int]] = None,
         use_ground_truth_context: bool = False,
     ) -> None:
         # max_tokens default doubled in 0.2.4: thinking models (Gemini, o-series)
@@ -685,10 +686,22 @@ class BinarySearchAttributor:
         self.llm = llm
         self.fallback: Attributor = fallback or HeuristicAttributor()
         self.max_tokens = max_tokens
-        # When formatting a prefix into the LLM prompt we only keep this many
-        # events at the head + this many at the tail; the middle is elided.
-        # Keeps cost bounded for very long trajectories.
+        # When formatting a prefix into the LLM prompt we keep this many events at the
+        # head plus this many at the tail; the middle is elided to bound cost on long
+        # trajectories. The elision is POSITIONAL, not relevance-based, so on a
+        # 30-event trajectory at the default of 6 the attributor sees steps 0-5 and
+        # 24-29 and is blind to 18 of 30 -- a constraint established mid-trajectory
+        # cannot be seen at all, however decisive it is.
+        #
+        # Two ways out, both opt-in so the default rendering is byte-identical:
+        #   * `always_include_steps` pins specific step indices into every rendered
+        #     window. A caller that already suspects a step -- a detector finding, a
+        #     judge's checkpoint, ground truth -- can guarantee the attributor sees it.
+        #   * `context_window=None` disables elision entirely.
         self.context_window = context_window
+        self.always_include_steps = (
+            frozenset(always_include_steps) if always_include_steps is not None else frozenset()
+        )
         self.use_ground_truth_context = use_ground_truth_context
 
     def attribute(
@@ -730,6 +743,10 @@ class BinarySearchAttributor:
                     self.use_ground_truth_context and _ground_truth_text(trajectory)
                 ),
                 'search_strategy': 'half_recursive',
+                # Whether prompt rendering could withhold steps from the probes, and
+                # which were pinned in regardless. Reported for the full trajectory:
+                # individual probes render shorter prefixes and elide no more than this.
+                'context_elision': self._prefix_view(list(trajectory.events))[1],
             },
         )
 
@@ -922,15 +939,57 @@ class BinarySearchAttributor:
             blocks.append('\n'.join(block))
         return '\n\n'.join(blocks) or '(empty)'
 
+    def _prefix_view(self, events: List[Any]) -> Tuple[List[Any], Dict[str, Any]]:
+        """The events a probe will actually see, plus a report of what was hidden.
+
+        Split out from `_render_prefix` so `attribute` can tell the caller whether any
+        step was withheld. Without that, a downstream harness cannot distinguish "the
+        attributor considered this step and dismissed it" from "the attributor never
+        saw it", which are very different findings about the same trajectory.
+        """
+        window = self.context_window
+        pinned = sorted(
+            {e.step_index for e in events if getattr(e, 'step_index', None) in self.always_include_steps}
+        )
+        if window is None or len(events) <= 2 * window:
+            return list(events), {
+                'elided': False,
+                'events_total': len(events),
+                'events_shown': len(events),
+                'context_window': window,
+                'pinned_steps': pinned,
+            }
+
+        head = events[:window]
+        tail = events[-window:]
+        kept_ids = {id(e) for e in head} | {id(e) for e in tail}
+        # Pinned events are restored in trajectory order, so the prompt stays monotone
+        # in step index rather than appending them out of sequence.
+        middle = [
+            e
+            for e in events[window:-window]
+            if getattr(e, 'step_index', None) in self.always_include_steps
+        ]
+        restored = [e for e in middle if id(e) not in kept_ids]
+        elided = len(events) - 2 * window - len(restored)
+        view: List[Any] = list(head)
+        if restored:
+            view.extend(restored)
+        if elided > 0:
+            view.append(_EVENT_ELLIPSIS(elided))
+        view.extend(tail)
+        return view, {
+            'elided': elided > 0,
+            'events_total': len(events),
+            'events_shown': len(events) - elided,
+            'events_elided': elided,
+            'context_window': window,
+            'pinned_steps': pinned,
+            'restored_by_pinning': len(restored),
+        }
+
     def _render_prefix(self, prefix: AgentTrajectory) -> str:
-        events = prefix.events
-        if len(events) <= 2 * self.context_window:
-            view = events
-        else:
-            head = events[: self.context_window]
-            tail = events[-self.context_window:]
-            elided = len(events) - 2 * self.context_window
-            view = head + [_EVENT_ELLIPSIS(elided)] + tail
+        view, _ = self._prefix_view(list(prefix.events))
         return '\n'.join(self._render_event(e) for e in view)
 
     @staticmethod
