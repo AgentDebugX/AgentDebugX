@@ -13,6 +13,13 @@ v0.1 ships two backends, both behind the same :class:`Attributor` protocol:
 Both produce an :class:`AttributionResult` carrying a list of :class:`Blame`
 hypotheses with confidence, rationale, and source attribution. Honest UX: we
 always return ranked hypotheses, never single-point claims.
+
+A ``Blame`` may also carry a :class:`CorrectedAction` — the concrete action that should
+have replaced the blamed one, in the trace's own ``{"tool", "args"}`` shape. It is opt-in
+per attributor (``propose_corrected_action=True``), always nullable, and never guessed;
+``AttributionResult.raw['corrected_action']`` says why one is absent. A rationale explains
+the past, so a harness that re-runs a trajectory with exactly one step substituted cannot
+use it; this is the field that makes that rerun possible.
 """
 
 from __future__ import annotations
@@ -40,6 +47,49 @@ LOG = logging.getLogger('agentdebug.attribution')
 
 
 @dataclass
+class CorrectedAction:
+    """A concrete replacement action for the blamed step, in the trace's own action shape.
+
+    A `rationale` explains the past; this is the thing a harness can actually execute.
+    Downstream consumers that re-run a trajectory with exactly one step substituted need a
+    machine-readable action, not prose about one -- and until this existed, every attributor
+    in this module returned prose only, so a substitution rerun was unreachable through the
+    library however good the localization was.
+
+    Shape: `tool` + `args`, which is what a `tool.call` event carries in its `input`. Use
+    :meth:`as_event_input` to get exactly that dict back.
+
+    HONESTY CONTRACT -- three states, all distinguishable:
+
+    * `Blame.corrected_action is None` -- the attributor did not produce one. Either it
+      cannot (Heuristic and SBFL have no model to ask), it was not asked
+      (`propose_corrected_action=False`, the default), or it was asked and declined. Read
+      `AttributionResult.raw['corrected_action']` for which of those it was.
+    * `differs_from_original is True` -- a real substitution: replaying this action changes
+      what the agent did.
+    * `differs_from_original is False` -- the attributor named an action identical to what
+      the trace already did at that step. Substituting it is a no-op, so a rerun cannot
+      attribute anything to the substitution. This must NOT be mistaken for a fix.
+    * `differs_from_original is None` -- the blamed step has no readable action of its own
+      (a plan, a reflection, an observation), so "different" is not a question that has an
+      answer here. Not the same as False.
+    """
+
+    tool: str
+    args: Dict[str, Any] = field(default_factory=dict)
+    #: Attributor id that produced it, so an ensemble's action stays traceable to a backend.
+    source: str = ''
+    #: The blamed step's own action as read from the trace, or None if it had none.
+    original: Optional[Dict[str, Any]] = None
+    #: True/False/None per the honesty contract above. Never guessed.
+    differs_from_original: Optional[bool] = None
+
+    def as_event_input(self) -> Dict[str, Any]:
+        """`{'tool': ..., 'args': {...}}` -- the shape a `tool.call` event's `input` uses."""
+        return {'tool': self.tool, 'args': dict(self.args)}
+
+
+@dataclass
 class Blame:
     span_id: Optional[str]
     step_index: Optional[int]
@@ -48,6 +98,11 @@ class Blame:
     rationale: str
     evidence: List[str] = field(default_factory=list)
     sources: List[str] = field(default_factory=list)
+    #: Concrete replacement action for this step, when the attributor could produce one.
+    #: Defaulted to None, so every existing construction site and every third-party
+    #: Attributor keeps working unchanged, and a caller that ignores the field sees no
+    #: change at all. See :class:`CorrectedAction` for what None does and does not mean.
+    corrected_action: Optional['CorrectedAction'] = None
 
 
 @dataclass
@@ -153,8 +208,17 @@ class HeuristicAttributor:
                     ),
                     evidence=list(primary.evidence),
                     sources=[self.id],
+                    # Model-free: this attributor ranks findings a detector already wrote. It
+                    # has nothing to ask what should have been done instead, so it never
+                    # guesses one. See raw['corrected_action'] below.
+                    corrected_action=None,
                 )
             ],
+            raw={
+                'corrected_action': _corrected_action_report(
+                    requested=False, action=None, reason='no_llm', source=self.id,
+                ),
+            },
         )
 
 
@@ -176,6 +240,47 @@ confidence 0.
 """
 
 
+#: Appended to an attributor's own JSON schema when the caller opted in. The field is
+#: nullable ON PURPOSE: a model that cannot name a concrete action must say so, because a
+#: plausible-looking guess is indistinguishable downstream from a real correction and will
+#: be replayed as if it were one.
+_CORRECTED_ACTION_RULES = """
+"corrected_action" is the ONE concrete action that should have replaced the blamed step's
+action, as {"tool": "<tool name>", "args": {<arguments>}}.
+
+Rules for it:
+1. Use the tool names and argument keys the trajectory itself uses. Do not invent a tool the
+   agent had no access to.
+2. "args" must be a JSON object.
+3. Return null unless you can name a specific tool and its arguments. A placeholder, a
+   paraphrase of your rationale, or a guess is WORSE than null.
+4. Return null when the blamed step is not an action at all (a plan, a reflection, an
+   observation), and when the step's own action was already correct.
+"""
+
+
+#: Used verbatim in place of `_ATTR_SYSTEM_PROMPT` when `propose_corrected_action=True`.
+#: Kept as a separate constant rather than an f-string patch so that with the flag off the
+#: prompt an existing caller gets is byte-identical to what it got before this feature.
+_ATTR_SYSTEM_PROMPT_WITH_ACTION = """You are an AI assistant tasked with analyzing agent conversation history when solving a real world problem.
+
+Respond ONLY with a JSON object matching this schema (no prose, no markdown):
+
+{
+  "span_id": "<event_id from the input or null>",
+  "step_index": <int or null>,
+  "agent_name": "<agent_name from the input or null>",
+  "confidence": <float between 0 and 1>,
+  "rationale": "<one or two sentences justifying the choice>",
+  "evidence": ["<short quoted evidence>", ...],
+  "corrected_action": {"tool": "<tool name>", "args": {<arguments>}} or null
+}
+
+If the trajectory does not appear to have failed, return all fields as null and
+confidence 0.
+""" + _CORRECTED_ACTION_RULES
+
+
 class AllAtOnceAttributor:
     """LLM-based attributor mirroring Who&When's All-at-Once method."""
 
@@ -191,6 +296,7 @@ class AllAtOnceAttributor:
         use_ground_truth_context: bool = False,
         save_full_generation: bool = False,
         extra_context: str = '',
+        propose_corrected_action: bool = False,
     ) -> None:
         self.llm = llm
         self.fallback: Attributor = fallback or HeuristicAttributor()
@@ -198,6 +304,12 @@ class AllAtOnceAttributor:
         self.max_tokens = max_tokens
         self.use_ground_truth_context = use_ground_truth_context
         self.save_full_generation = save_full_generation
+        # Ask the same single call to also name the concrete action that should have
+        # replaced the blamed one. Costs no extra call -- it is one more field in a JSON
+        # object this attributor already requests. Off by default anyway, because turning it
+        # on changes the system prompt, and a changed prompt can move the attribution
+        # itself; a caller upgrading agentdebugx must not silently get different blames.
+        self.propose_corrected_action = propose_corrected_action
         # Optional extra context (e.g. a retrieved historical reference case)
         # prepended to the prompt. Empty -> no behavioral change.
         self.extra_context = extra_context
@@ -209,8 +321,13 @@ class AllAtOnceAttributor:
     ) -> AttributionResult:
         findings = findings or []
         prompt_user = self._render_prompt(trajectory, findings[: self.max_findings])
+        system_prompt = (
+            _ATTR_SYSTEM_PROMPT_WITH_ACTION
+            if self.propose_corrected_action
+            else _ATTR_SYSTEM_PROMPT
+        )
         messages = [
-            {'role': 'system', 'content': _ATTR_SYSTEM_PROMPT},
+            {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': prompt_user},
         ]
         result = None
@@ -240,6 +357,20 @@ class AllAtOnceAttributor:
         )
         blame = self._normalize_blame(trajectory, blame)
         blame = self._prefer_supported_finding(blame, findings)
+        # After normalization: the corrected action is graded against the step we actually
+        # ended up blaming, so `original` and `differs_from_original` describe that step and
+        # not whichever ordinal the model first named.
+        action_reason = 'not_requested'
+        if self.propose_corrected_action:
+            blame.corrected_action = _build_corrected_action(
+                trajectory,
+                _event_for_blame(trajectory, blame),
+                parsed.get('corrected_action'),
+                self.id,
+            )
+            action_reason = (
+                'emitted' if blame.corrected_action is not None else 'declined_by_model'
+            )
         eval_metrics = _score_against_optional_gold(trajectory, blame)
         full_generation: Dict[str, Any] = {}
         if self.save_full_generation:
@@ -260,6 +391,12 @@ class AllAtOnceAttributor:
                     self.use_ground_truth_context and _ground_truth_text(trajectory)
                 ),
                 'eval': eval_metrics,
+                'corrected_action': _corrected_action_report(
+                    requested=self.propose_corrected_action,
+                    action=blame.corrected_action,
+                    reason=action_reason,
+                    source=self.id,
+                ),
                 **({'full_generation': full_generation} if full_generation else {}),
             },
         )
@@ -292,6 +429,10 @@ class AllAtOnceAttributor:
             rationale=blame.rationale,
             evidence=list(blame.evidence),
             sources=list(blame.sources) + ['detector_event_anchor'],
+            # Carried, not dropped: this helper re-anchors WHICH event is blamed, not what
+            # should have been done instead. A rebuilt Blame that silently loses the field
+            # would look exactly like an attributor that declined to produce one.
+            corrected_action=blame.corrected_action,
         )
 
     def _render_prompt(
@@ -409,6 +550,7 @@ class AllAtOnceAttributor:
             rationale=blame.rationale,
             evidence=list(blame.evidence),
             sources=list(blame.sources),
+            corrected_action=blame.corrected_action,
         )
 
     @staticmethod
@@ -450,6 +592,27 @@ Do not rely on information outside the provided trajectory/context.
 """
 
 
+#: `_STEP_SYSTEM_PROMPT` plus the nullable action field; used only when the caller opted in,
+#: so the default prompt stays byte-identical.
+_STEP_SYSTEM_PROMPT_WITH_ACTION = """You are an AI assistant tasked with evaluating the correctness of each step in an ongoing agent conversation aimed at solving a real-world problem.
+
+Respond ONLY with a JSON object matching this schema (no prose, no markdown):
+
+{
+  "is_failure_step": true | false,
+  "confidence": <float in [0,1]>,
+  "rationale": "<one sentence>",
+  "evidence": ["<short quoted evidence>", ...],
+  "corrected_action": {"tool": "<tool name>", "args": {<arguments>}} or null
+}
+
+Be CONSERVATIVE: only return true when the trajectory evidence on this step
+specifically caused the cascading failure.
+Do not rely on information outside the provided trajectory/context.
+Return "corrected_action": null whenever "is_failure_step" is false.
+""" + _CORRECTED_ACTION_RULES
+
+
 class StepByStepAttributor:
     """LLM-based attributor mirroring Who&When's Step-by-Step method.
 
@@ -471,6 +634,7 @@ class StepByStepAttributor:
         max_tokens: int = 4096,
         use_ground_truth_context: bool = False,
         save_full_generation: bool = False,
+        propose_corrected_action: bool = False,
     ) -> None:
         self.llm = llm
         self.fallback: Attributor = fallback or HeuristicAttributor()
@@ -479,6 +643,10 @@ class StepByStepAttributor:
         self.max_tokens = max_tokens
         self.use_ground_truth_context = use_ground_truth_context
         self.save_full_generation = save_full_generation
+        #: One more field in the per-step JSON this attributor already requests -- no extra
+        #: call, and no extra call per step either. See AllAtOnceAttributor for why it is off
+        #: by default.
+        self.propose_corrected_action = propose_corrected_action
 
     def attribute(
         self,
@@ -522,6 +690,13 @@ class StepByStepAttributor:
                 rationale=str(verdict.get('rationale') or ''),
                 evidence=self._coerce_str_list(verdict.get('evidence')),
                 sources=[self.id],
+                corrected_action=(
+                    _build_corrected_action(
+                        trajectory, evt, verdict.get('corrected_action'), self.id
+                    )
+                    if self.propose_corrected_action
+                    else None
+                ),
             ))
         if not hypotheses:
             return AttributionResult(
@@ -533,6 +708,15 @@ class StepByStepAttributor:
                         self.use_ground_truth_context and _ground_truth_text(trajectory)
                     ),
                     'eval': None,
+                    'corrected_action': _corrected_action_report(
+                        requested=self.propose_corrected_action,
+                        action=None,
+                        reason=(
+                            'no_hypotheses' if self.propose_corrected_action
+                            else 'not_requested'
+                        ),
+                        source=self.id,
+                    ),
                     **({'full_generation': generations} if self.save_full_generation else {}),
                 },
             )
@@ -552,6 +736,16 @@ class StepByStepAttributor:
                     self.use_ground_truth_context and _ground_truth_text(trajectory)
                 ),
                 'eval': eval_metrics,
+                'corrected_action': _corrected_action_report(
+                    requested=self.propose_corrected_action,
+                    action=hypotheses[0].corrected_action,
+                    reason=(
+                        'not_requested' if not self.propose_corrected_action
+                        else 'emitted' if hypotheses[0].corrected_action is not None
+                        else 'declined_by_model'
+                    ),
+                    source=self.id,
+                ),
                 **({'full_generation': generations} if self.save_full_generation else {}),
             },
         )
@@ -597,7 +791,14 @@ class StepByStepAttributor:
             try:
                 result = self.llm.complete(
                     messages=[
-                        {'role': 'system', 'content': _STEP_SYSTEM_PROMPT},
+                        {
+                            'role': 'system',
+                            'content': (
+                                _STEP_SYSTEM_PROMPT_WITH_ACTION
+                                if self.propose_corrected_action
+                                else _STEP_SYSTEM_PROMPT
+                            ),
+                        },
                         {'role': 'user', 'content': prompt},
                     ],
                     max_tokens=self.max_tokens,
@@ -679,6 +880,7 @@ class BinarySearchAttributor:
         context_window: Optional[int] = 6,
         always_include_steps: Optional[Sequence[int]] = None,
         use_ground_truth_context: bool = False,
+        propose_corrected_action: bool = False,
     ) -> None:
         # max_tokens default doubled in 0.2.4: thinking models (Gemini, o-series)
         # consume most of the budget on reasoning before any JSON is emitted, so
@@ -703,6 +905,10 @@ class BinarySearchAttributor:
             frozenset(always_include_steps) if always_include_steps is not None else frozenset()
         )
         self.use_ground_truth_context = use_ground_truth_context
+        # A bisect probe answers "upper or lower" -- there is nowhere in that schema to put
+        # an action, so a correction costs ONE extra call after the search converges. O(log
+        # n) + 1, and only when asked. Off by default: nobody's bill changes on upgrade.
+        self.propose_corrected_action = propose_corrected_action
 
     def attribute(
         self,
@@ -719,6 +925,22 @@ class BinarySearchAttributor:
         )
         if decisive is None:
             return self.fallback.attribute(trajectory, findings)
+        corrected: Optional[CorrectedAction] = None
+        action_reason = 'not_requested'
+        if self.propose_corrected_action:
+            gt = _ground_truth_text(trajectory)
+            corrected, action_reason = _request_corrected_action(
+                self.llm,
+                trajectory,
+                decisive,
+                source=self.id,
+                max_tokens=self.max_tokens,
+                extra_context=(
+                    f'The Answer for the problem is: {gt}\n'
+                    if self.use_ground_truth_context and gt
+                    else ''
+                ),
+            )
         return AttributionResult(
             method=self.id,
             hypotheses=[Blame(
@@ -735,9 +957,16 @@ class BinarySearchAttributor:
                     f'step={decisive.step_index}',
                 ],
                 sources=[self.id],
+                corrected_action=corrected,
             )],
             raw={
                 'probe_count': probe_count,
+                'corrected_action': _corrected_action_report(
+                    requested=self.propose_corrected_action,
+                    action=corrected,
+                    reason=action_reason,
+                    source=self.id,
+                ),
                 'trajectory_len': n,
                 'ground_truth_context_used': bool(
                     self.use_ground_truth_context and _ground_truth_text(trajectory)
@@ -1151,6 +1380,208 @@ def _candidate_step_events(
     return [event for event in pool if _is_attributable_event(event)]
 
 
+# ---------------------------------------------------------------------------
+# Corrected actions
+#
+# Everything below is opt-in. With `propose_corrected_action=False` (the default on every
+# attributor) none of it runs, no prompt changes by a single byte, and no extra token is
+# spent -- so an existing caller sees exactly the behaviour it saw before.
+# ---------------------------------------------------------------------------
+
+_PROPOSE_ACTION_SYSTEM_PROMPT = (
+    'You are correcting ONE step of a failed agent trajectory.\n\n'
+    'You are given the goal, the trajectory, and the single step already identified as the '
+    'decisive mistake. Name the one concrete action that should have been taken INSTEAD at '
+    'that step.\n\n'
+    'Respond ONLY with a JSON object (no prose, no markdown):\n\n'
+    '{"corrected_action": {"tool": "<tool name>", "args": {<arguments>}}}\n\n'
+    'or, when you cannot name one:\n\n'
+    '{"corrected_action": null}\n'
+    + _CORRECTED_ACTION_RULES
+)
+
+
+def _normalize_action(value: Any) -> Optional[Dict[str, Any]]:
+    """Coerce a model-emitted action into the trace's own `{'tool', 'args'}` shape.
+
+    Strict on `args`: it must be a JSON object or absent. A string or a list cannot be
+    replayed into a `tool.call` input without inventing a key for it, and an invented key is
+    exactly the kind of plausible-but-wrong artifact this whole field exists to avoid --
+    so we return None (honestly: no action) rather than reshape it.
+    """
+    if not isinstance(value, dict):
+        return None
+    tool = value.get('tool') or value.get('name') or value.get('action')
+    if not isinstance(tool, str) or not tool.strip():
+        return None
+    args: Any = None
+    for key in ('args', 'arguments', 'parameters'):
+        if key in value:
+            args = value[key]
+            break
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        return None
+    return {'tool': tool.strip(), 'args': dict(args)}
+
+
+def _original_action_at(
+    trajectory: AgentTrajectory,
+    event: Optional[AgentEvent],
+) -> Optional[Dict[str, Any]]:
+    """The trace's OWN action at the blamed step, in the same shape, or None if it had none.
+
+    Needed to answer `differs_from_original` truthfully. The blamed event is frequently the
+    agent's thought (`agent.step`) rather than the call it issued, so when the event carries
+    no action of its own we look for the sibling `tool.call` at the same step index.
+    """
+    if event is None:
+        return None
+    direct = _normalize_action(event.input)
+    if direct is not None:
+        return direct
+    if event.step_index is None:
+        return None
+    for candidate in trajectory.events:
+        if candidate.step_index != event.step_index:
+            continue
+        if getattr(candidate.event_type, 'value', candidate.event_type) != 'tool.call':
+            continue
+        if (
+            event.agent_name
+            and candidate.agent_name
+            and candidate.agent_name != event.agent_name
+        ):
+            continue
+        found = _normalize_action(candidate.input)
+        if found is not None:
+            return found
+    return None
+
+
+def _event_for_blame(
+    trajectory: AgentTrajectory,
+    blame: Blame,
+) -> Optional[AgentEvent]:
+    by_id = {e.event_id: e for e in trajectory.events}
+    if blame.span_id and blame.span_id in by_id:
+        return by_id[blame.span_id]
+    if blame.step_index is not None:
+        for candidate in trajectory.events:
+            if candidate.step_index == blame.step_index:
+                return candidate
+    return None
+
+
+def _build_corrected_action(
+    trajectory: AgentTrajectory,
+    event: Optional[AgentEvent],
+    value: Any,
+    source: str,
+) -> Optional[CorrectedAction]:
+    """A CorrectedAction from a model-emitted value, or None if it is not usable as one."""
+    action = _normalize_action(value)
+    if action is None:
+        return None
+    original = _original_action_at(trajectory, event)
+    return CorrectedAction(
+        tool=action['tool'],
+        args=action['args'],
+        source=source,
+        original=original,
+        # None, not False, when the step has no action of its own: "differs" has no answer
+        # there, and reporting False would claim the correction is a no-op when we don't know.
+        differs_from_original=None if original is None else original != action,
+    )
+
+
+def _corrected_action_report(
+    *,
+    requested: bool,
+    action: Optional[CorrectedAction],
+    reason: str,
+    source: str,
+) -> Dict[str, Any]:
+    """Machine-readable "why is there no corrected action", for `AttributionResult.raw`.
+
+    Same defect class as #3's empty-result explanation: absent must not be silent, or a
+    consumer cannot tell "not asked" from "asked and honestly declined".
+    """
+    return {
+        'requested': requested,
+        'emitted': action is not None,
+        'reason': reason,
+        'source': source,
+        'differs_from_original': action.differs_from_original if action else None,
+    }
+
+
+def _request_corrected_action(
+    llm: LLMClient,
+    trajectory: AgentTrajectory,
+    event: Optional[AgentEvent],
+    *,
+    source: str,
+    max_tokens: int = 4096,
+    extra_context: str = '',
+) -> Tuple[Optional[CorrectedAction], str]:
+    """One focused follow-up call for attributors whose own probes have no slot for it.
+
+    BinarySearch answers "upper or lower"; Counterfactual answers "would it have been
+    rescued". Neither has a place to put an action, so the correction costs one extra call
+    -- charged only when the caller asked for it. Returns (action, reason).
+
+    `max_tokens` defaults high and callers pass their own, for the reason the bisect probe's
+    default was doubled in 0.2.4: thinking models spend most of the budget reasoning before
+    any JSON appears, and a truncated response here is indistinguishable from a model that
+    honestly declined -- which would quietly turn a cost problem into a wrong measurement.
+    """
+    if event is None:
+        return None, 'no_blamed_event'
+    events_doc = '\n'.join(
+        f'Step {e.step_index if e.step_index is not None else "?"} '
+        f'[{e.event_id}] {e.agent_name} '
+        f'({getattr(e.event_type, "value", e.event_type)}): '
+        f'{(str(e.output) if e.output is not None else str(e.input or ""))[:300]}'
+        f'{(" | ERROR: " + str(e.error)) if e.error else ""}'
+        for e in trajectory.events
+    ) or '(empty conversation)'
+    original = _original_action_at(trajectory, event)
+    user = (
+        f'GOAL: {trajectory.goal or "(unknown goal)"}\n'
+        f'{extra_context}'
+        f'\nTRAJECTORY:\n{events_doc}\n\n'
+        'THE DECISIVE MISTAKE IS THIS STEP:\n'
+        f'  event_id={event.event_id}\n'
+        f'  step={event.step_index} agent={event.agent_name}\n'
+        f'  type={getattr(event.event_type, "value", event.event_type)}\n'
+        f'  action_taken={original if original is not None else "(this step took no action)"}\n'
+        f'  output={str(event.output)[:300]}\n'
+        f'  error={str(event.error) if event.error else ""}\n'
+    )
+    try:
+        result = llm.complete(
+            messages=[
+                {'role': 'system', 'content': _PROPOSE_ACTION_SYSTEM_PROMPT},
+                {'role': 'user', 'content': user},
+            ],
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        LOG.warning('corrected-action proposal failed for event=%s: %s', event.event_id, exc)
+        return None, 'llm_error'
+    parsed = extract_json_block(result.text)
+    if parsed is None:
+        return None, 'unparseable_response'
+    action = _build_corrected_action(
+        trajectory, event, parsed.get('corrected_action'), source
+    )
+    if action is None:
+        return None, 'declined_by_model'
+    return action, 'emitted'
+
+
 def _raw_history_before_event(
     events: List[AgentEvent],
     event: AgentEvent,
@@ -1248,11 +1679,16 @@ class CounterfactualAttributor:
         max_candidates: int = 5,
         max_tokens: int = 2048,
         fallback: Optional[Attributor] = None,
+        propose_corrected_action: bool = False,
     ) -> None:
         self.llm = llm
         self.max_candidates = max_candidates
         self.max_tokens = max_tokens
         self.fallback: Attributor = fallback or HeuristicAttributor()
+        # ONE extra call on the winning candidate, not K. The per-candidate probe asks for a
+        # rescue probability; only the top-ranked step is worth naming a replacement for,
+        # and asking all K would multiply the cost of the field by the candidate budget.
+        self.propose_corrected_action = propose_corrected_action
 
     def attribute(
         self,
@@ -1295,10 +1731,25 @@ class CounterfactualAttributor:
                 ],
                 sources=[self.id],
             ))
+        action_reason = 'not_requested'
+        if self.propose_corrected_action:
+            corrected, action_reason = _request_corrected_action(
+                self.llm, trajectory, ranked[0][0], source=self.id,
+                max_tokens=self.max_tokens,
+            )
+            hypotheses[0].corrected_action = corrected
         return AttributionResult(
             method=self.id,
             hypotheses=hypotheses,
-            raw={'candidates_probed': len(ranked)},
+            raw={
+                'candidates_probed': len(ranked),
+                'corrected_action': _corrected_action_report(
+                    requested=self.propose_corrected_action,
+                    action=hypotheses[0].corrected_action,
+                    reason=action_reason,
+                    source=self.id,
+                ),
+            },
         )
 
     def _pick_candidates(
@@ -1504,6 +1955,12 @@ class SBFLAttributor:
                 'formula': self.formula,
                 'corpus_size': {'failing': nf, 'passing': np},
                 'scored_events': len(scored),
+                # Statistics over a corpus of signatures: this attributor can say which step
+                # is suspicious but has no model to say what should have been done instead,
+                # so it reports the absence rather than inventing an action.
+                'corrected_action': _corrected_action_report(
+                    requested=False, action=None, reason='no_llm', source=self.id,
+                ),
             },
         )
 
@@ -1675,6 +2132,23 @@ class EnsembleAttributor:
                 'merge': self.merge,
                 'backends_run': [bid for bid, _ in per_backend],
                 'weights': dict(self.weights),
+                # The ensemble never asks for a correction itself; it forwards whatever its
+                # backends produced. Reported here so the same key means the same thing on
+                # every attributor, and `source` names the backend that actually offered it.
+                'corrected_action': _corrected_action_report(
+                    requested=False,
+                    action=merged[0].corrected_action if merged else None,
+                    reason=(
+                        'forwarded_from_backend'
+                        if merged and merged[0].corrected_action is not None
+                        else 'no_backend_offered_one'
+                    ),
+                    source=(
+                        merged[0].corrected_action.source
+                        if merged and merged[0].corrected_action is not None
+                        else self.id
+                    ),
+                ),
                 'budget_exceeded': bool(
                     self.budget
                     and self.budget.exceeded(
@@ -1709,6 +2183,7 @@ class EnsembleAttributor:
                 if h.rationale and backend_id not in row.rationales:
                     row.rationales[backend_id] = h.rationale
                 row.evidence.extend(h.evidence)
+                self._absorb_corrected_action(row, h)
         ranked = sorted(
             agg.values(),
             key=lambda r: (-r.borda_points, -r.weighted_conf_sum),
@@ -1736,11 +2211,27 @@ class EnsembleAttributor:
                 if h.rationale and backend_id not in row.rationales:
                     row.rationales[backend_id] = h.rationale
                 row.evidence.extend(h.evidence)
+                self._absorb_corrected_action(row, h)
         ranked = sorted(
             agg.values(),
             key=lambda r: (-(1.0 - r.bayesian_not_pos), -r.weighted_conf_sum),
         )
         return [self._row_to_blame(r) for r in ranked]
+
+    @staticmethod
+    def _absorb_corrected_action(row: '_MergeRow', hypothesis: Blame) -> None:
+        """Keep the corrected action from the most confident backend that offered one.
+
+        Deterministic and provenance-preserving: backends that produced nothing never
+        overwrite one that did, and the winner's `source` still names the backend it came
+        from, so a merged action is never mistaken for ensemble consensus about the action.
+        """
+        action = hypothesis.corrected_action
+        if action is None:
+            return
+        if row.corrected_action is None or hypothesis.confidence > row.corrected_action_conf:
+            row.corrected_action = action
+            row.corrected_action_conf = hypothesis.confidence
 
     def _row_to_blame(self, row: '_MergeRow') -> Blame:
         if self.merge == 'borda':
@@ -1759,6 +2250,7 @@ class EnsembleAttributor:
             rationale=rationale,
             evidence=list(dict.fromkeys(row.evidence)),  # dedupe preserve order
             sources=sorted(row.sources),
+            corrected_action=row.corrected_action,
         )
 
 
@@ -1774,11 +2266,17 @@ class _MergeRow:
     sources: set[str] = field(default_factory=set)
     rationales: Dict[str, str] = field(default_factory=dict)
     evidence: List[str] = field(default_factory=list)
+    #: Best corrected action seen for this step, with the confidence of the hypothesis that
+    #: carried it. Rationales merge by concatenation; an action cannot -- two different tool
+    #: calls have no meaningful average -- so the ensemble keeps ONE and records whose it was
+    #: in `CorrectedAction.source`.
+    corrected_action: Optional[CorrectedAction] = None
+    corrected_action_conf: float = -1.0
 
 
 __all__ = [
     'AllAtOnceAttributor', 'AttributionBudget', 'AttributionResult',
-    'Attributor', 'BinarySearchAttributor', 'Blame',
+    'Attributor', 'BinarySearchAttributor', 'Blame', 'CorrectedAction',
     'CounterfactualAttributor', 'EnsembleAttributor', 'HeuristicAttributor',
     'SBFLAttributor', 'StepByStepAttributor',
 ]
