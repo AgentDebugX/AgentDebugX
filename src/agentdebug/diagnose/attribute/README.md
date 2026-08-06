@@ -33,9 +33,37 @@ DeepDebug lives under `diagnose/profiles/` because it orchestrates multiple
 Diagnose stages. It may reuse attribution algorithms and memory services, but it
 is not registered as a regular Attribute strategy.
 
+## Corrected actions vs. recovery
+
+A `Blame` may carry a `CorrectedAction`: the one concrete action that should have replaced
+the blamed step's action, in the trace's own `{"tool", "args"}` shape.
+
+This is attribution, not recovery, and the boundary is worth stating precisely because it
+is easy to blur:
+
+- A **corrected action** is the counterfactual that makes the blame falsifiable. "Step 7
+  was decisive" is an untestable claim on its own; "step 7 was decisive because it should
+  have been `take(plate 1)`" can be tested by re-running the trajectory with exactly that
+  one step substituted. It is graded against what the step actually did
+  (`differs_from_original`), because a "correction" identical to the original proves
+  nothing.
+- A **recovery proposal** (`FixProposal`, Recover stage) is what to do *next*: a retry
+  directive, a compensation, a guardrail, a rule. It is forward-looking and does not have
+  to correspond to any single step in the failed trace.
+
+Attributors still must not emit recovery plans, retry policy, or compensations.
+
+It is opt-in per attributor (`propose_corrected_action=True`), always nullable, and never
+guessed. `AttributionResult.raw['corrected_action']` reports why one is absent, so "not
+asked", "no model to ask" and "asked and declined" stay distinguishable.
+
 ## Extension Rules
 
 - Register new attributors with `diagnose/component_manifests/attribute/`.
 - Keep component metadata in JSON and implementation in this package.
 - Return structured, evidence-bearing outputs rather than free-form text only.
-- Do not generate recovery actions here; leave that to Recover.
+- Do not generate recovery actions here; leave that to Recover. Naming the counterfactual
+  replacement for the blamed step (see above) is part of the attribution claim and is the
+  one exception.
+- An attributor that cannot produce something honestly returns null and says why, rather
+  than returning a plausible guess a consumer cannot tell apart from a real answer.
