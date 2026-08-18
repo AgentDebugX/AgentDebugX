@@ -5466,7 +5466,6 @@ function renderTrace(traj, report) {
   html += '<div class="lane-meta" style="margin-top:0;">';
   html += renderTraceViewToggle(traj.trace_id || '', visualCapability, viewMode);
   if (selectedEvent) {
-    html += '<span class="chip good">Completed</span>';
     html += '<span class="chip">' + escapeHtml(events.length) + ' steps</span>';
     html += '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>';
     html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Prepare Rerun</button>';
