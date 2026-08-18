@@ -80,7 +80,7 @@ agentic skill.
 - **Rerun**: three explicit modes for plan/export only, labeled simulation, or
   observed execution in an application-owned process or persistent HTTP runner.
 - **Local inspection UI**: no-build FastAPI dashboard for traces, reports,
-  saved cases, debug branches, and rerun-from-event workflows.
+  CUA screenshots, saved cases, debug branches, and rerun-from-event workflows.
 - **Error Hub**: scrubbed, shareable failure bundles for regression tests,
   benchmark corpora, and team debugging memory.
 - **Agent integrations**: generate host-runtime assets such as debugging skills
@@ -500,6 +500,14 @@ opened from a selected event and uses that event as its checkpoint. Set
 advertise or implement `from_event` checkpoint support. The browser does not
 accept or persist runner commands or bearer tokens; LLM API keys configured in
 the local UI are retained only for the current browser tab.
+
+OSWorld trajectories with locally available screenshot artifacts open in the
+read-only **Visual** view by default. Use the **Trace / Visual** control to
+switch without changing the selected event; the choice is remembered per trace
+for the current browser tab. Screenshots are served only through trace/event
+artifact IDs, and only when the resolved image remains inside the trajectory's
+recorded `metadata.source_dir`. The separate Streamlit app remains the tool for
+annotation, multi-reviewer assignment, discussion, and accuracy workflows.
 
 ## Privacy and Safety
 

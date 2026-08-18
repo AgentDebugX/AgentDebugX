@@ -11,6 +11,7 @@ from agentdebug.inspect.ui.services import (
     _to_dict,
     _ui_runtime_status,
     build_overview,
+    build_visual_capability,
 )
 from agentdebug.runtime import TraceStore
 
@@ -55,6 +56,7 @@ def _build_bootstrap(
                 'report': _to_dict(report),
                 'report_source': analysis['report_source'],
                 'reports': analysis['reports'],
+                'visual_capability': build_visual_capability(trajectory),
             }
     return bootstrap
 
@@ -1011,6 +1013,48 @@ _INDEX_HTML = r"""<!doctype html>
     background:rgba(10,13,13,.34);
   }
   .editor-empty strong { display:block; margin-bottom:6px; color:var(--fg); font-size:16px; }
+  .trace-visual-toggle {
+    display:inline-flex; gap:3px; padding:3px; border:1px solid #35413f;
+    border-radius:9px; background:#0d1111;
+  }
+  .trace-visual-toggle button {
+    min-width:62px; height:28px; border:0; border-radius:6px; background:transparent;
+    color:var(--muted); font-size:11px; font-weight:760; cursor:pointer;
+  }
+  .trace-visual-toggle button.active { color:#e9fffe; background:#234542; }
+  .trace-visual-toggle button:disabled { opacity:.36; cursor:not-allowed; }
+  .visual-inspector { display:grid; gap:14px; }
+  .visual-stage {
+    position:relative; min-height:360px; display:grid; place-items:center;
+    overflow:auto; border:1px solid #34413f; border-radius:12px;
+    background:#080b0b; padding:12px;
+  }
+  .visual-stage img {
+    display:block; max-width:100%; max-height:66vh; width:auto; height:auto;
+    object-fit:contain; border-radius:5px;
+  }
+  .visual-image-wrap { position:relative; display:inline-block; line-height:0; }
+  .visual-click-marker {
+    position:absolute; display:none; width:24px; height:24px; margin:-12px 0 0 -12px;
+    border:3px solid #ff4949; border-radius:50%; box-shadow:0 0 0 2px rgba(0,0,0,.65);
+    pointer-events:none;
+  }
+  .visual-click-marker::after {
+    content:''; position:absolute; left:8px; top:8px; width:2px; height:2px;
+    border-radius:50%; background:#ff4949;
+  }
+  .visual-nav { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .visual-facts { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+  .visual-copy-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .visual-copy-card {
+    min-width:0; border:1px solid #303837; border-radius:10px; background:#121616;
+    padding:12px;
+  }
+  .visual-copy-card.wide { grid-column:1 / -1; }
+  .visual-copy-card p {
+    margin:7px 0 0; color:#dce3df; white-space:pre-wrap; overflow-wrap:anywhere;
+    line-height:1.5; max-height:220px; overflow:auto;
+  }
   .editor-event-hero {
     display:grid; grid-template-columns:72px minmax(0,1fr) auto; gap:14px;
     align-items:start; margin-bottom:12px;
@@ -4755,6 +4799,7 @@ const DEBUG_BRANCH_STORAGE_KEY = 'agentdebugx-debug-branches-v1';
 const DEBUG_BACKEND_STORAGE_KEY = 'agentdebugx-debug-backend-v1';
 const LLM_SETTINGS_STORAGE_KEY = 'agentdebugx-llm-settings-v1';
 const LLM_API_KEY_SESSION_KEY = 'agentdebugx-llm-api-key-v1';
+const TRACE_VIEW_MODE_PREFIX = 'agentdebugx-trace-view-mode:';
 const DEBUG_BRANCH_SYNCED = new Set();
 let DEBUG_BRANCHES = loadDebugBranches();
 let CURRENT_BRANCH_EVENT_MAP = new Map();
@@ -5102,6 +5147,28 @@ async function selectTrace(tid, li, reportId) {
     return false;
   }
 }
+function traceViewMode(traceId, capability) {
+  if (!capability?.enabled) return 'trace';
+  try {
+    const stored = sessionStorage.getItem(TRACE_VIEW_MODE_PREFIX + traceId);
+    if (stored === 'trace' || stored === 'visual') return stored;
+  } catch (_e) {
+  }
+  return capability.default_view === 'visual' ? 'visual' : 'trace';
+}
+function setTraceViewMode(traceId, mode) {
+  try {
+    sessionStorage.setItem(TRACE_VIEW_MODE_PREFIX + traceId, mode);
+  } catch (_e) {
+  }
+}
+function renderTraceViewToggle(traceId, capability, mode) {
+  const enabled = Boolean(capability?.enabled);
+  return '<div class="trace-visual-toggle" aria-label="Trace view mode">' +
+    '<button type="button" data-trace-view="trace" class="' + (mode === 'trace' ? 'active' : '') + '">Trace</button>' +
+    '<button type="button" data-trace-view="visual" class="' + (mode === 'visual' ? 'active' : '') + '" ' + (enabled ? '' : 'disabled title="No safe image artifacts"') + '>Visual</button>' +
+    '</div>';
+}
 function renderTrace(traj, report) {
   document.body.classList.add('trace-editor-mode');
   document.body.classList.remove('hub-mode', 'overview-mode', 'cases-mode');
@@ -5131,6 +5198,8 @@ function renderTrace(traj, report) {
     : null;
   const selectedFinding = selectedEvent ? findingForEvent(findings, selectedEvent.event_id) : null;
   const branches = getDebugBranches(traj.trace_id || '');
+  const visualCapability = CURRENT_TRACE_DATA?.visual_capability || {enabled: false, events: {}};
+  const viewMode = traceViewMode(traj.trace_id || '', visualCapability);
   document.getElementById('trace-count').textContent =
     shortDatasetLabel((traj.metadata || {}).task_type || traj.framework || 'trace') + ' · ' +
     shortModelLabel((traj.metadata || {}).llm_model || traj.framework || 'model') + ' · ' +
@@ -5141,6 +5210,7 @@ function renderTrace(traj, report) {
   html += '<section class="editor-stage" id="event-stage">';
   html += '<div class="editor-stage-head"><div class="editor-stage-title"><div class="panel-title">Selected Event</div><div class="panel-hint">Default view is intentionally concise. Open Details only when you need raw trace, state delta, or nearby context.</div></div>';
   html += '<div class="lane-meta" style="margin-top:0;">';
+  html += renderTraceViewToggle(traj.trace_id || '', visualCapability, viewMode);
   if (selectedEvent) {
     html += '<span class="chip good">Completed</span>';
     html += '<span class="chip">' + escapeHtml(events.length) + ' steps</span>';
@@ -5160,7 +5230,11 @@ function renderTrace(traj, report) {
   }
   html += '</div></div>';
   html += '<div class="editor-stage-body">';
-  html += selectedEvent ? renderEventInspector(selectedEvent, selectedEvent.event_id === rootId, selectedFinding, selectedOrdinal, selectableEvents, findings) : '<div class="editor-empty"><div><strong>No event selected</strong><span>Choose a clip from the timeline.</span></div></div>';
+  html += selectedEvent
+    ? (viewMode === 'visual'
+      ? renderVisualInspector(selectedEvent, selectedEvent.event_id === rootId, selectedFinding, selectedOrdinal, events, report, visualCapability)
+      : renderEventInspector(selectedEvent, selectedEvent.event_id === rootId, selectedFinding, selectedOrdinal, selectableEvents, findings))
+    : '<div class="editor-empty"><div><strong>No event selected</strong><span>Choose a clip from the timeline.</span></div></div>';
   html += '</div></section>';
   html += '</main>';
   html += renderDiagnosisPanel(report, findings, selectedEvent, selectableEvents);
@@ -5185,6 +5259,8 @@ function renderTrace(traj, report) {
   bindTimelineScrollSync();
   bindChartTooltips();
   bindReportSelector(traj.trace_id || '');
+  bindTraceViewToggle(traj, report);
+  bindVisualViewer();
   bindHubButton();
 }
 function reportOptionLabel(item) {
@@ -6439,6 +6515,92 @@ function renderEditorStageEvent(ev, isRoot, finding, ordinal) {
   html += '</div></div>';
   html += renderEventReadout(ev, finding, primaryLabel, primaryValue, inputValue, outputValue, errorValue, debug);
   return html;
+}
+function parseClickCoordinates(code) {
+  if (typeof code !== 'string') return null;
+  let match = code.match(/(?:pyautogui\.)?click\(\(?\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)?\)/i);
+  if (!match && /click/i.test(code)) {
+    match = code.match(/=\s*\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)/);
+  }
+  if (match) return {x: Number(match[1]), y: Number(match[2])};
+  const xMatch = code.match(/\bx\s*=\s*(\d+(?:\.\d+)?)/i);
+  const yMatch = code.match(/\by\s*=\s*(\d+(?:\.\d+)?)/i);
+  return xMatch && yMatch ? {x: Number(xMatch[1]), y: Number(yMatch[1])} : null;
+}
+function visualStepSummary(report, ev, ordinal) {
+  const summaries = report?.metadata?.per_step_summaries || report?.per_step_summaries || [];
+  if (!Array.isArray(summaries)) return null;
+  return summaries.find(item =>
+    item?.event_id === ev?.event_id ||
+    String(item?.step_num ?? item?.step_index ?? '') === String(ev?.step_index ?? '')
+  ) || summaries[Math.max(0, Number(ordinal || 1) - 1)] || null;
+}
+function visualText(value) {
+  if (value === null || value === undefined || value === '') return 'Not recorded.';
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+function renderVisualInspector(ev, isRoot, finding, ordinal, events, report, capability) {
+  const media = capability?.events?.[ev.event_id] || [];
+  const image = media[0] || null;
+  const index = Math.max(0, events.findIndex(item => item.event_id === ev.event_id));
+  const click = parseClickCoordinates(visualText(ev.output));
+  const metadata = ev.metadata || {};
+  const summary = visualStepSummary(report, ev, ordinal);
+  const evidence = (finding?.evidence || []).join('\\n') || summary?.evidence || 'No event-specific RCA evidence.';
+  const correction = finding?.suggestion || summary?.correction || summary?.suggested_correction || 'No correction recorded.';
+  let html = '<div class="visual-inspector" data-visual-capability="enabled">';
+  html += '<div class="visual-nav"><div class="lane-meta" style="margin-top:0;"><span class="chip cyan">CUA Visual</span><span class="chip">step ' + escapeHtml(ordinal ?? ev.step_index ?? '-') + ' / ' + escapeHtml(events.length) + '</span>';
+  html += '<span class="chip ' + (isRoot ? 'warn' : (finding || ev.error ? 'bad' : 'good')) + '">' + escapeHtml(isRoot ? 'root cause' : (finding || ev.error ? 'error' : 'clean')) + '</span></div>';
+  html += '<div class="lane-meta" style="margin-top:0;"><button class="timeline-tool" type="button" data-nav-event="-1" ' + (index <= 0 ? 'disabled' : '') + '>← Previous</button><button class="timeline-tool" type="button" data-nav-event="1" ' + (index >= events.length - 1 ? 'disabled' : '') + '>Next →</button></div></div>';
+  if (image) {
+    html += '<div class="visual-stage"><div class="visual-image-wrap"><img class="visual-screenshot" src="' + escapeHtml(image.url) + '" alt="' + escapeHtml(image.description || ('Screenshot for step ' + ordinal)) + '"';
+    if (click) html += ' data-click-x="' + escapeHtml(click.x) + '" data-click-y="' + escapeHtml(click.y) + '"';
+    html += ' /><span class="visual-click-marker" aria-label="Recorded click position"></span></div></div>';
+  } else {
+    html += '<div class="visual-stage"><div class="editor-empty"><div><strong>Screenshot unavailable for this event</strong><span>The text trace and diagnosis remain available. Select another timeline step with an image.</span></div></div></div>';
+  }
+  html += '<div class="visual-facts">';
+  html += inspectorCard('Action type', metadata.action_type || ev.event_type || '-');
+  html += inspectorCard('Reward', metadata.reward ?? '-');
+  html += inspectorCard('Done', metadata.done === undefined ? '-' : String(metadata.done));
+  html += inspectorCard('Media', image?.media_type || 'unavailable');
+  html += '</div><div class="visual-copy-grid">';
+  html += '<div class="visual-copy-card"><div class="inspector-label">Reasoning / Input</div><p>' + escapeHtml(visualText(ev.input)) + '</p></div>';
+  html += '<div class="visual-copy-card"><div class="inspector-label">Action / Output</div><p>' + escapeHtml(visualText(ev.output)) + '</p></div>';
+  html += '<div class="visual-copy-card"><div class="inspector-label">Step summary</div><p>' + escapeHtml(visualText(summary?.outcome_summary || summary?.reasoning_summary || summary?.summary)) + '</p></div>';
+  html += '<div class="visual-copy-card"><div class="inspector-label">Error</div><p>' + escapeHtml(visualText(ev.error)) + '</p></div>';
+  html += '<div class="visual-copy-card wide"><div class="inspector-label">RCA evidence</div><p>' + escapeHtml(visualText(evidence)) + '</p></div>';
+  html += '<div class="visual-copy-card wide"><div class="inspector-label">Correction</div><p>' + escapeHtml(visualText(correction)) + '</p></div>';
+  html += '</div></div>';
+  return html;
+}
+function bindTraceViewToggle(traj, report) {
+  document.querySelectorAll('[data-trace-view]').forEach(button => {
+    button.onclick = () => {
+      const mode = button.dataset.traceView || 'trace';
+      if (mode === 'visual' && !CURRENT_TRACE_DATA?.visual_capability?.enabled) return;
+      setTraceViewMode(traj.trace_id || '', mode);
+      renderTrace(traj, report);
+    };
+  });
+}
+function bindVisualViewer() {
+  document.querySelectorAll('.visual-screenshot').forEach(image => {
+    const positionMarker = () => {
+      const x = Number(image.dataset.clickX);
+      const y = Number(image.dataset.clickY);
+      const marker = image.parentElement?.querySelector('.visual-click-marker');
+      if (!marker || !Number.isFinite(x) || !Number.isFinite(y) || !image.naturalWidth || !image.naturalHeight) return;
+      const left = x <= 1 ? x * 100 : (x / image.naturalWidth) * 100;
+      const top = y <= 1 ? y * 100 : (y / image.naturalHeight) * 100;
+      if (left < 0 || left > 100 || top < 0 || top > 100) return;
+      marker.style.left = left + '%';
+      marker.style.top = top + '%';
+      marker.style.display = 'block';
+    };
+    image.addEventListener('load', positionMarker);
+    if (image.complete) positionMarker();
+  });
 }
 function renderEventInspector(ev, isRoot, finding, ordinal, events, findings) {
   const debug = errorTrace(ev, finding);

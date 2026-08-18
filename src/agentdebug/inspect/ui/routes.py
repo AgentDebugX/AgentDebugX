@@ -29,6 +29,8 @@ from agentdebug.inspect.ui.services import (
     _to_dict,
     _ui_runtime_status,
     build_overview,
+    build_visual_capability,
+    resolve_visual_artifact,
 )
 from agentdebug.inspect.ui.views import render_page, render_space_page
 from agentdebug.inspect.ui.llm_convert import schema_payload
@@ -103,7 +105,7 @@ def build_app(store: TraceStore) -> Any:
         return schema_payload()
 
     @app.post('/api/v1/traces/upload')
-    async def upload_trace(request: _FastAPIRequest) -> Dict[str, Any]:
+    async def upload_trace(request: _FastAPIRequest) -> Dict[str, Any]:  # noqa: F821
         raw = await request.body()
         if len(raw) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail='file too large (>25 MB)')
@@ -264,7 +266,32 @@ def build_app(store: TraceStore) -> Any:
             'report': _to_dict(report),
             'report_source': analysis['report_source'],
             'reports': analysis['reports'],
+            'visual_capability': build_visual_capability(trajectory),
         }
+
+    @app.get(
+        '/api/v1/traces/{trace_id}/events/{event_id}/artifacts/{artifact_index}',
+        response_class=FileResponse,
+    )
+    def get_trace_artifact(
+        trace_id: str,
+        event_id: str,
+        artifact_index: int,
+    ) -> Any:
+        trajectory = store.load_trajectory(trace_id)
+        if trajectory is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        try:
+            path, media_type = resolve_visual_artifact(
+                trajectory,
+                event_id,
+                artifact_index,
+            )
+        except (FileNotFoundError, LookupError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return FileResponse(path, media_type=media_type)
 
     @app.get('/api/v1/diagnose/options')
     def get_diagnose_options() -> Dict[str, Any]:

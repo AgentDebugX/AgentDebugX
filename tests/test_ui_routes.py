@@ -19,8 +19,10 @@ from agentdebug.runtime import SQLiteTraceStore
 from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
+    Artifact,
     DiagnosticReport,
     EventType,
+    Modality,
 )
 
 
@@ -47,6 +49,140 @@ def test_health_trace_and_taxonomy_routes(ui_client: TestClient) -> None:
 
     assert ui_client.get('/api/v1/traces/missing').status_code == 404
     assert ui_client.get('/api/v1/taxonomy').json()['modes']
+
+
+def _visual_ui_client(tmp_path):
+    source_dir = tmp_path / 'osworld_trace'
+    source_dir.mkdir()
+    screenshot = source_dir / 'step_1.png'
+    screenshot.write_bytes(b'\x89PNG\r\n\x1a\nagentdebugx')
+    outside = tmp_path / 'outside.png'
+    outside.write_bytes(b'\x89PNG\r\n\x1a\noutside')
+    note = source_dir / 'note.txt'
+    note.write_text('not an image', encoding='utf-8')
+
+    trajectory = AgentTrajectory(
+        trace_id='osworld_visual',
+        framework='osworld',
+        metadata={'source_format': 'osworld', 'source_dir': str(source_dir)},
+        events=[
+            AgentEvent(
+                trace_id='osworld_visual',
+                event_id='step-1',
+                event_type=EventType.AGENT_STEP,
+                step_index=1,
+                input='click the button',
+                output='pyautogui.click(12, 34)',
+                metadata={'reward': 1, 'done': False, 'action_type': 'CLICK'},
+                artifacts=[
+                    Artifact(
+                        uri=str(screenshot),
+                        modality=Modality.IMAGE,
+                        media_type='image/png',
+                        description='step screenshot',
+                    ),
+                    Artifact(
+                        uri=str(note),
+                        modality=Modality.TEXT,
+                        media_type='text/plain',
+                    ),
+                    Artifact(
+                        uri=str(outside),
+                        modality=Modality.IMAGE,
+                        media_type='image/png',
+                    ),
+                    Artifact(
+                        uri=str(source_dir / 'missing.png'),
+                        modality=Modality.IMAGE,
+                        media_type='image/png',
+                    ),
+                ],
+            ),
+        ],
+    )
+    store = SQLiteTraceStore(str(tmp_path / 'visual.sqlite'))
+    store.save_trajectory(trajectory)
+    return TestClient(routes.build_app(store)), source_dir, outside
+
+
+def test_visual_capability_and_image_artifact_route(tmp_path) -> None:
+    client, _source_dir, _outside = _visual_ui_client(tmp_path)
+
+    response = client.get('/api/v1/traces/osworld_visual')
+    assert response.status_code == 200
+    capability = response.json()['visual_capability']
+    assert capability['enabled'] is True
+    assert capability['default_view'] == 'visual'
+    assert capability['is_cua'] is True
+    assert capability['media_count'] == 1
+    assert capability['events']['step-1'][0]['url'].endswith(
+        '/events/step-1/artifacts/0'
+    )
+
+    image = client.get(capability['events']['step-1'][0]['url'])
+    assert image.status_code == 200
+    assert image.headers['content-type'].startswith('image/png')
+    assert image.content.startswith(b'\x89PNG')
+
+
+def test_visual_artifact_route_rejects_invalid_or_unsafe_media(tmp_path) -> None:
+    client, source_dir, outside = _visual_ui_client(tmp_path)
+    base = '/api/v1/traces/osworld_visual/events/step-1/artifacts'
+
+    assert client.get('/api/v1/traces/missing/events/step-1/artifacts/0').status_code == 404
+    assert client.get('/api/v1/traces/osworld_visual/events/missing/artifacts/0').status_code == 404
+    assert client.get(f'{base}/99').status_code == 404
+    assert client.get(f'{base}/1').status_code == 403
+    assert client.get(f'{base}/2').status_code == 403
+    assert client.get(f'{base}/3').status_code == 404
+
+    symlink = source_dir / 'escaped.png'
+    try:
+        symlink.symlink_to(outside)
+    except OSError:
+        return
+
+    store = SQLiteTraceStore(str(tmp_path / 'symlink.sqlite'))
+    trajectory = AgentTrajectory(
+        trace_id='osworld_symlink',
+        framework='osworld',
+        metadata={'source_format': 'osworld', 'source_dir': str(source_dir)},
+        events=[
+            AgentEvent(
+                trace_id='osworld_symlink',
+                event_id='step-1',
+                event_type=EventType.AGENT_STEP,
+                artifacts=[
+                    Artifact(
+                        uri=str(symlink),
+                        modality=Modality.IMAGE,
+                        media_type='image/png',
+                    )
+                ],
+            )
+        ],
+    )
+    store.save_trajectory(trajectory)
+    symlink_client = TestClient(routes.build_app(store))
+    assert symlink_client.get(
+        '/api/v1/traces/osworld_symlink/events/step-1/artifacts/0'
+    ).status_code == 403
+
+
+def test_visual_view_html_contract_and_bootstrap(tmp_path) -> None:
+    client, _source_dir, _outside = _visual_ui_client(tmp_path)
+
+    page = client.get('/trace/osworld_visual')
+    assert page.status_code == 200
+    assert '"visual_capability":' in page.text
+    assert 'data-trace-view="trace"' in page.text
+    assert 'data-trace-view="visual"' in page.text
+    assert 'sessionStorage.getItem(TRACE_VIEW_MODE_PREFIX + traceId)' in page.text
+    assert "capability.default_view === 'visual'" in page.text
+    assert 'function parseClickCoordinates(code)' in page.text
+    assert 'image.naturalWidth' in page.text
+    assert 'Recorded click position' in page.text
+    assert 'root cause' in page.text
 
 
 def test_upload_schema_and_native_trace_import(ui_client: TestClient) -> None:

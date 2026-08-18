@@ -136,6 +136,16 @@ run_react_loop`, turn-capped, old screenshots compressed to bound context):
 - CLI: `agentdebug diagnose --mode gui-rca --rule-pack gui` (+ `--format
   osworld` ingest).
 
+The main FastAPI dashboard also has a read-only CUA viewer. UI services derive
+a `visual_capability` from image artifacts that exist beneath the imported
+trajectory's `metadata.source_dir`; routes serve those files by
+trace/event/artifact identity and reject non-images, missing files, traversal,
+and symlink escapes. The shared trace page defaults to Visual when that
+capability is present, retains a per-trace Trace/Visual override in
+`sessionStorage`, and keeps timeline selection synchronized with screenshots
+and `DiagnosticReport` evidence. Streamlit remains a separate annotation and
+evaluation surface rather than a second runtime dashboard.
+
 ## 6. Knowledge: memory, lessons, Error Hub
 
 | Source | Mechanism | Status |

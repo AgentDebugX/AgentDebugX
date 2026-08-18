@@ -76,6 +76,19 @@ results/debugger_results/
 streamlit run "$(python -c 'from agentdebug.gui.vis import app_path; print(app_path())')"
 ```
 
+For read-only inspection, use the main FastAPI dashboard instead:
+
+```bash
+pip install "agentdebugx[ui]"
+agentdebug serve --store-sqlite .agentdebug/traces.sqlite
+```
+
+An imported OSWorld trace with screenshots beneath its recorded `source_dir`
+opens in **Visual** mode automatically. The shared timeline controls the
+screenshot, step metadata, click marker, and RCA evidence; **Trace / Visual**
+switches views without rerunning diagnosis. Streamlit is still required for
+annotation writes, reviewer assignment, discussion, and accuracy tooling.
+
 ## Accuracy
 
 Pass the debugger subdirectory, not the agent-level directory:

@@ -5,16 +5,124 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, cast
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, cast
+from urllib.parse import quote
 
 from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.runtime import TraceStore
 from agentdebug.schema import (
-    AgentEvent,
     AgentTrajectory,
     DiagnosticReport,
+    Modality,
     model_to_dict,
 )
+
+
+_IMAGE_SUFFIXES = {'.bmp', '.gif', '.jpeg', '.jpg', '.png', '.webp'}
+
+
+def _visual_source_root(trajectory: AgentTrajectory) -> Optional[Path]:
+    """Return the trusted artifact root recorded by the OSWorld importer."""
+
+    source_dir = str((trajectory.metadata or {}).get('source_dir') or '').strip()
+    if not source_dir:
+        return None
+    try:
+        root = Path(source_dir).resolve()
+    except (OSError, RuntimeError):
+        return None
+    return root if root.is_dir() else None
+
+
+def resolve_visual_artifact(
+    trajectory: AgentTrajectory,
+    event_id: str,
+    artifact_index: int,
+) -> Tuple[Path, str]:
+    """Resolve one image artifact without accepting a client-provided path.
+
+    Native trace JSON is user-controlled, so an ``Artifact.uri`` is not enough
+    authority to read an arbitrary local file.  Visual media is served only
+    when the resolved image lives below the ingest-recorded ``source_dir``.
+    """
+
+    event = next(
+        (candidate for candidate in trajectory.events if candidate.event_id == event_id),
+        None,
+    )
+    if event is None:
+        raise LookupError(f'unknown event_id: {event_id}')
+    if artifact_index < 0 or artifact_index >= len(event.artifacts):
+        raise LookupError(f'unknown artifact index: {artifact_index}')
+
+    artifact = event.artifacts[artifact_index]
+    modality = getattr(artifact.modality, 'value', artifact.modality)
+    media_type = str(artifact.media_type or '').lower()
+    if modality != Modality.IMAGE.value or not media_type.startswith('image/'):
+        raise ValueError('artifact is not an image')
+
+    root = _visual_source_root(trajectory)
+    if root is None:
+        raise ValueError('trajectory has no trusted visual source directory')
+
+    raw_path = Path(artifact.uri)
+    candidate = raw_path if raw_path.is_absolute() else root / raw_path
+    try:
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError('artifact path cannot be resolved') from exc
+    if not resolved.is_relative_to(root):
+        raise ValueError('artifact path escapes the visual source directory')
+    if resolved.suffix.lower() not in _IMAGE_SUFFIXES:
+        raise ValueError('artifact file type is not supported')
+    if not resolved.is_file():
+        raise FileNotFoundError(str(resolved))
+    return resolved, media_type
+
+
+def build_visual_capability(trajectory: AgentTrajectory) -> Dict[str, Any]:
+    """Describe safely servable screenshots for the no-build dashboard."""
+
+    source_format = str(
+        (trajectory.metadata or {}).get('source_format')
+        or trajectory.framework
+        or ''
+    )
+    event_media: Dict[str, List[Dict[str, Any]]] = {}
+    for event in trajectory.events:
+        media = []
+        for artifact_index, artifact in enumerate(event.artifacts):
+            try:
+                _path, media_type = resolve_visual_artifact(
+                    trajectory,
+                    event.event_id,
+                    artifact_index,
+                )
+            except (FileNotFoundError, LookupError, ValueError):
+                continue
+            media.append({
+                'artifact_index': artifact_index,
+                'url': (
+                    f'/api/v1/traces/{quote(trajectory.trace_id, safe="")}'
+                    f'/events/{quote(event.event_id, safe="")}'
+                    f'/artifacts/{artifact_index}'
+                ),
+                'media_type': media_type,
+                'description': artifact.description or '',
+            })
+        if media:
+            event_media[event.event_id] = media
+
+    media_count = sum(len(items) for items in event_media.values())
+    return {
+        'enabled': media_count > 0,
+        'default_view': 'visual' if media_count > 0 else 'trace',
+        'source_format': source_format,
+        'is_cua': source_format.lower() in {'osworld', 'cua'},
+        'media_count': media_count,
+        'events': event_media,
+    }
 
 
 def _report_descriptor(report: DiagnosticReport, *, source: str) -> Dict[str, Any]:
