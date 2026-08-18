@@ -493,6 +493,11 @@ def serve(lines: Iterable[str] = sys.stdin) -> int:
 
 
 if __name__ == '__main__':
+    # The caller always writes UTF-8, but Python defaults stdio to the system
+    # locale encoding, which is a legacy codepage on many Windows installs
+    # (GBK here). Decoding UTF-8 request bytes as GBK corrupts the JSON at the
+    # first non-ASCII character, so pin both directions instead of inheriting.
+    sys.stdin.reconfigure(encoding='utf-8', errors='replace')
     # Harness content can still surprise us; never let one character abort the
     # stream that carries every later response.
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
