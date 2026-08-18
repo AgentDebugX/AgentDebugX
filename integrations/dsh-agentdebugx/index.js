@@ -369,6 +369,9 @@ export class PythonBridge {
     const child = spawn(this.python, ['-u', BRIDGE_PATH], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      // Settle the pipe encoding before the interpreter reads anything, so a
+      // non-UTF-8 system codepage cannot corrupt a request in transit.
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     })
     this.process = child
     const lines = readline.createInterface({ input: child.stdout })
@@ -416,7 +419,21 @@ export class PythonBridge {
       return
     }
     const pending = this.pending.get(response.id)
-    if (pending === undefined) return
+    if (pending === undefined) {
+      // A request the bridge could not parse comes back without a usable id.
+      // Dropping it would strand every in-flight caller until its timeout, so
+      // surface the failure to whoever is waiting.
+      if (response.error !== undefined) {
+        this.failAll(
+          new Error(
+            `${response.error.type ?? 'BridgeError'}: ${response.error.message ?? 'unknown error'}`,
+          ),
+        )
+        return
+      }
+      this.onStderr(`AgentDebugX bridge answered an unknown request: ${line}`)
+      return
+    }
     this.finish(response.id)
     if (response.error !== undefined) {
       pending.reject(
