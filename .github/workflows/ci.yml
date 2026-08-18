@@ -189,11 +189,15 @@ jobs:
           /tmp/agentdebugx-smoke/bin/python -m pip install dist/*.whl
           /tmp/agentdebugx-smoke/bin/agentdebug --help
           /tmp/agentdebugx-smoke/bin/python -c "import agentdebug; print(agentdebug.__version__)"
+          # GUI RCA must work off a core install, with no optional extras present.
+          /tmp/agentdebugx-smoke/bin/python -c "
+          from agentdebug.gui import run_rca, load_trajectory, tag_from_rca, TAXONOMY_CATEGORIES
+          print('gui RCA surface OK on a core install')
+          "
 
-  cua-tests:
-    name: CUA tests (Python ${{ matrix.python-version }}, advisory)
+  gui-extras-tests:
+    name: GUI suite with extras (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -209,12 +213,32 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: cua_debugger/pyproject.toml
+          cache-dependency-path: poetry.lock
 
-      - name: Install CUA package and dependencies
+      - name: Install project with the optional GUI extras
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ./cua_debugger
+          python -m pip install -e ".[gui,gui-memory,gui-app]"
+          python -m pip install pytest
 
-      - name: Run CUA test suite
-        run: python -m pytest cua_debugger/tests -q
+      # The `tests` job runs tests/gui too, but skips whatever needs an extra.
+      # Assert the extras really landed, so a broken install shows up as a
+      # failure here instead of as a silently smaller test run.
+      - name: Verify the optional GUI layers are importable
+        run: |
+          python -c "
+          import importlib
+          for name in (
+              'agentdebug.gui.memory.lesson_memory',
+              'agentdebug.gui.tools.lesson_explorer',
+              'agentdebug.gui.pipeline.orchestrator',
+              'agentdebug.gui.perplexity_adapter',
+              'agentdebug.gui.vis.debugger_app',
+              'agentdebug.gui.__main__',
+          ):
+              importlib.import_module(name)
+          print('optional GUI layers importable; tests/gui will not skip')
+          "
+
+      - name: Run the full GUI suite
+        run: python -m pytest tests/gui -q

@@ -47,9 +47,10 @@ def test_all_builtin_component_entrypoints_load() -> None:
         assert load_component(component.id) is not None
 
 
-def test_gui_rule_pack_does_not_eagerly_import_cua_taxonomy() -> None:
-    module_name = 'agentdebug.runtime.gui_taxonomy'
-    sys.modules.pop(module_name, None)
+def test_gui_rule_pack_does_not_eagerly_import_gui_taxonomy() -> None:
+    module_names = ('agentdebug.runtime.gui_taxonomy', 'agentdebug.gui.taxonomy')
+    for module_name in module_names:
+        sys.modules.pop(module_name, None)
 
     module = importlib.reload(
         importlib.import_module('agentdebug.diagnose.detect.rules.packs.gui.rules')
@@ -57,7 +58,8 @@ def test_gui_rule_pack_does_not_eagerly_import_cua_taxonomy() -> None:
 
     assert module.build_event_rules() == []
     assert module.build_trajectory_rules() == []
-    assert module_name not in sys.modules
+    for module_name in module_names:
+        assert module_name not in sys.modules
 
 
 @pytest.mark.parametrize(

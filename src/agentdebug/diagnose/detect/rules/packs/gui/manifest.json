@@ -9,9 +9,7 @@
     "gui",
     "zero_llm"
   ],
-  "dependencies": [
-    "cua_debugger"
-  ],
+  "dependencies": [],
   "cost_profile": "free",
   "enabled_by_default": false
 }

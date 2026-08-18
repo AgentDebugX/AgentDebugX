@@ -1,21 +1,20 @@
 """GUI Root-Cause Analysis analyzer.
 
-Drives CUA's vendored ``run_rca`` ReAct backward-tracing pipeline through the
-AgentDebugX LLM channel (:class:`CoreLLMChannel` -> ``core/llm.py``, satisfying
-RCA-03) and maps the resulting ``RCAResult`` onto a standard
-:class:`DiagnosticReport` over the AgentDebugX IR (RCA-01 / RCA-02).
+Drives the ``run_rca`` ReAct backward-tracing pipeline from
+:mod:`agentdebug.gui` through the AgentDebugX LLM channel
+(:class:`CoreLLMChannel` -> ``core/llm.py``, satisfying RCA-03) and maps the
+resulting ``RCAResult`` onto a standard :class:`DiagnosticReport` over the
+AgentDebugX IR (RCA-01 / RCA-02).
 
 Following D-01/D-02 we do NOT reimplement the ReAct logic — the channel adapter
-is the only swapped component. The vendored ``run_rca`` / ``RCAResult`` /
-``IngestionResult`` are reached behind a guarded lazy import (mirroring
-``ingest/adapters/osworld.py``) so ``import agentdebug`` never touches the
-vendored tree.
+is the only swapped component. ``run_rca`` / ``RCAResult`` / ``IngestionResult``
+are reached behind a lazy import (mirroring ``ingest/adapters/osworld.py``) so
+``import agentdebug`` never pulls in the RCA engine.
 """
 
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
@@ -31,19 +30,11 @@ from agentdebug.schema import (
 _SOURCE = 'CUA / OSWorld GUI taxonomy v2'
 
 
-def _load_cua_rca() -> Tuple[Any, Any, Any]:
-    """Import the vendored CUA RCA surface lazily; clear error if absent."""
-    cua_root = Path(__file__).resolve().parents[3] / 'cua_debugger'
-    if cua_root.is_dir() and str(cua_root) not in sys.path:
-        sys.path.insert(0, str(cua_root))
-    try:
-        from debugger.ingester import IngestionResult
-        from debugger.rca import RCAResult, run_rca
-    except ImportError as exc:
-        raise ImportError(
-            'GUI RCA requires the vendored CUA source tree (cua_debugger) on '
-            'sys.path. Add cua_debugger/ to your PYTHONPATH.'
-        ) from exc
+def _load_gui_rca() -> Tuple[Any, Any, Any]:
+    """Import the GUI RCA surface lazily from the package-owned GUI package."""
+    from agentdebug.gui.ingester import IngestionResult
+    from agentdebug.gui.rca import RCAResult, run_rca
+
     return run_rca, RCAResult, IngestionResult
 
 
@@ -65,7 +56,7 @@ class GuiRcaAnalyzer:
         self.verbose = verbose
 
     def analyze(self, trajectory: AgentTrajectory) -> DiagnosticReport:
-        run_rca, _RCAResult, IngestionResult = _load_cua_rca()
+        run_rca, _RCAResult, IngestionResult = _load_gui_rca()
         osworld_root = self._resolve_osworld_root(trajectory)
         ingestion_result = IngestionResult.from_directory(osworld_root)
         # Standard RCA path only (D-10 / Deferred): no lessons, no lesson_table.

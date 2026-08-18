@@ -105,7 +105,7 @@ def test_rule_packs_are_manifest_backed_components() -> None:
     assert metadata['core'].stage == 'detect'
     assert metadata['core'].entrypoint.endswith('.packs.core.rules')
     assert 'event_rules' in metadata['core'].capabilities
-    assert get_rule_pack_metadata('gui').dependencies == ['cua_debugger']
+    assert get_rule_pack_metadata('gui').dependencies == []
     assert KeywordRule is LegacyKeywordRule
 
 

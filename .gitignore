@@ -12,6 +12,8 @@ build/
 dist/
 
 .venv/
+.venv-*/
+.venv39/
 venv/
 
 .agentdebug/

@@ -1814,20 +1814,24 @@ def _status(framework: str, implemented: bool, notes: str) -> object:
 def _gui_integration_status() -> object:
     """Defensively probe whether the GUI / OSWorld (CUA) integration is available.
 
-    Never hard-imports a GUI dependency at module top level: the probe imports
-    are confined to this guarded body so `import agentdebug.cli` stays free of
-    the optional `gui` extra.
+    The probe imports are confined to this guarded body so `import
+    agentdebug.cli` stays free of the GUI package. Screenshot decoding needs
+    `pillow`, which ships in the optional `gui` extra.
     """
     try:
-        import anthropic  # noqa: F401
-        import chromadb  # noqa: F401
-        import streamlit  # noqa: F401
-
-        return _status('gui', True, 'GUI/OSWorld (CUA) integration deps available')
+        import agentdebug.gui.rca  # noqa: F401
     except Exception:  # pragma: no cover - defensive
+        return _status('gui', False, 'agentdebug.gui is unavailable')
+
+    try:
+        import PIL  # noqa: F401
+    except Exception:
         return _status(
-            'gui', False, 'not installed — run `pip install agentdebugx[gui]`'
+            'gui',
+            True,
+            'GUI RCA available; install `agentdebugx[gui]` for screenshot support',
         )
+    return _status('gui', True, 'GUI/OSWorld (CUA) integration available')
 
 
 def _dummy_debugger() -> object:

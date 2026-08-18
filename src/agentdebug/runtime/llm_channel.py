@@ -1,54 +1,42 @@
 """RCA-03 channel adapter: an Anthropic-style ``.messages.create(...)`` seam
 that routes the network call through AgentDebugX ``core/llm.py``.
 
-CUA's ``run_react_loop`` (``cua_debugger/debugger/agent.py``) drives any client
-exposing ``client.messages.create(model, max_tokens, system, tools, messages,
-thinking, timeout)`` and returning an object with ``.content`` (a list of
-Anthropic-style blocks) + ``.stop_reason``. This module presents exactly that
-interface but performs the actual completion via
-:meth:`OpenAICompatClient.chat` — never through ``anthropic.Anthropic`` /
-``openai.OpenAI`` / Together. That routing is what satisfies RCA-03.
+``run_react_loop`` (:mod:`agentdebug.gui.agent`) drives any client exposing
+``client.messages.create(model, max_tokens, system, tools, messages, thinking,
+timeout)`` and returning an object with ``.content`` (a list of Anthropic-style
+blocks) + ``.stop_reason``. This module presents exactly that interface but
+performs the actual completion via :meth:`OpenAICompatClient.chat` — never
+through ``anthropic.Anthropic`` / ``openai.OpenAI`` / Together. That routing is
+what satisfies RCA-03.
 
 The pure format-conversion helpers (Anthropic<->OpenAI messages/tools, incl. the
 Anthropic-image -> OpenAI ``image_url`` vision path, and the Anthropic-style
-block dataclasses) are REUSED from the vendored CUA tree
-(``cua_debugger/debugger/together_adapter.py``) via a guarded lazy import — they
-are translators, not provider clients, so reusing them does not violate RCA-03.
+block dataclasses) are REUSED from :mod:`agentdebug.gui.together_adapter` via a
+lazy import — they are translators, not provider clients, so reusing them does
+not violate RCA-03.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-def _load_cua_converters() -> Tuple[Any, Any, Any, Any, Any]:
-    """Import the vendored CUA format converters lazily; clear error if absent.
+def _load_gui_converters() -> Tuple[Any, Any, Any, Any, Any]:
+    """Import the GUI format converters lazily.
 
-    Resolves ``<repo>/cua_debugger`` onto ``sys.path`` at call time (only when
-    the directory exists and is not already present) and imports the pure
-    translators. Never imports ``debugger`` at module top level so
-    ``import agentdebug`` stays free of the vendored tree.
+    Keeping the import inside this function means ``import agentdebug`` never
+    pulls in the GUI package.
     """
-    cua_root = Path(__file__).resolve().parents[3] / 'cua_debugger'
-    if cua_root.is_dir() and str(cua_root) not in sys.path:
-        sys.path.insert(0, str(cua_root))
-    try:
-        from debugger.together_adapter import (
-            AnthropicResponse,
-            TextBlock,
-            ToolUseBlock,
-            _anthropic_msgs_to_openai,
-            _anthropic_tools_to_openai,
-        )
-    except ImportError as exc:
-        raise ImportError(
-            'GUI RCA channel requires the vendored CUA source tree '
-            '(cua_debugger) on sys.path. Add cua_debugger/ to your PYTHONPATH.'
-        ) from exc
+    from agentdebug.gui.together_adapter import (
+        AnthropicResponse,
+        TextBlock,
+        ToolUseBlock,
+        _anthropic_msgs_to_openai,
+        _anthropic_tools_to_openai,
+    )
+
     return (
         AnthropicResponse,
         TextBlock,
@@ -85,7 +73,7 @@ class _CoreLLMMessagesNamespace:
             ToolUseBlock,
             _anthropic_msgs_to_openai,
             _anthropic_tools_to_openai,
-        ) = _load_cua_converters()
+        ) = _load_gui_converters()
 
         openai_msgs = _anthropic_msgs_to_openai(messages or [], system)
         openai_tools = _anthropic_tools_to_openai(tools) if tools else None

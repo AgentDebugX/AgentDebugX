@@ -2,20 +2,19 @@
 
 Converts a CUA/OSWorld trajectory *directory* (``traj.jsonl``/``trajectory.jsonl``
 + screenshots + ``result.txt``) into a portable ``AgentTrajectory``. It reuses
-the vendored CUA loader (pure pydantic, no GUI extra) to parse the on-disk
-format, then maps one ``AgentEvent`` per CUA ``Step`` and attaches per-step
-screenshots as ``Artifact(modality=IMAGE)`` by URI reference.
+the loader in :mod:`agentdebug.gui` (pure pydantic, no GUI extra) to parse the
+on-disk format, then maps one ``AgentEvent`` per CUA ``Step`` and attaches
+per-step screenshots as ``Artifact(modality=IMAGE)`` by URI reference.
 
 This module is the only place allowed to know CUA/OSWorld shapes; downstream
-stages consume only the IR. The CUA import is guarded and lazy so that
-``import agentdebug`` (and importing this adapter) never requires the vendored
-source tree — the import happens inside ``_load_cua_loader`` and any failure is
-surfaced as ``ConversionError`` rather than a bare ``ImportError``.
+stages consume only the IR. The GUI import stays inside ``_load_gui_loader`` so
+that ``import agentdebug`` (and importing this adapter) never pulls in the RCA
+engine, and any failure is surfaced as ``ConversionError`` rather than a bare
+``ImportError``.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -30,25 +29,19 @@ from agentdebug.schema import (
 from agentdebug.ingest.adapters.importers import ConversionError
 
 
-def _load_cua_loader() -> Tuple[Any, Any]:
-    """Import the vendored CUA loader lazily; fail with a clear ConversionError.
+def _load_gui_loader() -> Tuple[Any, Any]:
+    """Import the GUI trajectory loader lazily; fail with a clear ConversionError.
 
-    The CUA source tree is imported as the top-level ``debugger`` package, which
-    lives under ``<repo>/cua_debugger``. Resolve that directory onto ``sys.path``
-    at call time so basic OSWorld ingest works without the ``agentdebugx[gui]``
-    extra, and never import ``debugger`` at module top level (Phase 1 core
-    import isolation).
+    The loader is pure pydantic, so basic OSWorld ingest works on a core install
+    without the ``agentdebugx[gui]`` extra. Keeping the import inside this
+    function preserves core import isolation.
     """
-    cua_root = Path(__file__).resolve().parents[4] / 'cua_debugger'
-    if cua_root.is_dir() and str(cua_root) not in sys.path:
-        sys.path.insert(0, str(cua_root))
     try:
-        from debugger.ingester import IngestionResult
-        from debugger.trajectory import load_trajectory
+        from agentdebug.gui.ingester import IngestionResult
+        from agentdebug.gui.trajectory import load_trajectory
     except ImportError as exc:
         raise ConversionError(
-            'OSWorld ingest requires the vendored CUA source tree (cua_debugger) '
-            'on sys.path. Add cua_debugger/ to your PYTHONPATH.'
+            'OSWorld ingest requires the agentdebug.gui package.'
         ) from exc
     return IngestionResult, load_trajectory
 
@@ -69,7 +62,7 @@ def convert_osworld_dir(
     if not in_path.is_dir():
         raise ConversionError(f'osworld ingest expects a directory: {in_path}')
 
-    IngestionResult, load_trajectory = _load_cua_loader()
+    IngestionResult, load_trajectory = _load_gui_loader()
     try:
         result = IngestionResult.from_directory(in_path)
         raw = load_trajectory(in_path)
