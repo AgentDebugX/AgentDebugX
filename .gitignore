@@ -17,6 +17,8 @@ dist/
 venv/
 
 .agentdebug/
+trajectory_data/*
+!trajectory_data/README.md
 typical_error_cases.jsonl
 debug_branches.jsonl
 
