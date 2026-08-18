@@ -9,8 +9,10 @@ The plugin:
 - captures each completed Harness turn into AgentDebugX `AgentTrajectory`;
 - stores trajectories in AgentDebugX SQLite storage;
 - exposes `/agentdebug status|capabilities|diagnose|open`;
-- exposes model-facing session diagnosis, external-trace analysis, and
+- exposes model-facing session diagnosis, saved-trace analysis, and
   capability-discovery tools;
+- reads Harness's own persisted sessions, including the concatenated-Zstandard
+  `session.jsonl.zstd` container;
 - opens the AgentDebugX viewer on the turn that just finished;
 - records replayable `agentdebug/start` and `agentdebug/result` session events;
 - keeps all Harness-specific code isolated under `integrations/dsh-agentdebugx`.
@@ -176,6 +178,27 @@ without a separate authentication and TLS boundary.
 `agentdebug_analyze_trace` can read only paths under `traceRoots`. Keep this
 allowlist narrow; add an OSWorld results directory explicitly when the model
 needs to analyze traces outside the DSH working directory.
+
+`$DSH_HOME/sessions` is appended to the readable roots automatically so the
+model can debug Harness's own past sessions. Point `dshSessionsRoot` at a
+different directory to override it, or set it to an empty string to keep
+Harness's session history out of reach.
+
+## Debugging saved traces
+
+`agentdebug_analyze_trace` accepts two sources beyond the live session:
+
+- a past Harness session, stored as
+  `$DSH_HOME/sessions/<workspace>/session-<uuid>/session.jsonl.zstd`
+  (on Windows `$DSH_HOME` defaults to a `dsh-*` folder under `%TEMP%`).
+  Pass either the session directory or the log file;
+- trace and trajectory files in the open workspace, including OSWorld
+  trajectory directories.
+
+Persisted session logs are a concatenated-Zstandard container that Node decodes
+frame by frame, and they are mapped through the same code path as the live
+session feed, so turn, step, and tool-call linkage is preserved rather than
+flattened by generic format detection.
 
 `assistant/chunk` deltas are not duplicated into AgentDebugX. The assembled
 assistant message is retained, while the number of skipped chunks is recorded
