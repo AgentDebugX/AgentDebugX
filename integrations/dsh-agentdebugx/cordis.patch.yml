@@ -1,0 +1,10 @@
+- insert:
+    - id: agentdebugx
+      name: dsh-agentdebugx
+      config:
+        python: !!js "process.env.AGENTDEBUGX_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')"
+        store: !!js "process.env.AGENTDEBUGX_STORE || '.agentdebug/agentdebug.sqlite'"
+        dashboardUrl: !!js "process.env.AGENTDEBUGX_DASHBOARD_URL || 'http://127.0.0.1:7777'"
+        traceRoots: !!js "process.env.AGENTDEBUGX_TRACE_ROOTS ? process.env.AGENTDEBUGX_TRACE_ROOTS.split(process.platform === 'win32' ? ';' : ':') : [process.cwd()]"
+        autoOpen: !!js "process.env.AGENTDEBUGX_AUTO_OPEN || 'turn'"
+        timeoutMs: 120000

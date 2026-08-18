@@ -1,0 +1,9 @@
+node_modules/
+.local-bin/
+*.tgz
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.agentdebug/
+.env
+.env.*
