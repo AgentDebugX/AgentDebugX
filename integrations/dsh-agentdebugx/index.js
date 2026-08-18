@@ -19,7 +19,7 @@ export const Config = Schema.object({
   timeoutMs: Schema.number().default(120000),
   autoCapture: Schema.boolean().default(true),
   traceRoots: Schema.array(Schema.string()).default([process.cwd()]),
-  dshSessionsRoot: Schema.string().default(undefined),
+  dshSessionsRoot: Schema.string(),
   autoOpen: Schema.union([
     Schema.const('turn'),
     Schema.const('session'),
