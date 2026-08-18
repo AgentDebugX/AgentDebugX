@@ -1,0 +1,23 @@
+# Cached install-only matrix for the pinned Claude Code artifact.
+# custom-memory-heap-crash is excluded because its image conversion timed out.
+
+# Previously oracle-verified cached images.
+sqlite-db-truncate
+cancel-async-tasks
+code-from-image
+kv-store-grpc
+openssl-selfsigned-cert
+raman-fitting
+circuit-fibsqrt
+db-wal-recovery
+distribution-search
+feal-linear-cryptanalysis
+path-tracing-reverse
+
+# Cached images that failed Harbor's APT-based Claude installer.
+adaptive-rejection-sampler
+break-filter-js-from-html
+build-cython-ext
+multi-source-data-merger
+polyglot-c-py
+regex-log

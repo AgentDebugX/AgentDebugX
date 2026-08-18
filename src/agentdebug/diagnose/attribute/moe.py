@@ -321,7 +321,7 @@ def _cascade(
     rounds=8,
     window_min=6,
     use_gt=True,
-    max_tokens=512,
+    max_tokens=16000,
     reference_hint='',
 ) -> Dict[str, Any]:
     """Depth-adaptive root-seeking cascade (multi-agent expert)."""
@@ -348,7 +348,9 @@ def _cascade(
             f'{_render_span(evs, steps[mid + 1], steps[hi])}\n\n'
             f'Which half contains the earliest ROOT mistake?'
         )
-        probe = extract_json_block(_ask(llm, _CASCADE_HALF, user, 128)) or {}
+        # Raised from 128: thinking models can burn a small budget entirely on
+        # reasoning before emitting the one-word {"half": ...} answer.
+        probe = extract_json_block(_ask(llm, _CASCADE_HALF, user, 2000)) or {}
         half = str(probe.get('half') or '').strip().lower()
         decisions.append(
             ProbeDecision(
@@ -410,7 +412,7 @@ def _bisect_refine(
     endgame=3,
     conf_floor=0.75,
     use_gt=True,
-    max_tokens=512,
+    max_tokens=16000,
     reference_hint='',
 ) -> Dict[str, Any]:
     """Neutral bisection + confidence-gated full-context endgame (single-agent expert)."""
@@ -434,7 +436,8 @@ def _bisect_refine(
             f'{_render_span(evs, steps[mid + 1], steps[hi])}\n\n'
             f'Which half contains the decisive error step?'
         )
-        p = extract_json_block(_ask(llm, _NEUTRAL_HALF, user, 96)) or {}
+        # Raised from 96: same reasoning-token risk as _CASCADE_HALF above.
+        p = extract_json_block(_ask(llm, _NEUTRAL_HALF, user, 2000)) or {}
         return str(p.get('half') or '').strip().lower(), _as_float(p.get('confidence'), 0.5), mid
 
     lo, hi = 0, len(steps) - 1
@@ -509,7 +512,7 @@ def _bisect_refine(
 
 # ------------------------------ MoE gate ------------------------------ #
 def _moe(trajectory, *, llm, label_hint, candidate_labels, short_max=12, use_gt=True,
-         max_tokens=512, reference_hint=''):
+         max_tokens=16000, reference_hint=''):
     if _is_multi_agent(trajectory):
         return _cascade(trajectory, llm=llm, label_hint=label_hint,
                         candidate_labels=candidate_labels, use_gt=use_gt,
@@ -524,7 +527,9 @@ def analyze_aao_moe(
     trajectory: AgentTrajectory, *, llm: LLMClient,
     label_hint: str = '', candidate_labels: Optional[List[str]] = None,
     ctx_before: int = 1, ctx_after: int = 1,
-    use_ground_truth_context: bool = True, max_tokens: int = 256,
+    # Raised from 256: this budget also covers the tie-break arbitration call
+    # below (thinking models can burn it entirely on reasoning).
+    use_ground_truth_context: bool = True, max_tokens: int = 16000,
     reference_hint: str = '',
 ) -> AaoMoeAnalysis:
     """Run the first three DeepDebug stages and return typed audit results.
@@ -553,7 +558,7 @@ def analyze_aao_moe(
 
     probe_started = time.perf_counter()
     m = _moe(trajectory, llm=llm, label_hint=label_hint, candidate_labels=candidate_labels,
-             use_gt=use_ground_truth_context, max_tokens=512, reference_hint=reference_hint)
+             use_gt=use_ground_truth_context, max_tokens=max_tokens, reference_hint=reference_hint)
     m_step, m_ag = m.get('step_index'), m.get('agent_name')
     structure_candidate = AttributionCandidate(
         source=str(m.get('strategy') or 'structure_probe'),
@@ -684,7 +689,7 @@ def aao_moe_attribute(
     trajectory: AgentTrajectory, *, llm: LLMClient,
     label_hint: str = '', candidate_labels: Optional[List[str]] = None,
     ctx_before: int = 1, ctx_after: int = 1,
-    use_ground_truth_context: bool = True, max_tokens: int = 256,
+    use_ground_truth_context: bool = True, max_tokens: int = 16000,
     reference_hint: str = '',
 ) -> Dict[str, Any]:
     """Backward-compatible mapping wrapper around :func:`analyze_aao_moe`."""

@@ -1,0 +1,50 @@
+[
+  {
+    "task": "terminal-bench/code-from-image",
+    "seed_outcome": "resolved",
+    "seed_reward": 1.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-28-35/code-from-image__naXeKCY"
+  },
+  {
+    "task": "terminal-bench/kv-store-grpc",
+    "seed_outcome": "resolved",
+    "seed_reward": 1.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-29-15/kv-store-grpc__eGtNpM9"
+  },
+  {
+    "task": "terminal-bench/openssl-selfsigned-cert",
+    "seed_outcome": "resolved",
+    "seed_reward": 1.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-30-29/openssl-selfsigned-cert__4jE4K6G"
+  },
+  {
+    "task": "terminal-bench/circuit-fibsqrt",
+    "seed_outcome": "exclusion",
+    "seed_reward": 1.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-31-49/circuit-fibsqrt__eRREjbk"
+  },
+  {
+    "task": "terminal-bench/db-wal-recovery",
+    "seed_outcome": "eligible_failure",
+    "seed_reward": 0.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-42-28/db-wal-recovery__7vfoe5c"
+  },
+  {
+    "task": "terminal-bench/distribution-search",
+    "seed_outcome": "resolved",
+    "seed_reward": 1.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-44-46/distribution-search__P8dzHmh"
+  },
+  {
+    "task": "terminal-bench/feal-linear-cryptanalysis",
+    "seed_outcome": "exclusion",
+    "seed_reward": 0.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-47-46/feal-linear-cryptanalysis__uP28De9"
+  },
+  {
+    "task": "terminal-bench/path-tracing-reverse",
+    "seed_outcome": "exclusion",
+    "seed_reward": 0.0,
+    "seed_trial_dir": "/u/yuchen85/scratch/harbor-jobs/2026-08-17__00-58-36/path-tracing-reverse__BeinUMk"
+  }
+]

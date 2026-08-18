@@ -1,0 +1,9 @@
+tasks:
+  - terminal-bench/code-from-image
+  - terminal-bench/kv-store-grpc
+  - terminal-bench/openssl-selfsigned-cert
+  - terminal-bench/circuit-fibsqrt
+  - terminal-bench/db-wal-recovery
+  - terminal-bench/distribution-search
+  - terminal-bench/feal-linear-cryptanalysis
+  - terminal-bench/path-tracing-reverse

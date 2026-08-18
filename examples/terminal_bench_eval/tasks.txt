@@ -1,0 +1,36 @@
+# Terminal-Bench 2.1 task subset for the AgentDebugX eval.
+# The `terminal-bench/` prefix is added automatically.
+#
+# Only tasks whose ORACLE passes under harbor's singularity backend belong here.
+# If the oracle can't solve a task in this environment, an agent failure on it
+# is uninterpretable — we could not tell agent error from environment error.
+#
+# Verified oracle-passing (2026-08-07, singularity on ccc0272):
+sqlite-db-truncate
+cancel-async-tasks
+code-from-image
+kv-store-grpc
+openssl-selfsigned-cert
+raman-fitting
+
+# Harder tier, oracle-verified 2026-08-07. Added because sonnet-5 clears most of
+# the tier above (4/6 resolved), leaving too few failures to diagnose.
+circuit-fibsqrt
+db-wal-recovery
+distribution-search
+feal-linear-cryptanalysis
+path-tracing-reverse
+
+# Excluded — harbor singularity bootstrap crash (RuntimeError: server died;
+# "FATAL: cannot bootstrap pip"). Image ships no python3. Not our bug.
+#   torch-tensor-parallelism
+#
+# Excluded — oracle ran cleanly but scored reward 0.0, so the task is not a
+# valid pass/fail signal in this environment:
+#   count-dataset-tokens
+#   sqlite-with-gcov
+#   cobol-modernization
+#
+# Excluded — reproducible harness flake (2/2 runs): the container is force-killed
+# before the verifier writes reward.txt -> RewardFileNotFoundError.
+#   write-compressor

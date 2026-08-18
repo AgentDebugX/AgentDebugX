@@ -1,0 +1,33 @@
+# Terminal-Bench 2.1 candidate pool for the AgentDebugX evaluation.
+# The `terminal-bench/` prefix is added automatically by run_eval.py.
+#
+# Status A: oracle-passed with Harbor's singularity backend on 2026-08-07.
+sqlite-db-truncate
+cancel-async-tasks
+code-from-image
+kv-store-grpc
+openssl-selfsigned-cert
+raman-fitting
+circuit-fibsqrt
+db-wal-recovery
+distribution-search
+feal-linear-cryptanalysis
+path-tracing-reverse
+
+# Status B: static Apptainer candidates, not yet runtime- or oracle-verified.
+# Screened for a single prebuilt image, gpus=0, 1 CPU, 2 GB RAM, and no
+# documented QEMU, nested-container, or privileged-runtime requirement.
+adaptive-rejection-sampler
+break-filter-js-from-html
+build-cython-ext
+constraints-scheduling
+custom-memory-heap-crash
+fix-code-vulnerability
+fix-git
+git-leak-recovery
+large-scale-text-editing
+log-summary-date-ranges
+multi-source-data-merger
+polyglot-c-py
+regex-log
+sanitize-git-repo
