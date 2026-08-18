@@ -94,6 +94,8 @@ import agentdebug.gui.eval
 import agentdebug.gui.evolving
 import agentdebug.gui.pipeline
 import agentdebug.gui.scripts.download_input_trajectory
+import agentdebug.inspect.discussion
+import agentdebug.inspect.ui.discussion_store
 from agentdebug.gui import build_output, tag_from_rca, soft_tag_candidates
 from agentdebug.runtime.gui_taxonomy import list_gui_failure_modes
 from agentdebug.runtime.llm_channel import _load_gui_converters
@@ -373,6 +375,7 @@ def test_convert_osworld_dir_attaches_screenshots(osworld_dir: Path):
     assert len(artifacts) == 1
     assert artifacts[0].modality == Modality.IMAGE
     assert artifacts[0].media_type == 'image/png'
+    assert artifacts[0].metadata['visual_role'] == 'after'
     assert traj.events[1].artifacts == []
 
 

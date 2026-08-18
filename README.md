@@ -504,10 +504,19 @@ the local UI are retained only for the current browser tab.
 OSWorld trajectories with locally available screenshot artifacts open in the
 read-only **Visual** view by default. Use the **Trace / Visual** control to
 switch without changing the selected event; the choice is remembered per trace
-for the current browser tab. Screenshots are served only through trace/event
-artifact IDs, and only when the resolved image remains inside the trajectory's
-recorded `metadata.source_dir`. The separate Streamlit app remains the tool for
-annotation, multi-reviewer assignment, discussion, and accuracy workflows.
+for the current browser tab. Visual compares the selected action's **Before**
+state (an explicit input image or the immediately preceding event result) with
+all **After** images attached to the selected event; it never changes timeline
+selection or guesses across missing steps. Screenshots are served only through
+trace/event artifact IDs, and only when the resolved image remains inside the
+trajectory's recorded `metadata.source_dir`.
+
+**Discuss with Debugger** is available for every normalized trace format, not
+only CUA. Discussions are persisted locally, pinned to a report snapshot, cite
+canonical event IDs, and may produce an exportable report-revision draft.
+Discussion tools are read-only and drafts never overwrite stored diagnostic
+reports. The separate Streamlit app remains the tool for annotation,
+multi-reviewer assignment, and accuracy workflows.
 
 ## Privacy and Safety
 

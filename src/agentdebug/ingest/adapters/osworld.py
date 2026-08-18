@@ -147,6 +147,7 @@ def _convert_osworld(
                     modality=Modality.IMAGE,
                     media_type=media_type,
                     description=f'screenshot for step {step.step_num}',
+                    metadata={'visual_role': 'after'},
                 )
             )
         traj.add_event(event)

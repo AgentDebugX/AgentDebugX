@@ -9,7 +9,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
+from agentdebug.inspect.discussion import (
+    DiscussionError,
+    DiscussionLLMError,
+    DiscussionService,
+)
 from agentdebug.inspect.ui.branch_store import (
     _append_case_record,
     _append_debug_branch_record,
@@ -20,6 +26,12 @@ from agentdebug.inspect.ui.branch_store import (
     _read_case_records,
     _read_debug_branch_records,
     _write_debug_branch_records,
+)
+from agentdebug.inspect.ui.discussion_store import (
+    DiscussionNotFoundError,
+    DiscussionStoreError,
+    DiscussionVersionConflictError,
+    SQLiteDiscussionStore,
 )
 from agentdebug.inspect.ui.services import (
     _build_debug_continuation_context,
@@ -39,7 +51,12 @@ from agentdebug.runtime import TraceStore
 from agentdebug.schema import SEED_FAILURE_MODES, model_to_json
 
 
-def build_app(store: TraceStore) -> Any:
+def build_app(
+    store: TraceStore,
+    *,
+    discussion_store: Optional[SQLiteDiscussionStore] = None,
+    discussion_llm_factory: Optional[Any] = None,
+) -> Any:
     try:
         from fastapi import FastAPI, HTTPException, Request
         from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -49,12 +66,106 @@ def build_app(store: TraceStore) -> Any:
             'Install with `pip install agentdebugx[ui]`.'
         ) from exc
     globals()['_FastAPIRequest'] = Request
+    conversations = discussion_store or SQLiteDiscussionStore()
 
     app = FastAPI(
         title='AgentDebugX',
         description='Local debug console for agent trajectories.',
         version='0.1.0',
     )
+
+    def discussion_session_payload(session: Any) -> Dict[str, Any]:
+        trajectory = store.load_trajectory(session.trace_id)
+        stale_report = False
+        if trajectory is not None:
+            try:
+                current = _resolve_trace_analysis(store, trajectory)['report']
+                stale_report = (
+                    DiscussionService(trajectory, current).report_digest
+                    != session.report_digest
+                )
+            except (DiscussionError, ValueError):
+                stale_report = True
+        report_metadata = session.report_snapshot.get('metadata') or {}
+        return {
+            'session_id': session.session_id,
+            'trace_id': session.trace_id,
+            'report_id': session.report_id,
+            'report_source': str(
+                report_metadata.get('analyzer')
+                or report_metadata.get('mode')
+                or 'pinned snapshot'
+            ),
+            'snapshot_digest': session.snapshot_digest,
+            'report_digest': session.report_digest,
+            'model': session.model,
+            'status': session.status,
+            'version': session.version,
+            'created_at': session.created_at,
+            'updated_at': session.updated_at,
+            'stale_report': stale_report,
+        }
+
+    def require_discussion(trace_id: str, session_id: str) -> Any:
+        session = conversations.get_session(session_id)
+        if session is None or session.trace_id != trace_id:
+            raise HTTPException(status_code=404, detail='discussion not found')
+        return session
+
+    def discussion_detail(session: Any) -> Dict[str, Any]:
+        return {
+            'session': discussion_session_payload(session),
+            'messages': [
+                message.to_dict()
+                for message in conversations.list_messages(session.session_id)
+            ],
+        }
+
+    def discussion_llm(payload: Dict[str, Any], *, fallback_model: str) -> Any:
+        if discussion_llm_factory is not None:
+            return discussion_llm_factory(payload)
+        from agentdebug.core.llm import OpenAICompatClient
+
+        base_url = str(
+            payload.get('base_url')
+            or os.environ.get('AGENTDEBUG_LLM_BASE_URL')
+            or ''
+        ).strip()
+        api_key = str(
+            payload.get('api_key')
+            or os.environ.get('AGENTDEBUG_LLM_API_KEY')
+            or ''
+        ).strip()
+        model = str(
+            payload.get('model')
+            or os.environ.get('AGENTDEBUG_LLM_MODEL')
+            or fallback_model
+            or ''
+        ).strip()
+        parsed = urlparse(base_url)
+        if (
+            parsed.scheme not in {'http', 'https'}
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail='Discussion requires a valid HTTP(S) LLM Base URL.',
+            )
+        if not api_key or not model:
+            raise HTTPException(
+                status_code=400,
+                detail='Discussion requires Base URL, API Key, and Model.',
+            )
+        normalized_url = base_url.removesuffix('/chat/completions').rstrip('/')
+        return OpenAICompatClient(
+            base_url=normalized_url,
+            api_key=api_key,
+            model=model,
+            default_max_tokens=2048,
+            timeout=90.0,
+        )
 
     @app.middleware('http')
     async def add_local_ui_security_headers(
@@ -292,6 +403,148 @@ def build_app(store: TraceStore) -> Any:
         except ValueError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         return FileResponse(path, media_type=media_type)
+
+    @app.get('/api/v1/traces/{trace_id}/discussions')
+    def list_trace_discussions(trace_id: str) -> Dict[str, Any]:
+        if store.load_trajectory(trace_id) is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        return {
+            'trace_id': trace_id,
+            'sessions': [
+                discussion_session_payload(session)
+                for session in conversations.list_sessions(trace_id=trace_id)
+            ],
+        }
+
+    @app.post('/api/v1/traces/{trace_id}/discussions')
+    def create_trace_discussion(
+        trace_id: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        trajectory = store.load_trajectory(trace_id)
+        if trajectory is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        report_id = str(payload.get('report_id') or '').strip() or None
+        try:
+            report = _resolve_trace_analysis(
+                store,
+                trajectory,
+                report_id=report_id,
+            )['report']
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        model = str(
+            payload.get('model')
+            or os.environ.get('AGENTDEBUG_LLM_MODEL')
+            or 'not configured'
+        ).strip()
+        try:
+            session = conversations.create_session(
+                trajectory,
+                report,
+                model=model,
+            )
+        except DiscussionStoreError as exc:
+            raise HTTPException(status_code=400, detail=exc.public_message) from exc
+        return discussion_detail(session)
+
+    @app.get('/api/v1/traces/{trace_id}/discussions/{session_id}')
+    def get_trace_discussion(trace_id: str, session_id: str) -> Dict[str, Any]:
+        return discussion_detail(require_discussion(trace_id, session_id))
+
+    @app.delete('/api/v1/traces/{trace_id}/discussions/{session_id}')
+    def delete_trace_discussion(
+        trace_id: str,
+        session_id: str,
+    ) -> Dict[str, Any]:
+        session = require_discussion(trace_id, session_id)
+        try:
+            conversations.delete_session(
+                session.session_id,
+                expected_version=session.version,
+            )
+        except DiscussionVersionConflictError as exc:
+            raise HTTPException(status_code=409, detail=exc.public_message) from exc
+        except DiscussionStoreError as exc:
+            raise HTTPException(status_code=400, detail=exc.public_message) from exc
+        return {'deleted': session_id}
+
+    @app.post('/api/v1/traces/{trace_id}/discussions/{session_id}/messages')
+    def send_trace_discussion_message(
+        trace_id: str,
+        session_id: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        require_discussion(trace_id, session_id)
+        message_text = str(payload.get('message') or '').strip()
+        client_message_id = str(payload.get('client_message_id') or '').strip()
+        if not message_text or len(message_text) > 8000:
+            raise HTTPException(
+                status_code=400,
+                detail='message must contain between 1 and 8000 characters',
+            )
+        if not client_message_id:
+            raise HTTPException(status_code=400, detail='client_message_id is required')
+        try:
+            expected_version = int(payload.get('expected_version'))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail='expected_version is required',
+            ) from exc
+
+        prior_messages = conversations.list_messages(session_id)
+        assistant_client_id = client_message_id + ':assistant'
+        if any(
+            item.client_message_id == assistant_client_id
+            for item in prior_messages
+        ):
+            return discussion_detail(require_discussion(trace_id, session_id))
+        try:
+            user_message = conversations.append_message(
+                session_id,
+                role='user',
+                content=message_text,
+                expected_version=expected_version,
+                client_message_id=client_message_id,
+            )
+            updated = require_discussion(trace_id, session_id)
+            llm = discussion_llm(payload, fallback_model=updated.model)
+            service = DiscussionService(
+                updated.trajectory,
+                updated.report,
+                llm,
+                model=str(getattr(llm, 'model', '') or updated.model),
+            )
+            history = [
+                {'role': item.role, 'content': item.content}
+                for item in prior_messages
+                if item.role in {'user', 'assistant'}
+            ]
+            result = service.discuss(message_text, history=history)
+            result_payload = result.to_dict()
+            conversations.append_message(
+                session_id,
+                role='assistant',
+                content=result.content,
+                expected_version=updated.version,
+                citations=result_payload.get('citations') or [],
+                proposal=result_payload.get('revision_draft'),
+                usage=result.usage,
+                client_message_id=assistant_client_id,
+            )
+        except DiscussionVersionConflictError as exc:
+            raise HTTPException(status_code=409, detail=exc.public_message) from exc
+        except DiscussionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=exc.public_message) from exc
+        except DiscussionLLMError as exc:
+            raise HTTPException(status_code=502, detail=exc.public_message) from exc
+        except DiscussionError as exc:
+            raise HTTPException(status_code=400, detail=exc.public_message) from exc
+        except DiscussionStoreError as exc:
+            raise HTTPException(status_code=400, detail=exc.public_message) from exc
+        _ = user_message
+        return discussion_detail(require_discussion(trace_id, session_id))
 
     @app.get('/api/v1/diagnose/options')
     def get_diagnose_options() -> Dict[str, Any]:

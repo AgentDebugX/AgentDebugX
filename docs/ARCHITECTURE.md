@@ -146,6 +146,19 @@ capability is present, retains a per-trace Trace/Visual override in
 and `DiagnosticReport` evidence. Streamlit remains a separate annotation and
 evaluation surface rather than a second runtime dashboard.
 
+Visual comparison is event-centric: for selected event N, explicit `before`
+artifacts take precedence, otherwise N−1's result is the Before state; N's
+role-tagged images are the After state. Multiple images remain ordered by their
+artifact indices, and a missing adjacent state is shown as missing rather than
+substituted from an older event.
+
+The dashboard discussion channel is format-neutral. It snapshots an
+`AgentTrajectory` and selected `DiagnosticReport`, exposes only bounded
+read-only event/report tools, and stores versioned sessions separately in
+`.agentdebug/discussions.sqlite`. Assistant citations use canonical event IDs.
+Structured report-revision proposals are drafts for explicit export, never
+implicit report mutations.
+
 ## 6. Knowledge: memory, lessons, Error Hub
 
 | Source | Mechanism | Status |

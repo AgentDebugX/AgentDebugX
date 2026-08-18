@@ -1024,16 +1024,41 @@ _INDEX_HTML = r"""<!doctype html>
   .trace-visual-toggle button.active { color:#e9fffe; background:#234542; }
   .trace-visual-toggle button:disabled { opacity:.36; cursor:not-allowed; }
   .visual-inspector { display:grid; gap:14px; }
+  .visual-comparison { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .visual-pane {
+    min-width:0; border:1px solid #34413f; border-radius:12px;
+    background:#0d1111; overflow:hidden;
+  }
+  .visual-pane-head {
+    display:flex; justify-content:space-between; gap:8px; align-items:center;
+    padding:10px 12px; border-bottom:1px solid #293331; background:#121717;
+  }
+  .visual-pane-title { font-size:12px; font-weight:820; color:#e9efeb; }
+  .visual-pane-source { font-size:10px; color:var(--muted); }
   .visual-stage {
-    position:relative; min-height:360px; display:grid; place-items:center;
-    overflow:auto; border:1px solid #34413f; border-radius:12px;
-    background:#080b0b; padding:12px;
+    position:relative; min-height:300px; display:grid; place-items:center;
+    overflow:auto; background:#080b0b; padding:12px;
   }
   .visual-stage img {
     display:block; max-width:100%; max-height:66vh; width:auto; height:auto;
     object-fit:contain; border-radius:5px;
   }
   .visual-image-wrap { position:relative; display:inline-block; line-height:0; }
+  .visual-gallery-image { display:none; }
+  .visual-gallery-image.active { display:inline-block; }
+  .visual-thumbnails {
+    min-height:39px; display:flex; gap:6px; align-items:center; padding:7px 10px;
+    border-top:1px solid #293331; overflow-x:auto;
+  }
+  .visual-thumb {
+    height:25px; min-width:32px; border:1px solid #34413f; border-radius:6px;
+    background:#151b1a; color:var(--muted); font-size:10px; cursor:pointer;
+  }
+  .visual-thumb.active { border-color:var(--cyan); color:#e9fffe; background:#203b39; }
+  .visual-media-caption {
+    min-height:34px; padding:8px 10px; color:var(--muted); font-size:10px;
+    border-top:1px solid #202826; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
   .visual-click-marker {
     position:absolute; display:none; width:24px; height:24px; margin:-12px 0 0 -12px;
     border:3px solid #ff4949; border-radius:50%; box-shadow:0 0 0 2px rgba(0,0,0,.65);
@@ -1054,6 +1079,11 @@ _INDEX_HTML = r"""<!doctype html>
   .visual-copy-card p {
     margin:7px 0 0; color:#dce3df; white-space:pre-wrap; overflow-wrap:anywhere;
     line-height:1.5; max-height:220px; overflow:auto;
+  }
+  @media (max-width: 900px) {
+    .visual-comparison, .visual-copy-grid { grid-template-columns:1fr; }
+    .visual-copy-card.wide { grid-column:auto; }
+    .visual-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }
   }
   .editor-event-hero {
     display:grid; grid-template-columns:72px minmax(0,1fr) auto; gap:14px;
@@ -3742,6 +3772,39 @@ _INDEX_HTML = r"""<!doctype html>
   .workspace-drawer.right .pattern-summary-actions { justify-content:flex-start; }
   .workspace-drawer.right .case-controls { grid-template-columns:minmax(200px,1fr) repeat(2,minmax(130px,auto)); }
   .workspace-drawer.right .case-list-scroll { max-height:none; }
+  .discussion-shell { min-height:100%; display:grid; grid-template-columns:220px minmax(0,1fr); gap:14px; }
+  .discussion-sessions {
+    min-width:0; border:1px solid var(--line); border-radius:10px; background:rgba(8,14,20,.48);
+    padding:10px; display:flex; flex-direction:column; gap:8px;
+  }
+  .discussion-session {
+    width:100%; border:1px solid var(--line); border-radius:8px; background:#101820;
+    color:var(--muted); padding:9px; text-align:left; cursor:pointer;
+  }
+  .discussion-session.active { border-color:var(--cyan); color:var(--fg); background:#132a2c; }
+  .discussion-main { min-width:0; display:grid; grid-template-rows:auto minmax(280px,1fr) auto; gap:10px; }
+  .discussion-meta { display:flex; gap:7px; flex-wrap:wrap; align-items:center; }
+  .discussion-messages {
+    min-height:320px; max-height:calc(100vh - 280px); overflow:auto; padding:12px;
+    border:1px solid var(--line); border-radius:10px; background:#070d12;
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .discussion-message {
+    max-width:88%; padding:10px 12px; border:1px solid var(--line); border-radius:10px;
+    white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5;
+  }
+  .discussion-message.user { align-self:flex-end; background:#173034; border-color:#285158; }
+  .discussion-message.assistant { align-self:flex-start; background:#121a22; }
+  .discussion-citations { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+  .discussion-composer { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+  .discussion-composer textarea {
+    min-height:76px; resize:vertical; border:1px solid var(--line2); border-radius:9px;
+    background:#0b131a; color:var(--fg); padding:10px; font:inherit;
+  }
+  .discussion-draft {
+    margin-top:8px; padding:10px; border:1px solid #6d552d; border-radius:8px;
+    background:#211a10; color:#ffe4b8;
+  }
   body.drawer-open .timeline-dock { pointer-events:none; }
   #hub-btn.drawer-active { border-color:var(--cyan); color:#DDFDFF; background:rgba(114,232,244,.12); }
   body.theme-light .workspace-drawer { background:#F7FAF8; border-color:#D3DEDA; box-shadow:0 28px 70px rgba(41,54,51,.24); }
@@ -3759,6 +3822,8 @@ _INDEX_HTML = r"""<!doctype html>
     .workspace-drawer.right .case-detail-panel { grid-column:auto; }
     .workspace-drawer.right .pattern-nav { position:static; }
     .workspace-drawer.right .case-controls { grid-template-columns:minmax(0,1fr); }
+    .discussion-shell { grid-template-columns:1fr; }
+    .discussion-sessions { max-height:150px; overflow:auto; }
   }
   /* Daylight theme is intentionally designed, not an inverted dark theme. */
   body.theme-light {
@@ -4780,6 +4845,10 @@ _INDEX_HTML = r"""<!doctype html>
   <div class="workspace-drawer-head"><div class="workspace-drawer-heading"><div class="workspace-drawer-title">Error Hub</div><div class="workspace-drawer-subtitle">Saved cases and reusable failure patterns</div></div><button class="workspace-drawer-close" type="button" data-close-drawer aria-label="Close Error Hub">×</button></div>
   <div class="workspace-drawer-content" id="hub-drawer-content"></div>
 </aside>
+<aside class="workspace-drawer right" id="discussion-drawer" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Discuss with Debugger">
+  <div class="workspace-drawer-head"><div class="workspace-drawer-heading"><div class="workspace-drawer-title">Discuss with Debugger</div><div class="workspace-drawer-subtitle">Trace-grounded, read-only analysis</div></div><button class="workspace-drawer-close" type="button" data-close-drawer aria-label="Close discussion">×</button></div>
+  <div class="workspace-drawer-content" id="discussion-drawer-content"></div>
+</aside>
 <div id="chart-tooltip" class="chart-tooltip" role="status" aria-live="polite"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>
@@ -4790,6 +4859,7 @@ let CURRENT_TRACE_DATA = null;
 let CURRENT_VIEW = (BOOTSTRAP && BOOTSTRAP.view) || 'overview';
 let ACTIVE_DRAWER = null;
 let DRAWER_RETURN_FOCUS = null;
+let CURRENT_DISCUSSION_ID = null;
 let CURRENT_EXPANDED_EVENT_ID = null;
 let ACTIVE_TRACE_FILTER = 'all';
 let TIMELINE_ZOOM = 1;
@@ -4800,6 +4870,7 @@ const DEBUG_BACKEND_STORAGE_KEY = 'agentdebugx-debug-backend-v1';
 const LLM_SETTINGS_STORAGE_KEY = 'agentdebugx-llm-settings-v1';
 const LLM_API_KEY_SESSION_KEY = 'agentdebugx-llm-api-key-v1';
 const TRACE_VIEW_MODE_PREFIX = 'agentdebugx-trace-view-mode:';
+const VISUAL_LAYOUT_PREFIX = 'agentdebugx-visual-layout:';
 const DEBUG_BRANCH_SYNCED = new Set();
 let DEBUG_BRANCHES = loadDebugBranches();
 let CURRENT_BRANCH_EVENT_MAP = new Map();
@@ -4839,6 +4910,19 @@ async function api(path) {
     throw new Error('HTTP ' + r.status + detail);
   }
   return r.json();
+}
+async function discussionApi(path, options) {
+  const response = await fetch(path, options || {});
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const payload = await response.json();
+      detail = payload?.detail ? ': ' + payload.detail : '';
+    } catch (_e) {
+    }
+    throw new Error('HTTP ' + response.status + detail);
+  }
+  return response.status === 204 ? {} : response.json();
 }
 function cssEscape(value) {
   if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(String(value));
@@ -4937,10 +5021,152 @@ async function loadHubDrawer() {
     target.innerHTML = '<div class="empty">' + escapeHtml(e.message || e) + '</div>';
   }
 }
+async function loadDiscussionDrawer() {
+  const target = document.getElementById('discussion-drawer-content');
+  if (!target || !CURRENT_TRACE_ID) return;
+  target.innerHTML = loadingState('Loading debugger discussions');
+  try {
+    const payload = await discussionApi('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/discussions');
+    const sessions = payload.sessions || [];
+    if (!CURRENT_DISCUSSION_ID && sessions.length) CURRENT_DISCUSSION_ID = sessions[0].session_id;
+    let active = null;
+    if (CURRENT_DISCUSSION_ID) {
+      try {
+        active = await discussionApi('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/discussions/' + encodeURIComponent(CURRENT_DISCUSSION_ID));
+      } catch (_e) {
+        CURRENT_DISCUSSION_ID = null;
+      }
+    }
+    renderDiscussionDrawer(target, sessions, active);
+  } catch (e) {
+    target.innerHTML = '<div class="empty">' + escapeHtml(e.message || e) + '</div>';
+  }
+}
+function renderDiscussionDrawer(target, sessions, activePayload) {
+  const active = activePayload?.session || activePayload || null;
+  const messages = activePayload?.messages || active?.messages || [];
+  let html = '<div class="discussion-shell"><aside class="discussion-sessions">';
+  html += '<button class="button primary" type="button" data-new-discussion>New discussion</button>';
+  sessions.forEach(session => {
+    const selected = session.session_id === CURRENT_DISCUSSION_ID;
+    html += '<button class="discussion-session ' + (selected ? 'active' : '') + '" type="button" data-discussion-id="' + escapeHtml(session.session_id || '') + '"><strong>' + escapeHtml(session.model || 'Debugger') + '</strong><br><span>' + escapeHtml(session.created_at || '') + '</span></button>';
+  });
+  if (!sessions.length) html += '<div class="panel-hint">No saved discussions for this trace.</div>';
+  html += '</aside><section class="discussion-main">';
+  if (!active) {
+    html += '<div class="editor-empty"><div><strong>Start a trace-grounded discussion</strong><span>The debugger will use the selected report and read-only event tools.</span></div></div></section></div>';
+    target.innerHTML = html;
+    bindDiscussionDrawer();
+    return;
+  }
+  html += '<div class="discussion-meta"><span class="chip cyan">' + escapeHtml(active.model || 'configured model') + '</span><span class="chip">' + escapeHtml(active.report_source || 'report snapshot') + '</span>';
+  if (active.stale_report) html += '<span class="chip warn">Pinned to earlier analysis</span>';
+  html += '<button class="timeline-tool" type="button" data-delete-discussion>Delete</button></div>';
+  html += '<div class="discussion-messages" id="discussion-messages">';
+  messages.forEach(message => {
+    const role = message.role === 'user' ? 'user' : 'assistant';
+    html += '<div class="discussion-message ' + role + '"><div>' + escapeHtml(message.content || '') + '</div>';
+    if (Array.isArray(message.citations) && message.citations.length) {
+      html += '<div class="discussion-citations">';
+      message.citations.forEach(citation => {
+        const eventId = typeof citation === 'string' ? citation : citation?.event_id;
+        if (!eventId) return;
+        html += '<button class="related-link" type="button" data-discussion-event="' + escapeHtml(eventId) + '">' + escapeHtml(eventId) + '</button>';
+      });
+      html += '</div>';
+    }
+    if (message.proposal) {
+      html += '<div class="discussion-draft"><strong>Report revision draft</strong><pre class="raw-pre">' + escapeHtml(JSON.stringify(message.proposal, null, 2)) + '</pre><button class="timeline-tool" type="button" data-export-discussion-draft="' + escapeHtml(message.message_id || '') + '">Export draft</button></div>';
+    }
+    html += '</div>';
+  });
+  if (!messages.length) html += '<div class="panel-hint">Ask about a suspicious event, root cause, evidence, or an alternate diagnosis.</div>';
+  html += '</div><form class="discussion-composer" id="discussion-form"><textarea id="discussion-input" maxlength="8000" placeholder="Ask the debugger about this trace..." required></textarea><button class="button primary" type="submit">Send</button></form></section></div>';
+  target.innerHTML = html;
+  target.querySelector('#discussion-messages')?.scrollTo({top: 999999});
+  bindDiscussionDrawer(active, messages);
+}
+function bindDiscussionDrawer(active, messages) {
+  document.querySelector('[data-new-discussion]')?.addEventListener('click', async () => {
+    try {
+      const settings = readLLMSettings();
+      const payload = await discussionApi('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/discussions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({report_id: activeStoredReportId(), model: settings.model || ''})
+      });
+      CURRENT_DISCUSSION_ID = payload.session?.session_id || payload.session_id;
+      await loadDiscussionDrawer();
+    } catch (error) {
+      notify('Discussion creation failed: ' + (error.message || error));
+    }
+  });
+  document.querySelectorAll('[data-discussion-id]').forEach(button => {
+    button.onclick = async () => {
+      CURRENT_DISCUSSION_ID = button.dataset.discussionId || null;
+      await loadDiscussionDrawer();
+    };
+  });
+  document.querySelector('[data-delete-discussion]')?.addEventListener('click', async () => {
+    if (!CURRENT_DISCUSSION_ID || !window.confirm('Delete this discussion?')) return;
+    try {
+      await discussionApi('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/discussions/' + encodeURIComponent(CURRENT_DISCUSSION_ID), {method: 'DELETE'});
+      CURRENT_DISCUSSION_ID = null;
+      await loadDiscussionDrawer();
+    } catch (error) {
+      notify('Delete failed: ' + (error.message || error));
+    }
+  });
+  document.querySelectorAll('[data-discussion-event]').forEach(button => {
+    button.onclick = () => {
+      const eventId = button.dataset.discussionEvent || '';
+      if (!CURRENT_TRACE_DATA?.trajectory?.events?.some(event => event.event_id === eventId)) return;
+      CURRENT_EXPANDED_EVENT_ID = eventId;
+      renderTrace(CURRENT_TRACE_DATA.trajectory, CURRENT_TRACE_DATA.report);
+      positionTimelinePlayhead(eventId);
+    };
+  });
+  document.querySelectorAll('[data-export-discussion-draft]').forEach(button => {
+    button.onclick = () => {
+      const message = (messages || []).find(item => String(item.message_id) === String(button.dataset.exportDiscussionDraft));
+      if (!message?.proposal) return;
+      downloadBlob('report-revision-draft-' + CURRENT_TRACE_ID + '.json', JSON.stringify(message.proposal, null, 2), 'application/json');
+    };
+  });
+  const form = document.getElementById('discussion-form');
+  if (form && active) {
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const input = document.getElementById('discussion-input');
+      const message = String(input?.value || '').trim();
+      if (!message) return;
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      try {
+        const settings = readLLMSettings();
+        await discussionApi('/api/v1/traces/' + encodeURIComponent(CURRENT_TRACE_ID) + '/discussions/' + encodeURIComponent(CURRENT_DISCUSSION_ID) + '/messages', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            message,
+            expected_version: active.version,
+            client_message_id: window.crypto?.randomUUID?.() || ('msg-' + Date.now()),
+            base_url: settings.base_url || '',
+            api_key: settings.api_key || '',
+            model: settings.model || active.model || ''
+          })
+        });
+        await loadDiscussionDrawer();
+      } catch (error) {
+        await loadDiscussionDrawer();
+        notify('Debugger discussion failed: ' + (error.message || error));
+      }
+    };
+  }
+}
 function openWorkspaceDrawer(kind, trigger) {
-  const resolved = kind === 'hub' ? 'hub' : 'overview';
+  const resolved = ['hub', 'discussion'].includes(kind) ? kind : 'overview';
   const drawer = document.getElementById(resolved + '-drawer');
-  const other = document.getElementById((resolved === 'overview' ? 'hub' : 'overview') + '-drawer');
   const scrim = document.getElementById('workspace-drawer-scrim');
   if (!drawer || !scrim) return;
   if (ACTIVE_DRAWER === resolved) {
@@ -4950,8 +5176,12 @@ function openWorkspaceDrawer(kind, trigger) {
   if (DRAWER_RETURN_FOCUS) DRAWER_RETURN_FOCUS.setAttribute('aria-expanded', 'false');
   DRAWER_RETURN_FOCUS = trigger || null;
   ACTIVE_DRAWER = resolved;
-  other?.classList.remove('visible');
-  other?.setAttribute('aria-hidden', 'true');
+  document.querySelectorAll('.workspace-drawer').forEach(other => {
+    if (other !== drawer) {
+      other.classList.remove('visible');
+      other.setAttribute('aria-hidden', 'true');
+    }
+  });
   drawer.classList.add('visible');
   drawer.setAttribute('aria-hidden', 'false');
   scrim.classList.add('visible');
@@ -4960,10 +5190,13 @@ function openWorkspaceDrawer(kind, trigger) {
   document.getElementById('hub-btn')?.setAttribute('aria-expanded', resolved === 'hub' ? 'true' : 'false');
   document.getElementById('overview-btn')?.classList.toggle('drawer-active', resolved === 'overview');
   document.getElementById('overview-btn')?.setAttribute('aria-expanded', resolved === 'overview' ? 'true' : 'false');
+  document.getElementById('discussion-btn')?.classList.toggle('drawer-active', resolved === 'discussion');
+  document.getElementById('discussion-btn')?.setAttribute('aria-expanded', resolved === 'discussion' ? 'true' : 'false');
   setRailMode(resolved === 'overview' ? 'overview' : 'trace');
   window.requestAnimationFrame(() => drawer.querySelector('[data-close-drawer]')?.focus());
   if (resolved === 'overview') loadOverviewDrawer();
-  else loadHubDrawer();
+  else if (resolved === 'hub') loadHubDrawer();
+  else loadDiscussionDrawer();
 }
 function closeWorkspaceDrawer(restoreFocus = true) {
   if (!ACTIVE_DRAWER) return;
@@ -4976,6 +5209,8 @@ function closeWorkspaceDrawer(restoreFocus = true) {
   document.getElementById('hub-btn')?.setAttribute('aria-expanded', 'false');
   document.getElementById('overview-btn')?.classList.remove('drawer-active');
   document.getElementById('overview-btn')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('discussion-btn')?.classList.remove('drawer-active');
+  document.getElementById('discussion-btn')?.setAttribute('aria-expanded', 'false');
   document.body.classList.remove('drawer-open');
   ACTIVE_DRAWER = null;
   setRailMode('trace');
@@ -5132,6 +5367,7 @@ async function selectTrace(tid, li, reportId) {
   if (ACTIVE_DRAWER) closeWorkspaceDrawer(false);
   document.querySelectorAll('.run').forEach(el => el.classList.remove('active'));
   if (li && li.classList) li.classList.add('active');
+  if (CURRENT_TRACE_ID !== tid) CURRENT_DISCUSSION_ID = null;
   CURRENT_TRACE_ID = tid;
   CURRENT_VIEW = 'trace';
   document.getElementById('detail').innerHTML = loadingState('Loading trace analysis...');
@@ -5159,6 +5395,24 @@ function traceViewMode(traceId, capability) {
 function setTraceViewMode(traceId, mode) {
   try {
     sessionStorage.setItem(TRACE_VIEW_MODE_PREFIX + traceId, mode);
+  } catch (_e) {
+  }
+}
+function visualLayoutMode(traceId) {
+  try {
+    return sessionStorage.getItem(VISUAL_LAYOUT_PREFIX + traceId) === 'compare'
+      ? 'compare'
+      : 'single';
+  } catch (_e) {
+    return 'single';
+  }
+}
+function setVisualLayoutMode(traceId, mode) {
+  try {
+    sessionStorage.setItem(
+      VISUAL_LAYOUT_PREFIX + traceId,
+      mode === 'single' ? 'single' : 'compare'
+    );
   } catch (_e) {
   }
 }
@@ -5217,6 +5471,7 @@ function renderTrace(traj, report) {
     html += '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>';
     html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Prepare Rerun</button>';
     html += '<button class="timeline-tool" id="diagnose-pipeline-btn" type="button" data-open-diagnose>Diagnose Pipeline</button>';
+    html += '<button class="timeline-tool" id="discussion-btn" type="button" aria-expanded="false" aria-controls="discussion-drawer">Discuss with Debugger</button>';
     const reportOptions = Array.isArray(CURRENT_TRACE_DATA?.reports) ? CURRENT_TRACE_DATA.reports : [];
     const storedReportOptions = reportOptions.filter(item => item?.source === 'stored');
     if (storedReportOptions.length) {
@@ -5261,6 +5516,7 @@ function renderTrace(traj, report) {
   bindReportSelector(traj.trace_id || '');
   bindTraceViewToggle(traj, report);
   bindVisualViewer();
+  bindDiscussionButton();
   bindHubButton();
 }
 function reportOptionLabel(item) {
@@ -6539,31 +6795,68 @@ function visualText(value) {
   if (value === null || value === undefined || value === '') return 'Not recorded.';
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
+function renderVisualPane(label, paneKey, pane, click, showMarker) {
+  const media = Array.isArray(pane?.media) ? pane.media : [];
+  const source = pane?.source === 'previous_event'
+    ? 'previous event result'
+    : (pane?.source === 'explicit' ? 'explicit artifact' : 'selected event result');
+  let html = '<section class="visual-pane" data-visual-pane="' + escapeHtml(paneKey) + '">';
+  html += '<div class="visual-pane-head"><div class="visual-pane-title">' + escapeHtml(label) + '</div><div class="visual-pane-source">' + escapeHtml(source) + (pane?.event_id ? ' · ' + escapeHtml(pane.event_id) : '') + '</div></div>';
+  if (media.length) {
+    html += '<div class="visual-stage">';
+    media.forEach((image, mediaIndex) => {
+      html += '<div class="visual-image-wrap visual-gallery-image ' + (mediaIndex === 0 ? 'active' : '') + '" data-gallery-index="' + mediaIndex + '"><img class="visual-screenshot" loading="lazy" src="' + escapeHtml(image.url) + '" alt="' + escapeHtml(image.description || (label + ' screenshot ' + (mediaIndex + 1))) + '"';
+      if (showMarker && click) html += ' data-click-x="' + escapeHtml(click.x) + '" data-click-y="' + escapeHtml(click.y) + '"';
+      html += ' />';
+      if (showMarker && click) html += '<span class="visual-click-marker" aria-label="Recorded click position"></span>';
+      html += '</div>';
+    });
+    html += '</div><div class="visual-thumbnails" role="tablist" aria-label="' + escapeHtml(label + ' screenshots') + '">';
+    media.forEach((image, mediaIndex) => {
+      html += '<button type="button" class="visual-thumb ' + (mediaIndex === 0 ? 'active' : '') + '" data-gallery-select="' + mediaIndex + '" title="' + escapeHtml(image.description || image.media_type || 'image') + '">' + (mediaIndex + 1) + '</button>';
+    });
+    html += '</div><div class="visual-media-caption">' + escapeHtml(media.length + ' image' + (media.length === 1 ? '' : 's') + ' · ' + (media[0]?.media_type || 'image')) + '</div>';
+  } else {
+    html += '<div class="visual-stage"><div class="editor-empty"><div><strong>' + escapeHtml(label) + ' screenshot unavailable</strong><span>No safe image is recorded for this state. The selected event has not changed.</span></div></div></div>';
+  }
+  html += '</section>';
+  return html;
+}
 function renderVisualInspector(ev, isRoot, finding, ordinal, events, report, capability) {
-  const media = capability?.events?.[ev.event_id] || [];
-  const image = media[0] || null;
+  const comparison = capability?.comparisons?.[ev.event_id] || {
+    before: {event_id: null, source: 'previous_event', media: []},
+    after: {event_id: ev.event_id, source: 'selected_event', media: capability?.events?.[ev.event_id] || []},
+    auxiliary: []
+  };
+  const beforeMedia = comparison.before?.media || [];
+  const afterMedia = comparison.after?.media || [];
   const index = Math.max(0, events.findIndex(item => item.event_id === ev.event_id));
   const click = parseClickCoordinates(visualText(ev.output));
   const metadata = ev.metadata || {};
+  const layoutMode = visualLayoutMode(CURRENT_TRACE_ID || ev.trace_id || '');
   const summary = visualStepSummary(report, ev, ordinal);
   const evidence = (finding?.evidence || []).join('\\n') || summary?.evidence || 'No event-specific RCA evidence.';
   const correction = finding?.suggestion || summary?.correction || summary?.suggested_correction || 'No correction recorded.';
   let html = '<div class="visual-inspector" data-visual-capability="enabled">';
   html += '<div class="visual-nav"><div class="lane-meta" style="margin-top:0;"><span class="chip cyan">CUA Visual</span><span class="chip">step ' + escapeHtml(ordinal ?? ev.step_index ?? '-') + ' / ' + escapeHtml(events.length) + '</span>';
   html += '<span class="chip ' + (isRoot ? 'warn' : (finding || ev.error ? 'bad' : 'good')) + '">' + escapeHtml(isRoot ? 'root cause' : (finding || ev.error ? 'error' : 'clean')) + '</span></div>';
-  html += '<div class="lane-meta" style="margin-top:0;"><button class="timeline-tool" type="button" data-nav-event="-1" ' + (index <= 0 ? 'disabled' : '') + '>← Previous</button><button class="timeline-tool" type="button" data-nav-event="1" ' + (index >= events.length - 1 ? 'disabled' : '') + '>Next →</button></div></div>';
-  if (image) {
-    html += '<div class="visual-stage"><div class="visual-image-wrap"><img class="visual-screenshot" src="' + escapeHtml(image.url) + '" alt="' + escapeHtml(image.description || ('Screenshot for step ' + ordinal)) + '"';
-    if (click) html += ' data-click-x="' + escapeHtml(click.x) + '" data-click-y="' + escapeHtml(click.y) + '"';
-    html += ' /><span class="visual-click-marker" aria-label="Recorded click position"></span></div></div>';
+  html += '<div class="lane-meta" style="margin-top:0;"><div class="trace-visual-toggle visual-layout-toggle" aria-label="Screenshot layout"><button type="button" data-visual-layout="single" class="' + (layoutMode === 'single' ? 'active' : '') + '">Single</button><button type="button" data-visual-layout="compare" class="' + (layoutMode === 'compare' ? 'active' : '') + '">Compare</button></div><button class="timeline-tool" type="button" data-nav-event="-1" ' + (index <= 0 ? 'disabled' : '') + '>← Previous</button><button class="timeline-tool" type="button" data-nav-event="1" ' + (index >= events.length - 1 ? 'disabled' : '') + '>Next →</button></div></div>';
+  if (layoutMode === 'single') {
+    html += renderVisualPane('Selected screenshot', 'single', comparison.after, null, false);
   } else {
-    html += '<div class="visual-stage"><div class="editor-empty"><div><strong>Screenshot unavailable for this event</strong><span>The text trace and diagnosis remain available. Select another timeline step with an image.</span></div></div></div>';
+    html += '<div class="visual-comparison">';
+    html += renderVisualPane('Before action', 'before', comparison.before, click, true);
+    html += renderVisualPane('After action', 'after', comparison.after, null, false);
+    html += '</div>';
+  }
+  if (comparison.auxiliary?.length) {
+    html += renderVisualPane('Auxiliary images', 'auxiliary', {event_id: ev.event_id, source: 'selected_event', media: comparison.auxiliary}, null, false);
   }
   html += '<div class="visual-facts">';
   html += inspectorCard('Action type', metadata.action_type || ev.event_type || '-');
   html += inspectorCard('Reward', metadata.reward ?? '-');
   html += inspectorCard('Done', metadata.done === undefined ? '-' : String(metadata.done));
-  html += inspectorCard('Media', image?.media_type || 'unavailable');
+  html += inspectorCard('Media', beforeMedia.length + ' before / ' + afterMedia.length + ' after');
   html += '</div><div class="visual-copy-grid">';
   html += '<div class="visual-copy-card"><div class="inspector-label">Reasoning / Input</div><p>' + escapeHtml(visualText(ev.input)) + '</p></div>';
   html += '<div class="visual-copy-card"><div class="inspector-label">Action / Output</div><p>' + escapeHtml(visualText(ev.output)) + '</p></div>';
@@ -6585,22 +6878,44 @@ function bindTraceViewToggle(traj, report) {
   });
 }
 function bindVisualViewer() {
-  document.querySelectorAll('.visual-screenshot').forEach(image => {
-    const positionMarker = () => {
-      const x = Number(image.dataset.clickX);
-      const y = Number(image.dataset.clickY);
-      const marker = image.parentElement?.querySelector('.visual-click-marker');
-      if (!marker || !Number.isFinite(x) || !Number.isFinite(y) || !image.naturalWidth || !image.naturalHeight) return;
-      const left = x <= 1 ? x * 100 : (x / image.naturalWidth) * 100;
-      const top = y <= 1 ? y * 100 : (y / image.naturalHeight) * 100;
-      if (left < 0 || left > 100 || top < 0 || top > 100) return;
-      marker.style.left = left + '%';
-      marker.style.top = top + '%';
-      marker.style.display = 'block';
+  document.querySelectorAll('[data-visual-layout]').forEach(button => {
+    button.onclick = () => {
+      setVisualLayoutMode(
+        CURRENT_TRACE_ID || '',
+        button.dataset.visualLayout || 'compare'
+      );
+      if (CURRENT_TRACE_DATA) {
+        renderTrace(CURRENT_TRACE_DATA.trajectory, CURRENT_TRACE_DATA.report);
+      }
     };
-    image.addEventListener('load', positionMarker);
-    if (image.complete) positionMarker();
   });
+  document.querySelectorAll('.visual-pane').forEach(pane => {
+    pane.querySelectorAll('[data-gallery-select]').forEach(button => {
+      button.onclick = () => {
+        const selected = String(button.dataset.gallerySelect || '0');
+        pane.querySelectorAll('[data-gallery-select]').forEach(item => item.classList.toggle('active', item === button));
+        pane.querySelectorAll('[data-gallery-index]').forEach(item => item.classList.toggle('active', item.dataset.galleryIndex === selected));
+        const image = pane.querySelector('[data-gallery-index="' + selected + '"] img');
+        if (image) positionVisualMarker(image);
+      };
+    });
+  });
+  document.querySelectorAll('.visual-screenshot').forEach(image => {
+    image.addEventListener('load', () => positionVisualMarker(image));
+    if (image.complete) positionVisualMarker(image);
+  });
+}
+function positionVisualMarker(image) {
+  const x = Number(image.dataset.clickX);
+  const y = Number(image.dataset.clickY);
+  const marker = image.parentElement?.querySelector('.visual-click-marker');
+  if (!marker || !Number.isFinite(x) || !Number.isFinite(y) || !image.naturalWidth || !image.naturalHeight) return;
+  const left = x <= 1 ? x * 100 : (x / image.naturalWidth) * 100;
+  const top = y <= 1 ? y * 100 : (y / image.naturalHeight) * 100;
+  if (left < 0 || left > 100 || top < 0 || top > 100) return;
+  marker.style.left = left + '%';
+  marker.style.top = top + '%';
+  marker.style.display = 'block';
 }
 function renderEventInspector(ev, isRoot, finding, ordinal, events, findings) {
   const debug = errorTrace(ev, finding);
@@ -8824,6 +9139,10 @@ function bindTopActions() {
 function bindHubButton() {
   const hubButton = document.getElementById('hub-btn');
   if (hubButton) hubButton.onclick = () => openWorkspaceDrawer('hub', hubButton);
+}
+function bindDiscussionButton() {
+  const button = document.getElementById('discussion-btn');
+  if (button) button.onclick = () => openWorkspaceDrawer('discussion', button);
 }
 function field(label, value, isError) {
   return '<div class="field ' + (isError ? 'error' : '') + '"><div class="field-label">' + escapeHtml(label) + '</div><div class="field-value">' + escapeHtml(value || '-') + '</div></div>';

@@ -19,7 +19,15 @@ from agentdebug.schema import (
 )
 
 
-_IMAGE_SUFFIXES = {'.bmp', '.gif', '.jpeg', '.jpg', '.png', '.webp'}
+_IMAGE_MEDIA_TYPES = {
+    '.bmp': 'image/bmp',
+    '.gif': 'image/gif',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+}
+_VISUAL_ROLES = {'after', 'auxiliary', 'before', 'observation'}
 
 
 def _visual_source_root(trajectory: AgentTrajectory) -> Optional[Path]:
@@ -58,8 +66,7 @@ def resolve_visual_artifact(
 
     artifact = event.artifacts[artifact_index]
     modality = getattr(artifact.modality, 'value', artifact.modality)
-    media_type = str(artifact.media_type or '').lower()
-    if modality != Modality.IMAGE.value or not media_type.startswith('image/'):
+    if modality != Modality.IMAGE.value:
         raise ValueError('artifact is not an image')
 
     root = _visual_source_root(trajectory)
@@ -74,7 +81,8 @@ def resolve_visual_artifact(
         raise ValueError('artifact path cannot be resolved') from exc
     if not resolved.is_relative_to(root):
         raise ValueError('artifact path escapes the visual source directory')
-    if resolved.suffix.lower() not in _IMAGE_SUFFIXES:
+    media_type = _IMAGE_MEDIA_TYPES.get(resolved.suffix.lower())
+    if media_type is None:
         raise ValueError('artifact file type is not supported')
     if not resolved.is_file():
         raise FileNotFoundError(str(resolved))
@@ -101,8 +109,14 @@ def build_visual_capability(trajectory: AgentTrajectory) -> Dict[str, Any]:
                 )
             except (FileNotFoundError, LookupError, ValueError):
                 continue
+            visual_role = str(
+                (artifact.metadata or {}).get('visual_role') or 'after'
+            ).lower()
+            if visual_role not in _VISUAL_ROLES:
+                visual_role = 'auxiliary'
             media.append({
                 'artifact_index': artifact_index,
+                'event_id': event.event_id,
                 'url': (
                     f'/api/v1/traces/{quote(trajectory.trace_id, safe="")}'
                     f'/events/{quote(event.event_id, safe="")}'
@@ -110,9 +124,53 @@ def build_visual_capability(trajectory: AgentTrajectory) -> Dict[str, Any]:
                 ),
                 'media_type': media_type,
                 'description': artifact.description or '',
+                'visual_role': visual_role,
             })
         if media:
             event_media[event.event_id] = media
+
+    comparisons: Dict[str, Dict[str, Any]] = {}
+    for event_index, event in enumerate(trajectory.events):
+        current_media = event_media.get(event.event_id, [])
+        explicit_before = [
+            item for item in current_media if item['visual_role'] == 'before'
+        ]
+        after_media = [
+            item
+            for item in current_media
+            if item['visual_role'] in {'after', 'observation'}
+        ]
+        auxiliary_media = [
+            item for item in current_media if item['visual_role'] == 'auxiliary'
+        ]
+        before_source = 'explicit'
+        before_event_id: Optional[str] = event.event_id
+        before_media = explicit_before
+        if not before_media:
+            before_source = 'previous_event'
+            before_event_id = None
+            if event_index > 0:
+                previous = trajectory.events[event_index - 1]
+                previous_media = event_media.get(previous.event_id, [])
+                before_media = [
+                    item
+                    for item in previous_media
+                    if item['visual_role'] in {'after', 'observation'}
+                ]
+                before_event_id = previous.event_id
+        comparisons[event.event_id] = {
+            'before': {
+                'event_id': before_event_id,
+                'source': before_source,
+                'media': before_media,
+            },
+            'after': {
+                'event_id': event.event_id,
+                'source': 'selected_event',
+                'media': after_media,
+            },
+            'auxiliary': auxiliary_media,
+        }
 
     media_count = sum(len(items) for items in event_media.values())
     return {
@@ -122,6 +180,7 @@ def build_visual_capability(trajectory: AgentTrajectory) -> Dict[str, Any]:
         'is_cua': source_format.lower() in {'osworld', 'cua'},
         'media_count': media_count,
         'events': event_media,
+        'comparisons': comparisons,
     }
 
 

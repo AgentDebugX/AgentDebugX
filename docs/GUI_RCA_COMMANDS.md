@@ -85,9 +85,15 @@ agentdebug serve --store-sqlite .agentdebug/traces.sqlite
 
 An imported OSWorld trace with screenshots beneath its recorded `source_dir`
 opens in **Visual** mode automatically. The shared timeline controls the
-screenshot, step metadata, click marker, and RCA evidence; **Trace / Visual**
-switches views without rerunning diagnosis. Streamlit is still required for
-annotation writes, reviewer assignment, discussion, and accuracy tooling.
+screenshot comparison, step metadata, click marker, and RCA evidence;
+**Trace / Visual** switches views without rerunning diagnosis. Before/After
+panes preserve every role-tagged image for the selected event.
+
+**Discuss with Debugger** in the FastAPI dashboard works for OSWorld and all
+other normalized trace formats. It uses the shared LLM settings, persists
+report-pinned sessions locally, and can export a report-revision draft without
+changing the stored report. Streamlit is still required for annotation writes,
+reviewer assignment, and accuracy tooling.
 
 ## Accuracy
 
