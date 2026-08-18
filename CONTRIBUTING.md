@@ -41,16 +41,36 @@ python -m pytest tests -q \
   --cov-fail-under=40
 ```
 
-The CUA debugger is an independent optional package with Python 3.10+ and a
-heavier dependency set:
+GUI / CUA root-cause analysis is part of the main package, under
+`src/agentdebug/gui`. The RCA main path imports on a core install and is
+covered by `tests/test_gui_boundary.py`, so no extra setup is needed to work on
+it. The rest of the tree sits behind extras: `gui-memory` for the
+lesson/episodic memory layer, `gui-app` for the provider adapters, the batch
+pipeline and the Streamlit annotation app.
+
+The GUI suite lives in `tests/gui` and runs as part of `python -m pytest tests`.
+On a plain install it runs the 77 tests that need nothing extra and skips the
+rest through a module-level `pytest.importorskip`. To run all of it, install the
+extras:
 
 ```bash
-python -m pip install -e ./cua_debugger
-python -m pytest cua_debugger/tests -q
+python -m pip install -e ".[gui,gui-memory,gui-app]"
+python -m pytest tests/gui -q
 ```
 
-Do not add CUA tests to the root `testpaths`; CI runs them in an isolated job
-so the AgentDebugX core installation remains lightweight.
+CI mirrors that split: the `test` matrix covers the core-installable part on
+Python 3.9-3.13, and a separate `gui-extras-tests` job installs the extras and
+asserts nothing skips. When you add a GUI test, put it in `tests/gui` and guard
+it with `pytest.importorskip` only if it genuinely needs an extra.
+
+Two rules apply to anything you add under `src/agentdebug/gui`:
+
+- Keep the code Python 3.9 compatible. Write `Optional[X]` and `Union[X, Y]`
+  rather than `X | Y`; pydantic resolves these annotations at runtime, so
+  `from __future__ import annotations` alone will not save you.
+- Keep heavy dependencies off the core import path. `pillow` and the provider
+  SDKs must be imported lazily inside a function, and no `__init__.py` reachable
+  from `import agentdebug.gui` may pull in an extras-only module.
 
 ## Test Organization
 

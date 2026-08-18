@@ -100,9 +100,16 @@ pip install "agentdebugx[langgraph]"      # LangGraph adapter
 pip install "agentdebugx[crewai]"         # CrewAI adapter
 pip install "agentdebugx[openai-agents]"  # OpenAI Agents SDK adapter
 pip install "agentdebugx[otel]"           # OpenTelemetry ingest
-pip install "agentdebugx[gui]"            # computer-use / OSWorld GUI tooling
+pip install "agentdebugx[gui]"            # screenshot decoding for GUI RCA
 pip install "agentdebugx[all]"            # all optional integrations
 ```
+
+Computer-use / OSWorld GUI root-cause analysis (`agentdebug.gui`) ships with the
+core install and needs no extra. The `gui` extra only adds `pillow`, which the
+RCA tools use to decode screenshots. Two heavier layers of the same package sit
+behind their own extras: `gui-memory` for the lesson/episodic memory stack, and
+`gui-app` for the provider adapters, the batch pipeline (`python -m
+agentdebug.gui`) and the Streamlit annotation app.
 
 The package is installed as `agentdebugx` and imported as `agentdebug`:
 
@@ -418,7 +425,7 @@ src/agentdebug/rerun/        rerun plans, requests, branch comparison, and execu
 src/agentdebug/inspect/      traceback renderer and local inspection UI
 src/agentdebug/hub/          scrubbed failure bundle packaging and backends
 src/agentdebug/integrations/ host skill and runtime integration generators
-cua_debugger/                computer-use / OSWorld GUI root-cause tooling
+src/agentdebug/gui/          computer-use / OSWorld GUI root-cause analysis
 examples/                    runnable examples and demo traces
 docs/                        architecture, schema, and project assets
 ```
@@ -550,8 +557,8 @@ python -m compileall -q src/agentdebug tests
 Build artifacts under `dist/` should not be committed. Generate them only for
 release workflows.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for test organization, optional CUA
-tests, quality checks, and pull request expectations.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test organization, the optional GUI
+test suite, quality checks, and pull request expectations.
 
 ## Citation
 

@@ -101,7 +101,7 @@ the extra turns are opt-in budget, not a tax (docs/benchmarks/).
 ## 4. Tool registry (unified across channels)
 
 One registry, per-channel exposure. GUI names exist today in
-`cua_debugger/debugger/tools/`; text-channel "tools" are currently internal
+`src/agentdebug/gui/tools/`; text-channel "tools" are currently internal
 functions of `moe.py` — same capabilities, not yet declared as callable tools
 (**G4** promotes them for the opt-in explore mode).
 
@@ -121,7 +121,7 @@ functions of `moe.py` — same capabilities, not yet declared as callable tools
 ## 5. GUI / env channel (CUA · OSWorld)
 
 `GuiRcaAnalyzer` (`src/agentdebug/diagnose/gui_rca.py`) satisfies the harness
-contract with a **free ReAct loop** (`cua_debugger/debugger/agent.py:
+contract with a **free ReAct loop** (`src/agentdebug/gui/agent.py:
 run_react_loop`, turn-capped, old screenshots compressed to bound context):
 
 - **Ingest/env dive**: `IngestionResult.from_directory(osworld_root)` — the

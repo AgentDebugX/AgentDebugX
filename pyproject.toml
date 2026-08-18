@@ -52,6 +52,7 @@ include = [
     "src/agentdebug/integrations/agentdebug_skill/**/*.md",
     "src/agentdebug/diagnose/detect/rules/packs/*/manifest.json",
     "src/agentdebug/diagnose/component_manifests/**/*.json",
+    "src/agentdebug/gui/config/*.json",
 ]
 
 [tool.poetry.dependencies]
@@ -61,25 +62,28 @@ pydantic = ">=1.10,<3.0"
 # httpx powers the OpenAI-compatible LLM client.
 httpx = ">=0.24,<1.0"
 
-# GUI / computer-use (OSWorld / CUA) integration — optional, installed via the `gui` extra.
+# GUI / computer-use (OSWorld / CUA) integration — optional.
 # Every entry MUST stay optional so a core install pulls none of them.
+#
+# The whole GUI stack lives in `agentdebug.gui`, split by how much it costs to
+# install: the RCA main path needs only `pillow` (lazily, for screenshot
+# decoding), `agentdebug.gui.memory` needs `gui-memory`, and the provider
+# adapters, batch pipeline and Streamlit app need `gui-app`.
+# `tests/test_gui_boundary.py` fails the build if any of them leak into an
+# `import agentdebug.gui`.
+pillow = { version = "*", optional = true }
+
 anthropic = { version = "*", optional = true }
-backoff = { version = "*", optional = true }
 chromadb = { version = "*", optional = true }
 langchain-core = { version = "*", optional = true }
 langchain-chroma = { version = "*", optional = true }
 langchain-openai = { version = "*", optional = true }
-matplotlib = { version = "*", optional = true }
-numpy = { version = "*", optional = true }
 openai = { version = "*", optional = true }
 pandas = { version = "*", optional = true }
-pillow = { version = "*", optional = true }
-python-dotenv = { version = "*", optional = true }
 scikit-learn = { version = "*", optional = true }
 streamlit = { version = "*", optional = true }
 streamlit-adjustable-columns = { version = "*", optional = true }
 together = { version = "*", optional = true }
-tqdm = { version = "*", optional = true }
 
 # Optional integrations — install via `pip install agentdebugx[langgraph]` etc.
 crewai = { version = "*", optional = true }
@@ -92,24 +96,29 @@ huggingface_hub = { version = "*", optional = true }
 
 [tool.poetry.extras]
 langgraph = ["langchain-core"]
-gui = [
-    "anthropic",
-    "backoff",
+# GUI RCA over OSWorld/CUA trajectories. `agentdebug.gui` itself needs nothing
+# beyond the core install; pillow adds screenshot decoding.
+gui = ["pillow"]
+# Lesson / episodic memory: agentdebug.gui.memory and .tools.lesson_explorer.
+# `scikit-learn` also sharpens `.evolving.alignment`, which otherwise falls back
+# to a Counter heuristic and runs fine on a core install.
+gui-memory = [
     "chromadb",
     "langchain-core",
     "langchain-chroma",
     "langchain-openai",
-    "matplotlib",
-    "numpy",
+    "scikit-learn",
+]
+# Provider adapters, the batch pipeline (`python -m agentdebug.gui`) and the
+# Streamlit annotation app (`agentdebug.gui.vis`).
+gui-app = [
+    "anthropic",
     "openai",
     "pandas",
     "pillow",
-    "python-dotenv",
-    "scikit-learn",
     "streamlit",
     "streamlit-adjustable-columns",
     "together",
-    "tqdm",
 ]
 crewai = ["crewai"]
 openai-agents = ["openai-agents"]
@@ -118,22 +127,17 @@ ui = ["fastapi", "uvicorn"]
 hub-hf = ["huggingface_hub"]
 all = [
     "anthropic",
-    "backoff",
     "chromadb",
     "langchain-core",
     "langchain-chroma",
     "langchain-openai",
-    "matplotlib",
-    "numpy",
     "openai",
     "pandas",
     "pillow",
-    "python-dotenv",
     "scikit-learn",
     "streamlit",
     "streamlit-adjustable-columns",
     "together",
-    "tqdm",
     "crewai",
     "openai-agents",
     "opentelemetry-api",
