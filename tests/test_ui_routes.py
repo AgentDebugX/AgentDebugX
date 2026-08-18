@@ -15,7 +15,9 @@ from agentdebug.inspect.ui.branch_store import (
 )
 from agentdebug.rerun import HttpLiveExecutor, RerunResult
 from agentdebug.rerun.executors.process_live import ProcessLiveExecutor
+from agentdebug.runtime.llm import CompletionResult, TokenUsage
 from agentdebug.runtime import SQLiteTraceStore
+from agentdebug.inspect.ui.discussion_store import SQLiteDiscussionStore
 from agentdebug.schema import (
     AgentEvent,
     AgentTrajectory,
@@ -182,7 +184,151 @@ def test_visual_view_html_contract_and_bootstrap(tmp_path) -> None:
     assert 'function parseClickCoordinates(code)' in page.text
     assert 'image.naturalWidth' in page.text
     assert 'Recorded click position' in page.text
+    assert "renderVisualPane('Before action'" in page.text
+    assert "renderVisualPane('After action'" in page.text
+    assert "renderVisualPane('Selected screenshot'" in page.text
+    assert 'data-gallery-select' in page.text
+    assert 'data-visual-layout="single"' in page.text
+    assert 'data-visual-layout="compare"' in page.text
+    assert 'sessionStorage.setItem(' in page.text
+    assert 'VISUAL_LAYOUT_PREFIX + traceId' in page.text
+    assert "return 'single';" in page.text
+    assert 'Discuss with Debugger' in page.text
+    assert 'discussion-drawer' in page.text
+    assert 'data-discussion-event' in page.text
+    assert 'Report revision draft' in page.text
     assert 'root cause' in page.text
+
+
+def test_discussion_api_persists_generic_trace_session_and_draft(
+    tmp_path,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    discussion_path = tmp_path / 'discussions.sqlite'
+    discussion_store = SQLiteDiscussionStore(str(discussion_path))
+    cited_event_id = failed_trajectory.events[0].event_id
+
+    def fake_llm(messages, tools):
+        assert messages[-1]['content'] == 'What is the root cause?'
+        assert {tool['function']['name'] for tool in tools} == {
+            'get_event_details',
+            'get_event_range',
+            'get_report_details',
+        }
+        return CompletionResult(
+            text=json.dumps({
+                'content': 'The first event is relevant.',
+                'citations': [cited_event_id],
+                'report_revision': {
+                    'changes': {
+                        'summary': 'Draft summary only.',
+                        'root_cause_event_id': cited_event_id,
+                    },
+                    'citations': [cited_event_id],
+                },
+            }),
+            raw={'provider_secret': 'must-not-persist'},
+            usage=TokenUsage(prompt_tokens=12, completion_tokens=5, calls=1),
+        )
+
+    client = TestClient(routes.build_app(
+        store,
+        discussion_store=discussion_store,
+        discussion_llm_factory=lambda _payload: fake_llm,
+    ))
+    created = client.post(
+        '/api/v1/traces/trace_failed/discussions',
+        json={'model': 'fake-model'},
+    )
+    assert created.status_code == 200
+    session = created.json()['session']
+    assert session['version'] == 0
+    session_id = session['session_id']
+
+    sent = client.post(
+        f'/api/v1/traces/trace_failed/discussions/{session_id}/messages',
+        json={
+            'message': 'What is the root cause?',
+            'expected_version': 0,
+            'client_message_id': 'client-message-1',
+            'api_key': 'sk-never-persist',
+        },
+    )
+    assert sent.status_code == 200
+    payload = sent.json()
+    assert payload['session']['version'] == 2
+    assert [message['role'] for message in payload['messages']] == [
+        'user',
+        'assistant',
+    ]
+    assistant = payload['messages'][1]
+    assert assistant['citations'][0]['event_id'] == cited_event_id
+    assert assistant['proposal']['changes']['summary'] == 'Draft summary only.'
+
+    retried = client.post(
+        f'/api/v1/traces/trace_failed/discussions/{session_id}/messages',
+        json={
+            'message': 'What is the root cause?',
+            'expected_version': 0,
+            'client_message_id': 'client-message-1',
+        },
+    )
+    assert retried.status_code == 200
+    assert len(retried.json()['messages']) == 2
+    assert client.post(
+        f'/api/v1/traces/trace_failed/discussions/{session_id}/messages',
+        json={
+            'message': 'stale',
+            'expected_version': 0,
+            'client_message_id': 'client-message-2',
+        },
+    ).status_code == 409
+
+    listed = client.get('/api/v1/traces/trace_failed/discussions').json()
+    assert [item['session_id'] for item in listed['sessions']] == [session_id]
+    raw_db = discussion_path.read_bytes()
+    assert b'sk-never-persist' not in raw_db
+    assert b'must-not-persist' not in raw_db
+    assert client.delete(
+        f'/api/v1/traces/trace_failed/discussions/{session_id}'
+    ).status_code == 200
+
+
+def test_discussion_api_sanitizes_provider_failures(
+    tmp_path,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
+    store.save_trajectory(failed_trajectory)
+
+    def failing_llm(_messages, _tools):
+        raise RuntimeError('provider leaked sk-secret-value')
+
+    client = TestClient(routes.build_app(
+        store,
+        discussion_store=SQLiteDiscussionStore(str(tmp_path / 'discuss.sqlite')),
+        discussion_llm_factory=lambda _payload: failing_llm,
+    ))
+    created = client.post(
+        '/api/v1/traces/trace_failed/discussions',
+        json={'model': 'fake-model'},
+    ).json()['session']
+
+    response = client.post(
+        f'/api/v1/traces/trace_failed/discussions/{created["session_id"]}/messages',
+        json={
+            'message': 'Explain',
+            'expected_version': 0,
+            'client_message_id': 'failure-1',
+        },
+    )
+    assert response.status_code == 502
+    assert response.json()['detail'] == (
+        'The discussion model could not complete the request.'
+    )
+    assert 'secret' not in response.text
 
 
 def test_upload_schema_and_native_trace_import(ui_client: TestClient) -> None:
