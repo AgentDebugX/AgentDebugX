@@ -172,6 +172,46 @@ test('a plain trajectory file is not mistaken for a session log', () => {
   assert.equal(isSessionLogPath(file), false)
 })
 
+test('non-ASCII trace content survives the bridge pipe', async () => {
+  // A legacy system codepage used to corrupt the request here, and the reply
+  // came back uncorrelatable, so the call hung until its timeout.
+  const bridge = new PythonBridge({ python, timeoutMs: 20_000 })
+  const text = '构建失败：找不到模块 ✅ 🚀'
+  try {
+    const result = await bridge.request('diagnose', {
+      session: {
+        id: 'session-unicode',
+        header: { cwd: 'C:/workspace' },
+        events: [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          {
+            type: 'user/message',
+            seq: 1,
+            time: 2,
+            data: { role: 'user', content: [{ type: 'text', text }] },
+          },
+          { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+        ],
+      },
+      store: path.join(mkdtempSync(path.join(tmpdir(), 'dsh-store-')), 'agentdebug.sqlite'),
+      mode: 'heuristic',
+    })
+    assert.equal(result.summary.traceId, 'dsh_session-unicode')
+  } finally {
+    await bridge.close()
+  }
+})
+
+test('an uncorrelatable bridge error fails the in-flight request', async () => {
+  const bridge = new PythonBridge({ python, timeoutMs: 20_000, onStderr: () => {} })
+  bridge.start()
+  const inFlight = bridge.request('status', {})
+  bridge.accept(JSON.stringify({ id: null, error: { type: 'JSONDecodeError', message: 'bad' } }))
+
+  await assert.rejects(inFlight, /JSONDecodeError: bad/)
+  await bridge.close()
+})
+
 test('a persisted Harness session diagnoses through the bridge', async () => {
   const { file } = writeSessionLog()
   const store = path.join(mkdtempSync(path.join(tmpdir(), 'dsh-store-')), 'agentdebug.sqlite')
