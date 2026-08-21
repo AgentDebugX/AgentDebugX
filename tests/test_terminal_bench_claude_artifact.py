@@ -236,7 +236,7 @@ def test_install_matrix_distinguishes_success_from_image_start_failure(
 def test_run_command_omits_resume_flags_for_a_seed_attempt() -> None:
     parser = build_parser()
     args = parser.parse_args([
-        'run', '--arm', 'seed', '--task', 'sqlite-db-truncate',
+        'run', '--method', 'seed', '--task', 'sqlite-db-truncate',
         '--agent', 'claude-code', '--jobs-dir', 'jobs', '--sif-cache-dir', 'sif',
     ])
 
@@ -247,14 +247,14 @@ def test_run_command_omits_resume_flags_for_a_seed_attempt() -> None:
     assert '--agent-env' not in cmd
 
 
-def test_run_command_carries_resume_arm_treatment_through_to_harbor(
+def test_run_command_carries_recovery_method_instruction_through_to_harbor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv('AGENTDEBUG_LLM_BASE_URL', 'https://proxy.example/v1')
     monkeypatch.setenv('AGENTDEBUG_LLM_API_KEY', 's3cr3t')
     parser = build_parser()
     args = parser.parse_args([
-        'run', '--arm', 'rerun-deep', '--task', 'sqlite-db-truncate',
+        'run', '--method', 'rerun-deep', '--task', 'sqlite-db-truncate',
         '--agent', 'claude-code', '--jobs-dir', 'jobs', '--sif-cache-dir', 'sif',
         '--load-trajectory', '/mnt/prior/seed.jsonl',
         '--mount', '/host/diagnostic-input/seed.jsonl:/mnt/agentdebug-input/failed.jsonl',
@@ -287,7 +287,7 @@ def test_run_command_rejects_an_unset_agent_env_variable(
     monkeypatch.delenv('AGENTDEBUG_LLM_API_KEY', raising=False)
     parser = build_parser()
     args = parser.parse_args([
-        'run', '--arm', 'rerun-deep', '--task', 'sqlite-db-truncate',
+        'run', '--method', 'rerun-deep', '--task', 'sqlite-db-truncate',
         '--agent', 'claude-code', '--jobs-dir', 'jobs', '--sif-cache-dir', 'sif',
         '--agent-env', 'AGENTDEBUG_LLM_API_KEY',
     ])

@@ -103,7 +103,7 @@ def copy_diagnostic_input(session_path: Path, dest_dir: Path, *, name: str) -> D
     ``ClaudeCode._validate_native_load_trajectory``), so a diagnostic input
     named e.g. ``raman-fitting.seed.jsonl`` is rejected outright. ``name``
     instead becomes a subdirectory, keeping the copy associated with its
-    task/arm without touching the filename harbor inspects.
+    task/method without touching the filename harbor inspects.
 
     The copy is written to a temp file and atomically renamed into place,
     then made read-only, so a resumed conversation appending to its own

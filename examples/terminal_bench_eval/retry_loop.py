@@ -1,12 +1,12 @@
 """Run one task through repeated attempts, with or without AgentDebugX advice.
 
-This is the experiment proper. Both arms get the SAME attempt budget, so the
+This is the experiment proper. Both methods get the SAME attempt budget, so the
 comparison measures the advice, not the extra tries:
 
-    --arm control   attempt, attempt, attempt ...      (no advice ever)
-    --arm deep      attempt, diagnose, attempt, ...    (advice before each retry)
+    --method control   attempt, attempt, attempt ...      (no advice ever)
+    --method deep      attempt, diagnose, attempt, ...    (advice before each retry)
 
-Each retry in the ``deep`` arm re-diagnoses the trajectory that *just* failed
+Each retry in the ``deep`` method re-diagnoses the trajectory that *just* failed
 rather than replaying the first diagnosis, and carries the earlier advice
 forward so the agent does not re-enter a dead end it already tried. Repeating a
 failed approach is the single most common multi-attempt failure mode, and
@@ -44,11 +44,11 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-def _attempt(task: str, arm: str, attempt: int, advice: Path | None) -> dict:
+def _attempt(task: str, method: str, attempt: int, advice: Path | None) -> dict:
     """Run one harbor attempt; return the collected trial record."""
     cmd = [
         sys.executable, str(RUN_EVAL), 'run',
-        '--arm', f'{arm}-{attempt}',
+        '--method', f'{method}-{attempt}',
         '--task', task,
         '--agent', 'claude-code',
         '--claude-installer-config', str(INSTALLER_CONFIG),
@@ -89,7 +89,7 @@ def _diagnose(record: dict, task: str, attempt: int, out_dir: Path) -> Path | No
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task', required=True)
-    parser.add_argument('--arm', choices=['control', 'deep'], required=True)
+    parser.add_argument('--method', choices=['control', 'deep'], required=True)
     parser.add_argument(
         '--max-retries',
         type=int,
@@ -110,7 +110,7 @@ def main() -> int:
     advice: Path | None = None
 
     for attempt in range(args.max_retries + 1):
-        record = _attempt(args.task, args.arm, attempt, advice)
+        record = _attempt(args.task, args.method, attempt, advice)
         attempts.append({
             'attempt': attempt,
             'reward': record.get('reward'),
@@ -123,7 +123,7 @@ def main() -> int:
         if attempt == args.max_retries:
             break
 
-        if args.arm == 'control':
+        if args.method == 'control':
             # Same budget, never any advice — that is the whole point of A0.
             continue
 
@@ -134,14 +134,14 @@ def main() -> int:
         text = new_advice.read_text(encoding='utf-8')
         if prior_advice:
             text += CARRY_FORWARD_HEADER.format(prior='\n\n---\n\n'.join(prior_advice))
-        merged = out_dir / f'{args.task}.{args.arm}.attempt{attempt + 1}.advice.md'
+        merged = out_dir / f'{args.task}.{args.method}.attempt{attempt + 1}.advice.md'
         merged.write_text(text, encoding='utf-8')
         prior_advice.append(new_advice.read_text(encoding='utf-8'))
         advice = merged
 
     summary = {
         'task': args.task,
-        'arm': args.arm,
+        'method': args.method,
         'max_retries': args.max_retries,
         'n_attempts': len(attempts),
         'resolved': any(a['resolved'] for a in attempts),
@@ -151,7 +151,7 @@ def main() -> int:
         'attempts': attempts,
     }
     print(json.dumps(summary, indent=2))
-    (out_dir / f'{args.task}.{args.arm}.summary.json').write_text(
+    (out_dir / f'{args.task}.{args.method}.summary.json').write_text(
         json.dumps(summary, indent=2), encoding='utf-8'
     )
     return 0

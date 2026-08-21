@@ -6,7 +6,7 @@ Claude Code run succeed on retry. See the
 
 Must run inside a SLURM allocation — Harbor does not submit jobs itself.
 Harbor is pinned at 0.21.0 and re-verified there: `./scripts/run_oracle.sh`
-resolved 11/11 of `tasks.txt` on 2026-08-16 (see
+resolved the then-current 11-task subset 11/11 on 2026-08-16 (see
 [TERMINAL_BENCH_EVAL.md](docs/TERMINAL_BENCH_EVAL.md)). `harbor` runs from
 `~/.local/bin/harbor` (a standalone `uv tool install`), not from inside the
 `agent-debugx` conda env.
@@ -21,16 +21,17 @@ set -a; . .env; set +a
 
 | file | role |
 |---|---|
-| `run_base.sh` | sourced by every `run_<method>.sh`/`run_batch.sh` script: env + SLURM guard + `run_arm`/`run_resume` helpers |
-| `run_oracle.sh`, `run_baseline.sh`, `run_retry_control.sh`, `run_retry_deep.sh` | one script per legacy arm; each sets that arm's explicit flag overrides and calls `run_base.sh`'s `run_arm` helper |
+| `run_base.sh` | sourced by every `run_<method>.sh`/`run_batch.sh` script: env + SLURM guard + `run_method`/`run_resume` helpers |
+| `run_oracle.sh` | run the environment-qualification oracle over `tasks.txt` |
 | `run_seed.sh`, `run_rerun.sh`, `run_rerun_deep.sh`, `run_batch.sh` | thin wrappers over `resume_experiment.py` for one recovery method / one task, or many tasks at once — same underlying tool, see below |
 | `run_eval.py` | `run` (launch a harbor job), `collect` (one JSONL record per trial), `diagnose` (ingest → deep diagnose → advice markdown) |
-| `retry_loop.py` | the legacy experiment: repeated attempts for one task, `--arm control` vs `--arm deep` |
+| `retry_loop.py` | the legacy experiment: repeated attempts for one task, `--method control` vs `--method deep` |
 | `session_selection.py` | select a Seed trial's one primary Claude session (excluding subagents) and copy it to an immutable, hashed diagnostic-input path for rerun-deep/rerun-skill |
 | `resume_experiment.py` | for one or many tasks: reuse-or-launch Seed, classify it, and run the requested recovery method(s) (`seed`, `rerun`, `rerun-deep`) — no separate batch mode, a single task is just a list of length one |
-| `docs/EXPERIMENT_PROTOCOL.md` | canonical seed/rerun/rerun-deep/rerun-adamast/rerun-skill treatments, controls, measurements, and acceptance criteria |
+| `docs/EXPERIMENT_PROTOCOL.md` | canonical seed/rerun/rerun-deep/rerun-adamast/rerun-skill methods, controls, measurements, and acceptance criteria |
 | `docs/architecture.md` | recovery-system boundaries, data flow, provisioning, and future designs |
-| `tasks.txt` | task subset whose oracle passes under singularity; exclusions documented inline |
+| `docs/HANDOFF.md` | reconciled implementation state, reproducibility records, and next experiment step |
+| `tasks.txt` | Oracle candidate set without confirmed infrastructure failures; prune to Oracle-resolved tasks before agent evaluation |
 | `tasks_preflight_25.txt` | 25-task candidate pool: 11 oracle-confirmed plus 14 static Apptainer candidates |
 | `pinned_claude.py` | Harbor `ClaudeCode` subclass that installs one pinned host artifact without APT |
 | `install_matrix.py` | Collect install-only results and classify setup failures |
@@ -44,7 +45,7 @@ status of resume/rerun-skill below.
 ## Choose a Claude Code version
 
 Edit `claude_installer.yaml` once for the experiment. It is the shared contract
-for every arm:
+for every method:
 
 ```yaml
 version: '2.1.233'
@@ -67,7 +68,7 @@ identity of an existing job.
 
 ```bash
 python examples/terminal_bench_eval/run_eval.py run \
-  --arm pinned-claude-install \
+  --method pinned-claude-install \
   --task sqlite-db-truncate \
   --model anthropic/claude-sonnet-5 \
   --jobs-dir "$HARBOR_JOBS_DIR" \
@@ -90,10 +91,10 @@ recovery design is in [the architecture](docs/architecture.md).
 | Fresh control/deep retry loop | Implemented legacy harness |
 | Primary-session selection and immutable diagnostic copy | Implemented, offline-tested (`session_selection.py`) |
 | `run_eval.py` resume pass-throughs (`--load-trajectory`, `--mount`, `--agent-env`) | Implemented, offline-tested |
-| Seed classification + rerun/rerun-deep arm orchestration | Implemented, offline-tested and Harbor-verified (`resume_experiment.py`); one real trial completed (`raman-fitting`: seed/rerun/rerun-deep all 0.0) |
+| Seed classification + rerun/rerun-deep method orchestration | Implemented, offline-tested and Harbor-verified (`resume_experiment.py`); one real trial completed (`raman-fitting`: seed/rerun/rerun-deep all 0.0) |
 | Noninteractive skill contract | Implemented in the skill (`SKILL.md`) |
-| rerun-adamast treatment | Not implemented |
-| rerun-skill (in-container AgentDebugX skill) treatment | Not implemented |
+| rerun-adamast method | Not implemented |
+| rerun-skill (in-container AgentDebugX skill) method | Not implemented |
 
 ## Seed/rerun/rerun-deep resume orchestration
 
@@ -105,7 +106,7 @@ it launches Seed itself.
 ```bash
 TB_TASK=terminal-bench/sqlite-db-truncate ./scripts/run_seed.sh        # seed only, no recovery method
 TB_TASK=terminal-bench/sqlite-db-truncate ./scripts/run_rerun_deep.sh  # launches its own seed, then rerun-deep
-./scripts/run_batch.sh                                                 # the same tool, every task in tasks.txt
+./scripts/run_batch.sh                                                 # every Oracle-qualified task in tasks.txt
 ```
 
 Each script is a thin wrapper setting `resume_experiment.py`'s `--method`
@@ -115,8 +116,8 @@ if it's an eligible failure (reward `0.0`, no exception), it selects the
 primary session, copies it to an immutable diagnostic input under
 `$AGENTDEBUG_EVAL_DIR/<task>/<seed-trial-name>/diagnostic-input/`, and runs
 the requested method(s) loading that identical diagnostic input via
-`--load-trajectory` — `rerun` and `rerun-deep` differ only in the treatment
-text passed as `--extra-instruction-path`. Every artifact for one Seed run
+`--load-trajectory` — `rerun` and `rerun-deep` differ only in the instruction
+passed as `--extra-instruction-path`. Every artifact for one Seed run
 lives under that same `<task>/<seed-trial-name>/` dir, so re-running a task
 never collides with a prior run.
 
@@ -127,16 +128,17 @@ build is checked against the current run's config first — a mismatch aborts
 the whole run rather than silently mixing configurations
 (`EXPERIMENT_PROTOCOL.md`, "Fixed configuration").
 
-`agentdebug` on `PATH` is this repo's own editable install (see
-[TERMINAL_BENCH_EVAL.md](docs/TERMINAL_BENCH_EVAL.md)) — `--mode deepdebug`
-needs no `--attributor` (dead for deep mode; `cmd_diagnose` passes `none`)
-but does need `--recovery` (`reflexion` by default, whose output overwrites
-the report's `suggestions`).
+`agentdebug` on `PATH` must resolve to this repo's intended installation; verify
+it before a run because changing checkout directories does not change an
+existing editable install. See the current host check in
+[HANDOFF.md](docs/HANDOFF.md). `--mode deepdebug` needs no `--attributor`
+(dead for deep mode; `cmd_diagnose` passes `none`) but does need `--recovery`
+(`reflexion` by default, whose output overwrites the report's `suggestions`).
 
 ### Many tasks, one call
 
 ```bash
-./scripts/run_batch.sh                                              # every task in tasks.txt
+./scripts/run_batch.sh                                              # every Oracle-qualified task in tasks.txt
 TB_TASKS="raman-fitting cancel-async-tasks" ./scripts/run_batch.sh   # a subset, all fresh seeds
 TB_TASKS_CONFIG=tasks_with_reuse.yaml ./scripts/run_batch.sh         # mix fresh + reused seeds
 ```
@@ -162,24 +164,21 @@ population. Note this still burns real Claude/AgentDebugX usage per task —
 size the task list to your budget. `rerun-adamast` and `rerun-skill` are not
 implemented yet.
 
-## Current legacy harness
+## Repeated fresh-attempt harness
 
 ```bash
-./scripts/run_oracle.sh                          # setup check; needs no credentials
-./scripts/run_baseline.sh                        # pass 1 over tasks.txt
-
-python3 retry_loop.py --task <failed-task> --arm control --max-retries 3
-python3 retry_loop.py --task <failed-task> --arm deep    --max-retries 3
+python3 retry_loop.py --task <failed-task> --method control --max-retries 3
+python3 retry_loop.py --task <failed-task> --method deep    --max-retries 3
 ```
 
-Both arms get the **same attempt budget**. `control` never sees advice;
+Both methods get the **same attempt budget**. `control` never sees advice;
 `deep` re-diagnoses the trajectory that just failed before each retry and
 carries earlier advice forward so the agent does not re-enter a dead end. Only
-the difference between the arms is evidence about AgentDebugX — a `deep` result
+the difference between the methods is evidence about AgentDebugX — a `deep` result
 on its own just measures having more than one try.
 
 Defaults come from `.env`: `TB_MODEL`, `TB_EFFORT`, `TB_MAX_RETRIES`.
-Claude-based arms use `claude_installer.yaml` by default; set
+Claude-based methods use `claude_installer.yaml` by default; set
 `CLAUDE_INSTALLER_CONFIG` to select another config.
 
 ## Reading the output

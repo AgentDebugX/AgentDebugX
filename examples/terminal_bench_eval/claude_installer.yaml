@@ -1,4 +1,4 @@
-# Every experiment arm should use this same file. To select another Claude Code
+# Every experiment method should use this same file. To select another Claude Code
 # release, stage its native Linux x86-64 executable and update the first three
 # fields together.
 version: '2.1.233'

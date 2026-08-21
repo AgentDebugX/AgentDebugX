@@ -2,7 +2,7 @@
 
 Two subcommands:
 
-  run      launch one arm (a harbor run over a task list) and print its job dir
+  run      launch one method (a harbor run over a task list) and print its job dir
   collect  walk a job dir and emit one JSONL record per trial
 
 The point of ``collect`` is to pin down the input/output contract once, so the
@@ -82,8 +82,8 @@ def _resolve_agent_env(names: list[str]) -> list[str]:
     Only the named variables are read from the host environment (docs/
     architecture.md, "Pass only the required AGENTDEBUG_LLM_* values through
     Harbor agent env") — this never forwards the whole environment. Missing
-    a named variable fails the run rather than silently starting an arm
-    without the credentials its treatment needs.
+    a named variable fails the run rather than silently starting a method
+    without the credentials its method needs.
     """
     resolved = []
     for name in names:
@@ -133,12 +133,12 @@ def _build_run_command(args: argparse.Namespace, tasks: list[str]) -> list[str]:
     ]
     if args.install_only:
         cmd.append('--install-only')
-    # Arm-specific injection: advice files and the AgentDebugX skill bundle.
+    # Method-specific injection: advice files and the AgentDebugX skill bundle.
     for path in args.extra_instruction_path or []:
         cmd += ['--extra-instruction-path', path]
     for path in args.skill or []:
         cmd += ['--skill', path]
-    # Resume arms (rerun, rerun-deep, rerun-adamast, rerun-skill): seed the
+    # Recovery methods (rerun, rerun-deep, rerun-adamast, rerun-skill): seed the
     # agent's own prior conversation, mount an immutable diagnostic-input
     # copy of it, and pass through only the named env vars a diagnosis needs
     # (docs/architecture.md, "Recommended data flow" and "Credentials and
@@ -172,7 +172,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     sys.stderr.write(proc.stderr)
 
-    log_path = Path(args.jobs_dir) / f'{args.arm}.harbor.log'
+    log_path = Path(args.jobs_dir) / f'{args.method}.harbor.log'
     log_path.write_text(proc.stdout + '\n' + proc.stderr, encoding='utf-8')
 
     match = JOB_DIR_RE.search(proc.stdout) or JOB_DIR_RE.search(proc.stderr)
@@ -283,6 +283,7 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
         sys.stderr.write(proc.stderr)
         return 1
 
+    # deepdebug does not depend on the flags on attributor; hence set to none.
     proc = _run([
         AGENTDEBUG_BIN, 'diagnose', str(trajectory),
         '--mode', 'deepdebug',
@@ -309,8 +310,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
 
-    p_run = sub.add_parser('run', help='Launch one arm and print its job dir')
-    p_run.add_argument('--arm', required=True, help='Arm label, used to name the log')
+    p_run = sub.add_parser('run', help='Launch one method and print its job dir')
+    p_run.add_argument('--method', required=True, help='Method label, used to name the log')
     p_run.add_argument('--tasks-file', help='One task name per line')
     p_run.add_argument('--task', action='append', help='Run this task only; repeatable')
     p_run.add_argument('--agent', default='oracle')

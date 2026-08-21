@@ -15,9 +15,10 @@ feal-linear-cryptanalysis
 path-tracing-reverse
 
 # Cached images that failed Harbor's APT-based Claude installer.
+# The commented ones have issue with python download
 adaptive-rejection-sampler
 break-filter-js-from-html
 build-cython-ext
 multi-source-data-merger
 polyglot-c-py
-regex-log
+# regex-log

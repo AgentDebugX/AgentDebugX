@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Seed -> rerun-deep across many tasks in one call — the same tool as
 # run_seed.sh/run_rerun_deep.sh, just given more than one task. Defaults to
-# every task in tasks.txt.
-#   ./run_batch.sh                                        # every task in tasks.txt
+# every Oracle-qualified task in tasks.txt. Do not run this default until the
+# candidate list has been pruned using the latest Oracle results.
+#   ./run_batch.sh                              # every qualified task in tasks.txt
 #   TB_TASKS="raman-fitting cancel-async-tasks" ./run_batch.sh   # a subset, all fresh seeds
 #   TB_TASKS_CONFIG=tasks_with_reuse.yaml ./run_batch.sh   # YAML: mix fresh + reused seeds
 set -euo pipefail

@@ -1,36 +1,43 @@
-# Terminal-Bench 2.1 task subset for the AgentDebugX eval.
+# Terminal-Bench 2.1 Oracle candidate set for the AgentDebugX evaluation.
 # The `terminal-bench/` prefix is added automatically.
 #
-# Only tasks whose ORACLE passes under harbor's singularity backend belong here.
-# If the oracle can't solve a task in this environment, an agent failure on it
-# is uninterpretable — we could not tell agent error from environment error.
-#
-# Verified oracle-passing (2026-08-07, singularity on ccc0272):
+# These tasks have no confirmed infrastructure failure. Run the Oracle over this
+# full list, then retain only Oracle-resolved tasks for agent evaluation.
+
+# Oracle-resolved under Harbor 0.21.0 on 2026-08-16.
 sqlite-db-truncate
 cancel-async-tasks
 code-from-image
 kv-store-grpc
 openssl-selfsigned-cert
 raman-fitting
-
-# Harder tier, oracle-verified 2026-08-07. Added because sonnet-5 clears most of
-# the tier above (4/6 resolved), leaving too few failures to diagnose.
 circuit-fibsqrt
 db-wal-recovery
 distribution-search
 feal-linear-cryptanalysis
 path-tracing-reverse
 
-# Excluded — harbor singularity bootstrap crash (RuntimeError: server died;
-# "FATAL: cannot bootstrap pip"). Image ships no python3. Not our bug.
-#   torch-tensor-parallelism
-#
-# Excluded — oracle ran cleanly but scored reward 0.0, so the task is not a
-# valid pass/fail signal in this environment:
-#   count-dataset-tokens
-#   sqlite-with-gcov
-#   cobol-modernization
-#
-# Excluded — reproducible harness flake (2/2 runs): the container is force-killed
-# before the verifier writes reward.txt -> RewardFileNotFoundError.
-#   write-compressor
+# No confirmed infrastructure failure; recheck with the current Oracle run.
+count-dataset-tokens
+sqlite-with-gcov
+cobol-modernization
+write-compressor
+
+# Apptainer-preflight candidates without a confirmed infrastructure failure.
+break-filter-js-from-html
+build-cython-ext
+constraints-scheduling
+fix-code-vulnerability
+fix-git
+git-leak-recovery
+large-scale-text-editing
+log-summary-date-ranges
+multi-source-data-merger
+polyglot-c-py
+sanitize-git-repo
+
+# Excluded because existing runs show confirmed infrastructure failures:
+#   adaptive-rejection-sampler  Harbor environment bootstrap cannot start pip
+#   regex-log                   Harbor environment bootstrap cannot start pip
+#   custom-memory-heap-crash    image conversion/environment start timeout
+#   torch-tensor-parallelism    Harbor environment bootstrap cannot start pip

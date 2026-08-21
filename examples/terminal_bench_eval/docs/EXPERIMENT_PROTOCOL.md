@@ -26,10 +26,10 @@ effect of reflection, additional inference, or tool use.
 | Fresh control/deep retry loop | Implemented legacy harness |
 | Primary-session selection and immutable diagnostic copy | Implemented, offline-tested (`session_selection.py`) |
 | `run_eval.py` pass-throughs for `--load-trajectory`, mounts, agent-env | Implemented, offline-tested |
-| Seed classification + rerun/rerun-deep arm orchestration | Implemented, offline-tested and Harbor-verified end to end (`resume_experiment.py`); one real trial completed (all arms 0.0, see log) |
+| Seed classification + rerun/rerun-deep method orchestration | Implemented, offline-tested and Harbor-verified end to end (`resume_experiment.py`); one real trial completed (all methods 0.0, see log) |
 | Noninteractive skill contract (`AGENTDEBUG_TRAJECTORY_PATH`, `AGENTDEBUG_OUT_DIR`, `AGENTDEBUG_NONINTERACTIVE`) | Implemented in the skill (`SKILL.md`) |
-| rerun-adamast arm | Not implemented |
-| rerun-skill (in-container AgentDebugX skill) arm | Not implemented |
+| rerun-adamast method | Not implemented |
+| rerun-skill (in-container AgentDebugX skill) method | Not implemented |
 
 Do not report the legacy `control` and `deep` retries as rerun and
 rerun-deep. They start fresh conversations and may make multiple retries, so
@@ -49,7 +49,7 @@ their failure class rather than treating them as unresolved agent attempts.
 
 ## Fixed configuration
 
-The following must be identical across Seed and every recovery arm for a task:
+The following must be identical across Seed and every recovery method for a task:
 
 - Terminal-Bench dataset and task definition;
 - Harbor version and environment backend;
@@ -57,18 +57,18 @@ The following must be identical across Seed and every recovery arm for a task:
 - Claude Code executable version and SHA-256;
 - model, reasoning effort, timeout, and task instructions;
 - fresh task filesystem; and
-- maximum of one recovery attempt per arm.
+- maximum of one recovery attempt per method.
 
 The shared `claude_installer.yaml` selects the Claude executable. Harbor trial
 metadata must contain the resolved artifact path, version, SHA-256, and install
 path so later YAML edits cannot change an existing job's recorded identity.
 
-## Arms
+## Methods
 
-Every recovery arm branches independently from the same completed Seed native
-session and starts in a fresh task container.
+Every recovery method branches independently from the same completed Seed
+native session and starts in a fresh task container.
 
-| Arm | Prior conversation | Treatment | Purpose |
+| Method | Prior conversation | Added input or behavior | Purpose |
 |---|---:|---|---|
 | Seed | No | Original task only | One-shot baseline |
 | rerun | Yes | Neutral verifier-failure notice | Measure retry headroom with retained context |
@@ -88,15 +88,15 @@ because Claude appends the recovery turn to it.
    excluding subagent sessions.
 4. Copy the completed session to immutable diagnostic storage and record its
    SHA-256.
-5. Start each enabled recovery arm from that same Seed session in a fresh task
+5. Start each enabled recovery method from that same Seed session in a fresh task
    container.
-6. Apply only the treatment assigned to the arm.
+6. Apply only the behavior defined for the method.
 7. Run the hidden verifier once and preserve all setup, diagnosis, and task
    outcomes.
 
-No recovery arm may consume output from another recovery arm. Follow-up studies
-may evaluate repeated recovery, but those results must not be mixed with this
-single-recovery protocol.
+No recovery method may consume output from another recovery method. Follow-up
+studies may evaluate repeated recovery, but those results must not be mixed
+with this single-recovery protocol.
 
 ## Primary comparisons
 
@@ -120,7 +120,7 @@ the debugger alone.
   setup, credential, diagnostic provisioning, or verifier execution failed.
 - **Invalid task:** the oracle does not pass in the pinned environment.
 
-An arm is accepted only when its assigned treatment actually ran. For example,
+A method is accepted only when its required behavior actually ran. For example,
 rerun-adamast requires AdaMAST hook evidence and rerun-skill requires
 native-trace evidence of AgentDebugX skill and CLI invocation.
 
@@ -142,20 +142,20 @@ Secondary:
 - whether the recovery used a materially different approach from Seed.
 
 Report infrastructure exclusions separately and include denominators for every
-arm. Do not silently convert missing treatment evidence into an unresolved task.
+method. Do not silently convert missing method evidence into an unresolved task.
 
 ## Acceptance criteria
 
 - rerun through rerun-skill use the same failed Seed session and immutable
   diagnostic input.
-- Every arm uses the same pinned Claude executable, model, effort, environment,
+- Every method uses the same pinned Claude executable, model, effort, environment,
   timeout, and recovery budget.
 - rerun-deep and rerun-skill consume byte-identical diagnostic input.
 - rerun-adamast uses the recorded frozen taxonomy and leaves no state in the
   graded workspace.
 - rerun-skill invokes the injected skill and a real AgentDebugX CLI.
 - AgentDebugX and AdaMAST artifacts stay outside the graded task workspace.
-- Setup and treatment failures remain distinguishable from task failures.
+- Setup and method failures remain distinguishable from task failures.
 - Claude and AgentDebugX usage and cost are recorded separately.
 - Offline tests validate command construction and artifact selection without
   Harbor, SLURM, network access, or model credentials.

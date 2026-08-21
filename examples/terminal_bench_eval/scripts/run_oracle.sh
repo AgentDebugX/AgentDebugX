@@ -7,10 +7,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/run_base.sh"
 
 RUN_ARGS=(
-  --arm oracle
+  --method oracle
   --tasks-file "$EVAL_DIR/tasks.txt"
   --agent oracle
   --n-concurrent "${TB_CONCURRENCY:-4}"
 )
 
-run_arm "${RUN_ARGS[@]}"
+run_method "${RUN_ARGS[@]}"

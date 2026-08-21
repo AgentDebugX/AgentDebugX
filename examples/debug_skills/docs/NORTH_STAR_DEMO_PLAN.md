@@ -227,7 +227,7 @@ and the outcome is rubric-checkable.
 - Rerun the same task in the same mock environment; score with the same
   rubrics: **no root-cause finding, task passes**.
 - Present as a before/after pair: traceback + task score, failed vs clean.
-- Stretch goal: the Case study 1 GAIA failure gets the same treatment
+- Stretch goal: the Case study 1 GAIA failure uses the same approach
   (`pdftotext` missing → install `poppler-utils`), but its live-web rerun
   is nondeterministic, so it supports the case study rather than carrying
   it.

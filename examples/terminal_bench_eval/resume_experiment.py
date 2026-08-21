@@ -11,7 +11,7 @@ failure, run whichever recovery method(s) were requested:
               (``run_eval.py diagnose``) on the identical diagnostic input
 
 Both load the *same* diagnostic input via ``--load-trajectory`` so the only
-difference between them is the treatment text in
+difference between them is the method-specific instruction in
 ``--extra-instruction-path`` — that difference is what rerun-deep minus
 rerun measures. ``--method seed`` alone launches/classifies Seed only, no
 recovery method.
@@ -234,7 +234,7 @@ def build_seed_run_args(
     """Argv for ``run_eval.py run`` to launch a fresh Seed attempt."""
     args = [
         'run',
-        '--arm', 'seed',
+        '--method', 'seed',
         '--task', task,
         '--agent', 'claude-code',
         '--n-concurrent', '1',
@@ -265,13 +265,13 @@ def build_resume_run_args(
     """Argv for ``run_eval.py run`` (excluding the interpreter and script path).
 
     Every recovery method gets exactly one attempt (protocol: "maximum of
-    one recovery attempt per arm"), the same fixed configuration, and loads
-    the same diagnostic input via ``--load-trajectory`` — only the treatment
+    one recovery attempt per method"), the same fixed configuration, and loads
+    the same diagnostic input via ``--load-trajectory`` — only the instruction
     in ``--extra-instruction-path`` differs between methods.
     """
     args = [
         'run',
-        '--arm', method,
+        '--method', method,
         '--task', task,
         '--agent', 'claude-code',
         '--n-concurrent', '1',

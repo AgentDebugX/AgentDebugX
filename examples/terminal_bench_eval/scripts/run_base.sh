@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Shared setup for every run_<arm>.sh script: load .env, refuse the login
-# node, make sure the job/sif dirs exist, and expose run_arm/run_resume so an
-# arm script only has to state its own flag overrides. Not run directly.
+# Shared setup for the evaluation entry scripts: load .env, refuse the login
+# node, make sure the job/sif dirs exist, and expose run_arm/run_resume. Not run
+# directly.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # The eval dir (tasks.txt, claude_installer.yaml, run_eval.py, ...), distinct
-# from the caller's own script dir — arm scripts should use this, not $HERE.
+# from the caller's own script dir — entry scripts should use this, not $HERE.
 EVAL_DIR="$ROOT/examples/terminal_bench_eval"
 
 set -a
@@ -27,9 +27,9 @@ fi
 mkdir -p "$HARBOR_JOBS_DIR" "$HARBOR_SIF_CACHE_DIR"
 
 # Launch one `run_eval.py run` + `collect` pass. The caller passes the
-# arm-specific flags (--arm, --agent, --task/--tasks-file, ...); jobs-dir and
+# method-specific flags (--method, --agent, --task/--tasks-file, ...); jobs-dir and
 # sif-cache-dir are always the pinned ones from .env.
-run_arm() {
+run_method() {
   local job_dir
   job_dir="$(python3 "$EVAL_DIR/run_eval.py" run \
     "$@" \

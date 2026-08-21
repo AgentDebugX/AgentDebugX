@@ -3,7 +3,7 @@ Status: proposed architecture, revised 2026-08-16. Target runtime: Harbor 0.21.0
 Terminal-Bench 2.1, and Claude Code.
 
 ## Decision
-Add recovery arms in which Claude Code either uses AgentDebugX or runs AdaMAST
+Add recovery methods in which Claude Code either uses AgentDebugX or runs AdaMAST
 with a fixed failure-mode taxonomy. The recommended first version is
 **post-failure resume with a completed prior trajectory**, not continuous
 monitoring of the live attempt or cross-task taxonomy learning.
@@ -16,7 +16,7 @@ skill, and explicitly asks Claude to diagnose and correct itself.
 This preserves conversation context without preserving Docker state, as agreed.
 It also avoids racing a JSONL file that Claude is actively appending.
 
-The canonical arm definitions, controls, measurements, and acceptance criteria
+The canonical method definitions, controls, measurements, and acceptance criteria
 are specified separately in [EXPERIMENT_PROTOCOL.md](EXPERIMENT_PROTOCOL.md).
 
 ## Terminology: two unrelated things are both called "trajectory.json"
@@ -49,7 +49,7 @@ are specified separately in [EXPERIMENT_PROTOCOL.md](EXPERIMENT_PROTOCOL.md).
     detects loops, repeated tool failures, or uncertainty. This cannot detect a
     silently wrong final answer before hidden verification.
 - The benchmark task, verifier, model, effort, timeout, and recovery budget must
-  remain identical across arms. Every arm must use the same pinned Claude Code
+  remain identical across methods. Every method must use the same pinned Claude Code
   executable; record both its version and artifact hash.
 - AdaMAST uses one immutable taxonomy across the evaluation. It must not learn
   from the evaluated tasks or carry mutable state between them.
@@ -195,8 +195,8 @@ Guardrails:
 - do not block stopping when diagnosis fails or finds nothing actionable.
 
 This provides more deterministic automation than agent-selected skill use, but
-it measures a **hook-driven debugger treatment**, not merely skill availability.
-Keep it as a separate arm rather than silently folding it into rerun-skill.
+it measures a **hook-driven debugger method**, not merely skill availability.
+Keep it as a separate method rather than silently folding it into rerun-skill.
 
 ## Skill contract for batch recovery
 
@@ -214,7 +214,7 @@ When these are set, the skill must:
 1. Use the named path without asking the user or searching private host state.
 2. Verify the path exists and normalize it with `--format claude_code`.
 3. Write every artifact under `AGENTDEBUG_OUT_DIR`, never the graded workspace.
-4. Run deterministic diagnosis first and escalate according to the fixed arm
+4. Run deterministic diagnosis first and escalate according to the fixed method
    policy, not ad hoc model judgment.
 5. Return a compact root cause, evidence location, and recovery action.
 6. Immediately apply the recovery action because the experiment prompt grants
@@ -251,7 +251,7 @@ do not let missing Python count as an agent failure.
 ## Provisioning AdaMAST inside the trial
 
 Use the same custom Harbor Claude agent and pinned Claude artifact for every
-arm. rerun-adamast adds a treatment layer; it must not use a different Claude
+method. rerun-adamast adds an execution layer; it must not use a different Claude
 installer.
 
 1. Stage a pinned AdaMAST runtime without APT or first-session downloads.
@@ -277,7 +277,7 @@ For the experiment:
 - Pass only the required `AGENTDEBUG_LLM_*` values through Harbor agent env.
 - Never embed credentials in the skill, prompt, trajectory, or report.
 - Ensure command logging masks keys.
-- Pin one diagnosis mode per arm. Do not let rerun-skill silently spend more
+- Pin one diagnosis mode per method. Do not let rerun-skill silently spend more
   LLM calls than rerun-deep.
 - Capture AgentDebugX input/output/cache tokens and cost separately from Claude.
   This gap must be fixed before cost-aware results are collected.
@@ -324,15 +324,15 @@ Extend `run_eval.py` with narrow pass-throughs for:
 
 Extend `retry_loop.py` to:
 
-1. Add `seed`, `rerun`, `rerun-deep`, `rerun-adamast`, and `rerun-skill` arm
+1. Add `seed`, `rerun`, `rerun-deep`, `rerun-adamast`, and `rerun-skill` method
    definitions.
 2. Select one primary native Claude session deterministically.
 3. Copy and hash the completed diagnostic input.
-4. Load the prior session for every resume arm.
+4. Load the prior session for every resume method.
 5. Enable fixed-taxonomy AdaMAST only for `rerun-adamast`; inject AgentDebugX
    only for `rerun-skill`.
 6. Classify setup/import/credential failures as harness failures.
-7. Carry each arm forward from its own most recent failed session.
+7. Carry each method forward from its own most recent failed session.
 8. Stop early on success while preserving equal maximum retry budgets.
 
 Do not put these policies into Harbor or change Terminal-Bench task definitions.
@@ -352,7 +352,7 @@ They belong in the evaluation glue under `examples/terminal_bench_eval/`.
 | CLI install fails | Setup preflight; classify as infrastructure failure |
 | Reports contaminate graded files | Write only under `/logs/agent/agentdebug` |
 | Recursive self-diagnosis | Snapshot watermark and one diagnosis per checkpoint |
-| Diagnosis arms spend unequal compute | Pin mode, model, retry budget, and diagnosis-call budget |
+| Diagnosis methods spend unequal compute | Pin mode, model, retry budget, and diagnosis-call budget |
 | AgentDebugX secrets leak into logs | Agent-env injection, masking, and post-run secret scan |
 
 ## Implementation sequence

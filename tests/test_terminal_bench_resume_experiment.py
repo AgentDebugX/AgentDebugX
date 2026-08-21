@@ -90,7 +90,7 @@ def test_parse_tasks_config_supports_bare_names_and_seed_reuse(tmp_path: Path) -
 def test_build_seed_run_args_runs_one_task_at_a_time() -> None:
     args = build_seed_run_args('terminal-bench/raman-fitting', jobs_dir='jobs', sif_cache_dir='sif')
 
-    assert args[:3] == ['run', '--arm', 'seed']
+    assert args[:3] == ['run', '--method', 'seed']
     assert args[args.index('--task') + 1] == 'terminal-bench/raman-fitting'
     assert args[args.index('--n-concurrent') + 1] == '1'
     assert '--model' not in args
@@ -133,7 +133,7 @@ def test_build_resume_run_args_loads_the_diagnostic_input_and_treatment(tmp_path
         sif_cache_dir='sif',
     )
 
-    assert args[:3] == ['run', '--arm', 'rerun']
+    assert args[:3] == ['run', '--method', 'rerun']
     assert args[args.index('--load-trajectory') + 1] == str(diagnostic_input.path)
     assert args[args.index('--extra-instruction-path') + 1] == str(instruction_path)
     assert args.count('--n-concurrent') == 1

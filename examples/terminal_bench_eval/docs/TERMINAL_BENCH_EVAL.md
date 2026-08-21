@@ -23,14 +23,14 @@ used 0.20.0. Re-run the oracle smoke test before collecting 0.21.0 agent data;
 do not combine results across Harbor versions.
 
 Update 2026-08-16 (node ccc0284, live SLURM allocation): **Harbor 0.21.0
-oracle re-verified.** `./scripts/run_oracle.sh` over all 11 tasks in `tasks.txt`:
-**11/11 resolved, 0 errored.** A separate 2-task ad hoc run
+oracle re-verified.** `./scripts/run_oracle.sh` over the then-current 11-task
+subset: **11/11 resolved, 0 errored.** A separate 2-task ad hoc run
 (`terminal-bench/torch-tensor-parallelism`, `terminal-bench/write-compressor`)
 reproduced the known `torch-tensor-parallelism` harbor bootstrap crash
 (`RuntimeError: Server process died`, image ships no `python3` — same
 infrastructure exclusion documented below) and passed `write-compressor`
-cleanly, which `tasks.txt` currently excludes as a "reproducible harness
-flake" — worth a re-check, since it did not flake this time. 0.21.0 behaves
+cleanly; it had previously been excluded as a "reproducible harness flake" and
+is worth rechecking because it did not flake this time. 0.21.0 behaves
 the same as the 0.20.0 results below for every task in the pinned subset;
 0.21.0 agent data collection is now unblocked.
 
@@ -209,7 +209,7 @@ So anything written to `/logs/agent/...` inside the container appears on the
 host immediately, with no collection step. `ClaudeCode.SUPPORTS_ATIF = True`
 and it writes its own `trajectory.json` into that dir.
 
-**Gotcha for arm A3:** the skill's default output dir is `.agentdebug/` in the
+**Gotcha for method A3:** the skill's default output dir is `.agentdebug/` in the
 cwd — which inside the container is the *task workspace*. Two problems: the
 reports die with the container, and they litter the workspace the verifier then
 inspects (a real risk of corrupting the result). In-container runs must write to
@@ -222,7 +222,7 @@ agentdebug diagnose ... --out /logs/agent/.agentdebug/<name>.report.json
 Cheapest fix is to say so in the injected instruction file; a skill-level
 `AGENTDEBUG_OUT_DIR` honored by SKILL.md would be tidier.
 
-Host-side arms (A2) should write **outside** `jobs/` so our artifacts are never
+Host-side methods (A2) should write **outside** `jobs/` so our artifacts are never
 confused with harness output — e.g. `/u/yuchen85/scratch/agentdebug-eval/<job>/<task>/`.
 
 Ingestion into AgentDebugX:
@@ -263,24 +263,24 @@ What is supported, and is enough:
 | put a **file** (the prior trajectory) in the container | `--mounts` / `--mounts-json` |
 | give the agent the AgentDebugX skill | `--skill <path>` → copied to `$CLAUDE_CONFIG_DIR/skills/` |
 | rerun only the failed tasks | `--include-task-name` (repeatable) / `--retry-include` |
-| fair control arm | `--n-attempts` (pass@k) |
+| fair control method | `--n-attempts` (pass@k) |
 
 So the shape is: **pass 1 → verifier → failed set → pass 2 with the prior
 trajectory mounted + the skill injected + an instruction file that points at it.**
 
-## 4. Recommended evaluation: 4-arm retry study on the failed subset
+## 4. Recommended evaluation: 4-method retry study on the failed subset
 
 Run TB 2.1 once with vanilla `claude-code`. Take the unresolved task ids. Rerun
 *that same subset* four ways, identical model/budget, and compare resolve rate.
 
-| arm | what the second attempt gets | tests |
+| method | what the second attempt gets | tests |
 |---|---|---|
 | **A0** control | nothing (plain retry) | how much is just "two tries" |
 | **A1** raw context | the prior trajectory dumped into the instruction | how much is just "any hindsight" |
 | **A2** report-only | AgentDebugX report text, diagnosed **on the host** | quality of the diagnosis itself |
 | **A3** skill | trajectory mounted + `--skill agentdebug`; the agent runs `agentdebug diagnose` itself | the product: skill-driven RCA in the loop |
 
-A0 and A1 are the arms that make the result meaningful — without them "A3 beats
+A0 and A1 are the methods that make the result meaningful — without them "A3 beats
 one attempt" is unpublishable, since a second attempt alone lifts pass rate.
 
 **Start with A0/A1/A2.** A2 needs *no* `agentdebug` inside the container (the
@@ -363,7 +363,7 @@ Verified working:
       below were produced with 0.20.0 and require a new oracle smoke test.
 - [x] AgentDebugX host pipeline: `ingest --format claude_code` (81 events) →
       `diagnose --mode judge` → real semantic root cause + recovery. This is the
-      whole host half of arm A2, already proven.
+      whole host half of method A2, already proven.
 
 Remaining, in order:
 
@@ -377,7 +377,7 @@ Remaining, in order:
 
    A `~/.claude/.credentials.json` already exists on this host, so the token
    route is available. Caveat: subscription rate limits will throttle a
-   multi-arm sweep of long agentic runs; an API key with credits is the sane
+   multi-method sweep of long agentic runs; an API key with credits is the sane
    path for anything past the smoke test.
 
 2. **Stabilize the AgentDebugX LLM endpoint.** `AGENTDEBUG_LLM_BASE_URL` is a
@@ -423,16 +423,15 @@ need the `terminal-bench/` prefix; per-trial reward lives at
 `result.json → verifier_result.rewards.reward` (there is no `results.json`);
 `.sif` reuse works (second run of a cached image skips conversion).
 
-Harness lives in `examples/terminal_bench_eval/`:
-one `run_<arm>.sh` script per arm (env + SLURM guard, via `run_base.sh`, then
-that arm's explicit flag overrides) → `run_eval.py run` (launch, print job
-dir) → `run_eval.py collect` (one JSONL record per trial: task, reward,
-resolved, errored, exception, trial_dir, trajectory, sessions). Downstream arms
-read that record shape, not harbor internals.
+Harness lives in `examples/terminal_bench_eval/`. `run_eval.py run` launches a
+job and prints its directory; `run_eval.py collect` writes one JSONL record per
+trial containing task, reward, resolved/errored status, exception, trial
+directory, trajectory, and sessions. Downstream methods read that record shape,
+not Harbor internals.
 
 ## 8. First real result (2026-08-07)
 
-**Pinned defaults** (`.env`, applied by `run_base.sh` to every arm):
+**Pinned defaults** (`.env`, applied by `run_base.sh` to every method):
 `TB_MODEL=anthropic/claude-sonnet-5`, `TB_EFFORT=medium`, `TB_MAX_RETRIES=3`.
 Effort is passed as `--agent-kwarg reasoning_effort=…` so it is recorded in each
 trial's `config.json` rather than depending on a CLI default.
@@ -473,8 +472,8 @@ earlier fixture.
 2. Same 5 tasks with `-a claude-code` → verify: `agent/trajectory.json` and `agent/sessions/*.jsonl` exist.
 3. `agentdebug ingest` + `diagnose` one real failure on the host → verify: step-level root cause.
 4. Full pass 1 on a subset (~40–60 tasks) → collect the failed set.
-5. Arms A0/A1/A2 on that failed set → verify: a pass-rate delta table.
-6. Arm A3 (skill in-container) once A2 shows signal.
+5. Methods A0/A1/A2 on that failed set → verify: a pass-rate delta table.
+6. Method A3 (skill in-container) once A2 shows signal.
 
 ## Sources
 

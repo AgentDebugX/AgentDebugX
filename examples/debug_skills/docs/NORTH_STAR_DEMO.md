@@ -318,7 +318,7 @@ agentdebug diagnose out/task.trajectory.json \
 # 3. diagnose the rerun: expected no root-cause finding, task passes
 ```
 
-The Case study 1 failure admits the same treatment — its root cause is a
+The Case study 1 failure admits the same approach — its root cause is a
 one-command environment fix (`apt-get install -y poppler-utils`) — and is
 included as a secondary instance, with the caveat that its rerun traverses
 the live web and is therefore nondeterministic.
