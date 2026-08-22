@@ -4,11 +4,12 @@ Harness for measuring whether an AgentDebugX deep-debug diagnosis makes a failed
 Claude Code run succeed on retry. See the
 [host-specific setup and run notes](docs/TERMINAL_BENCH_EVAL.md) for background.
 
-Must run inside a SLURM allocation — Harbor does not submit jobs itself.
-Harbor is pinned at 0.21.0 and re-verified there: `./scripts/run_oracle.sh`
-resolved the then-current 11-task subset 11/11 on 2026-08-16 (see
-[TERMINAL_BENCH_EVAL.md](docs/TERMINAL_BENCH_EVAL.md)). `harbor` runs from
-`~/.local/bin/harbor` (a standalone `uv tool install`), not from inside the
+The harness supports selectable `docker` and `singularity` Harbor backends.
+Singularity retains the original SLURM-allocation guard; Docker requires a
+usable Docker daemon and does not require SLURM. Harbor is pinned at 0.21.0.
+The dated 11/11 result is Singularity-only; Docker qualification is tracked
+separately in [TERMINAL_BENCH_EVAL.md](docs/TERMINAL_BENCH_EVAL.md). `harbor`
+runs from `~/.local/bin/harbor` (a standalone `uv tool install`), not from the
 `agent-debugx` conda env.
 
 ```bash
@@ -17,12 +18,26 @@ srun --partition=yongjoo --time=04:00:00 --nodes=1 \
 set -a; . .env; set +a
 ```
 
+Select Docker explicitly. The bounded qualification file contains exactly five
+tasks/images:
+
+```bash
+TB_ENVIRONMENT=docker \
+TB_TASKS_FILE=examples/terminal_bench_eval/tasks_docker_oracle_5.txt \
+  ./examples/terminal_bench_eval/scripts/run_oracle.sh
+```
+
+Docker runs always pass Harbor `--no-delete`. Harbor removes completed
+containers and Compose networks with plain `docker compose down`, but preserves
+all downloaded/built images and volumes. This harness must never invoke Docker
+prune or image-removal commands.
+
 ## Pieces
 
 | file | role |
 |---|---|
-| `run_base.sh` | sourced by every `run_<method>.sh`/`run_batch.sh` script: env + SLURM guard + `run_method`/`run_resume` helpers |
-| `run_oracle.sh` | run the environment-qualification oracle over `tasks.txt` |
+| `run_base.sh` | sourced by every `run_<method>.sh`/`run_batch.sh` script: backend preflight + backend-specific SLURM guard + `run_method`/`run_resume` helpers |
+| `run_oracle.sh` | run the environment-qualification oracle over `TB_TASKS_FILE` or `tasks.txt` |
 | `run_seed.sh`, `run_rerun.sh`, `run_rerun_deep.sh`, `run_batch.sh` | thin wrappers over `resume_experiment.py` for one recovery method / one task, or many tasks at once — same underlying tool, see below |
 | `run_eval.py` | `run` (launch a harbor job), `collect` (one JSONL record per trial), `diagnose` (ingest → deep diagnose → advice markdown) |
 | `retry_loop.py` | the legacy experiment: repeated attempts for one task, `--method control` vs `--method deep` |
@@ -33,6 +48,7 @@ set -a; . .env; set +a
 | `docs/HANDOFF.md` | reconciled implementation state, reproducibility records, and next experiment step |
 | `tasks.txt` | Oracle candidate set without confirmed infrastructure failures; prune to Oracle-resolved tasks before agent evaluation |
 | `tasks_preflight_25.txt` | 25-task candidate pool: 11 oracle-confirmed plus 14 static Apptainer candidates |
+| `tasks_docker_oracle_5.txt` | bounded five-task Docker development and Oracle-qualification set |
 | `pinned_claude.py` | Harbor `ClaudeCode` subclass that installs one pinned host artifact without APT |
 | `install_matrix.py` | Collect install-only results and classify setup failures |
 | `tasks_installer_matrix.txt` | 11 oracle-verified images plus six prior APT installer failures |
@@ -72,6 +88,7 @@ python examples/terminal_bench_eval/run_eval.py run \
   --task sqlite-db-truncate \
   --model anthropic/claude-sonnet-5 \
   --jobs-dir "$HARBOR_JOBS_DIR" \
+  --environment-backend singularity \
   --sif-cache-dir "$HARBOR_SIF_CACHE_DIR" \
   --install-only \
   --claude-installer-config examples/terminal_bench_eval/claude_installer.yaml
@@ -87,7 +104,8 @@ recovery design is in [the architecture](docs/architecture.md).
 | Capability | Status |
 |---|---|
 | Configurable pinned Claude installer | Implemented and validated |
-| Install-only compatibility matrix | Implemented and validated |
+| Singularity install-only compatibility matrix | Implemented and validated |
+| Docker backend + bounded Oracle qualification | Implemented; 5/5 resolved on 2026-08-21 |
 | Fresh control/deep retry loop | Implemented legacy harness |
 | Primary-session selection and immutable diagnostic copy | Implemented, offline-tested (`session_selection.py`) |
 | `run_eval.py` resume pass-throughs (`--load-trajectory`, `--mount`, `--agent-env`) | Implemented, offline-tested |
@@ -95,6 +113,10 @@ recovery design is in [the architecture](docs/architecture.md).
 | Noninteractive skill contract | Implemented in the skill (`SKILL.md`) |
 | rerun-adamast method | Not implemented |
 | rerun-skill (in-container AgentDebugX skill) method | Not implemented |
+
+Docker validation intentionally stops at the Oracle stage. The pinned-Claude
+installer, Seed, rerun, and rerun-deep paths are wired for backend selection but
+have not been executed under Docker.
 
 ## Seed/rerun/rerun-deep resume orchestration
 
@@ -134,6 +156,12 @@ existing editable install. See the current host check in
 [HANDOFF.md](docs/HANDOFF.md). `--mode deepdebug` needs no `--attributor`
 (dead for deep mode; `cmd_diagnose` passes `none`) but does need `--recovery`
 (`reflexion` by default, whose output overwrites the report's `suggestions`).
+
+A completed Seed trajectory may be imported across backends (for example, a
+Singularity Seed resumed in Docker). The summary records
+`seed_environment_backend` and `environment_backend` and emits a warning; it
+does not reject the import. Treat such a row as cross-backend evidence rather
+than a controlled same-backend comparison.
 
 ### Many tasks, one call
 

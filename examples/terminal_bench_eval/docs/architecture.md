@@ -13,7 +13,9 @@ It then starts a fresh container, resumes the failed Claude conversation, mounts
 an immutable copy of the completed failed session, injects the AgentDebugX
 skill, and explicitly asks Claude to diagnose and correct itself.
 
-This preserves conversation context without preserving Docker state, as agreed.
+This preserves conversation context without preserving task-container state.
+The resumed trajectory may cross environment backends when explicitly selected;
+both the Seed and recovery backend are recorded.
 It also avoids racing a JSONL file that Claude is actively appending.
 
 The canonical method definitions, controls, measurements, and acceptance criteria
@@ -39,6 +41,10 @@ are specified separately in [EXPERIMENT_PROTOCOL.md](EXPERIMENT_PROTOCOL.md).
 
 ## Assumptions and boundaries
 - Every recovery attempt gets a fresh task container.
+- Docker images are retained cache inputs: never prune or remove them.
+  Completed Docker containers and Compose networks are removed with plain
+  `docker compose down`; Harbor is invoked with `--no-delete` so it does not
+  add `--rmi local` or `--volumes`.
 - `--load-trajectory` restores conversation, not files.
 - Terminal-Bench's hidden verifier is authoritative. Claude cannot know that it
   failed until Harbor finishes the attempt and the outer loop reads the reward.

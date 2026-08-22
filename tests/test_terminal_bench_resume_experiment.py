@@ -111,6 +111,18 @@ def test_build_seed_run_args_passes_through_model_effort_and_installer() -> None
     )
 
 
+def test_build_seed_run_args_selects_docker_without_a_sif_cache() -> None:
+    args = build_seed_run_args(
+        'terminal-bench/raman-fitting',
+        jobs_dir='jobs',
+        sif_cache_dir='',
+        environment_backend='docker',
+    )
+
+    assert args[args.index('--environment-backend') + 1] == 'docker'
+    assert '--sif-cache-dir' not in args
+
+
 def _diagnostic_input(tmp_path: Path) -> DiagnosticInput:
     return DiagnosticInput(
         path=tmp_path / 'seed.jsonl',
@@ -179,6 +191,23 @@ def test_build_resume_run_args_omits_optional_flags_when_unset(tmp_path: Path) -
     assert '--model' not in args
     assert '--effort' not in args
     assert '--claude-installer-config' not in args
+
+
+def test_build_resume_run_args_selects_docker_without_a_sif_cache(
+    tmp_path: Path,
+) -> None:
+    args = build_resume_run_args(
+        method='rerun',
+        task='terminal-bench/sqlite-db-truncate',
+        diagnostic_input=_diagnostic_input(tmp_path),
+        instruction_path=tmp_path / 'notice.md',
+        jobs_dir='jobs',
+        sif_cache_dir='',
+        environment_backend='docker',
+    )
+
+    assert args[args.index('--environment-backend') + 1] == 'docker'
+    assert '--sif-cache-dir' not in args
 
 
 def _write_config_json(trial_dir: Path, *, model: str, effort: str, sha256: str) -> None:

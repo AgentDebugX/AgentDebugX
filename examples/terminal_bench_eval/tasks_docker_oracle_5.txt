@@ -1,0 +1,7 @@
+# Five-task Docker development and Oracle-qualification subset.
+# Keep this deliberately bounded until Docker backend verification completes.
+sqlite-db-truncate
+cancel-async-tasks
+code-from-image
+kv-store-grpc
+openssl-selfsigned-cert

@@ -17,6 +17,27 @@ by Harbor) and AgentDebugX's own, unrelated `AgentTrajectory` schema
 `*.trajectory.json`) are two different things that happen to share a
 filename convention.
 
+Update 2026-08-21 (Docker host): Docker 28.1.1, Compose 2.35.1, and Harbor
+0.21.0 are available without sudo through the user's Docker group. Docker data
+lives at `/srv/local/data/docker-data`; Harbor outputs use the configured
+`HARBOR_JOBS_DIR`. Docker and Singularity are selectable with `TB_ENVIRONMENT`.
+Docker runs use Harbor `--no-delete`: completed containers and Compose networks
+are removed, while images and volumes are retained. Docker prune and
+image-removal commands are forbidden.
+
+The bounded Docker Oracle run over `tasks_docker_oracle_5.txt` completed in
+2m11s: **5/5 resolved, mean reward 1.0, 0 exceptions**. Job artifacts:
+`local/harbor-jobs/2026-08-21__02-06-49`. All five completed containers were
+removed and all five images remained cached. Resolved image identities:
+
+| task | image ID | repository digest |
+|---|---|---|
+| sqlite-db-truncate | `sha256:33e71d5cd2768815d8c822af32020cd12ff3b0c35f4609dbd65523d8ee98d358` | `sha256:aabac93c93bd1f310e6a6fb893911d7735026ed18491c72133c9196a09092ca4` |
+| cancel-async-tasks | `sha256:760c5426807dc80edd6a1b1c3675c197599fc3f9cb46b1a06e7539cb94818553` | `sha256:84c7fae6b256dcc56a350790e2a9715eefc7dad662a9d8e8a472363aa71ef18d` |
+| code-from-image | `sha256:95e8a914c522fb26db230a1f28a895f260a3f0b3351f3de8d5bd04e88f316998` | `sha256:2be9cdb746ed18c1b2b1404032efae0b2235a1b8fc479ef17730c95409d89f76` |
+| kv-store-grpc | `sha256:b9412389bb791988d341f7dcbf456fb68feea133d9e3e6a705fbea976a8acb2b` | `sha256:3399400800dcb207634daa42bc1b052e831e285cc9d221eea66c47bc0fc79791` |
+| openssl-selfsigned-cert | `sha256:7082de4dab44888b5b5e9c0f9de09b30bc8cd28b329edc6d153fb5ce3dca5f24` | `sha256:4c948a4e630af2435ae0a19108fc0814a946ac2fa29a512469e0fc77b38c8c12` |
+
 Update 2026-08-13: Harbor is pinned at 0.21.0. The scripts compile and the
 required CLI remains available, but all real Singularity runs documented below
 used 0.20.0. Re-run the oracle smoke test before collecting 0.21.0 agent data;

@@ -40,7 +40,7 @@ they do not yet satisfy this protocol.
 Run one Seed attempt for each selected task. A task enters the recovery study
 only when:
 
-1. the task's oracle has passed in the same Harbor and environment setup;
+1. the task's oracle has passed in the recovery attempt's Harbor and environment setup;
 2. Seed receives reward `0.0` from the hidden verifier; and
 3. Seed has no harness, environment, agent-setup, or verifier exception.
 
@@ -52,8 +52,8 @@ their failure class rather than treating them as unresolved agent attempts.
 The following must be identical across Seed and every recovery method for a task:
 
 - Terminal-Bench dataset and task definition;
-- Harbor version and environment backend;
-- cached SIF identity;
+- Harbor version;
+- backend-specific environment identity (cached SIF or resolved Docker image);
 - Claude Code executable version and SHA-256;
 - model, reasoning effort, timeout, and task instructions;
 - fresh task filesystem; and
@@ -62,6 +62,13 @@ The following must be identical across Seed and every recovery method for a task
 The shared `claude_installer.yaml` selects the Claude executable. Harbor trial
 metadata must contain the resolved artifact path, version, SHA-256, and install
 path so later YAML edits cannot change an existing job's recorded identity.
+
+The preferred controlled comparison keeps the environment backend identical.
+The harness also permits importing a completed Seed trajectory across backends
+(for example, Singularity Seed to Docker recovery). Such runs must record both
+the Seed and recovery backend, must have an Oracle-qualified recovery backend,
+and must be reported separately from same-backend comparisons; the harness
+warns but does not reject them.
 
 ## Methods
 

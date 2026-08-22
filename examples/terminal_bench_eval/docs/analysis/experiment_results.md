@@ -104,3 +104,78 @@ The separate Oracle qualification run is
 reward 1.0 with no exception. The Python-bootstrap failures documented in
 `../installer_findings.md` affected `adaptive-rejection-sampler` and
 `regex-log`, neither of which is in this Seed sweep.
+
+## Recovery trials (rerun / rerun-deep), 2026-08-20
+Both unresolved agent attempts from the Seed sweep above (`db-wal-recovery`,
+`raman-fitting`) were reused via `resume_experiment.py --tasks-config`
+(`task.txt`) to run `rerun-deep`; `db-wal-recovery` additionally got a plain
+`rerun` trial for comparison. `circuit-fibsqrt`, `feal-linear-cryptanalysis`,
+and `path-tracing-reverse` are infrastructure exclusions
+(`AgentTimeoutError`, not agent failures — see the Seed sweep table) and are
+**not** eligible for recovery trials under the protocol; none were run.
+
+| Task | Seed reward | Method | Reward | Resolved | Trial |
+|---|---:|---|---:|---|---|
+| `db-wal-recovery` | 0.0 | `rerun` | 1.0 | yes | `2026-08-20__23-51-53/db-wal-recovery__9yX7k3M` |
+| `db-wal-recovery` | 0.0 | `rerun-deep` | 1.0 | yes | `2026-08-20__23-35-06/db-wal-recovery__HqTVvjn` |
+| `raman-fitting` | 0.0 | `rerun-deep` | 0.0 | no | `2026-08-20__23-36-21/raman-fitting__ea6yVCb` |
+
+DeepDebug's `seed.deep.json` root-cause attribution for each Seed trial
+(`/u/yuchen85/scratch/agentdebug-eval/<task>/<seed-trial>/seed.deep.json`):
+
+- **db-wal-recovery**, step 19: the agent's own diagnostic command
+  (`sqlite3 main.db "PRAGMA journal_mode; ..."`) opened the database
+  read-write and destroyed the WAL file the task required it to recover.
+- **raman-fitting**, step 47: the agent judged a curve fit "visually
+  reasonable" (R²≈0.9495) and moved on without further validation.
+
+`db-wal-recovery`'s plain `rerun` resolved the task with no diagnosis at all,
+tying `rerun-deep`'s outcome. With only one comparable pair, this does not
+show DeepDebug's diagnosis was necessary for db-wal-recovery — retry headroom
+with retained conversation context was sufficient by itself. `raman-fitting`
+had no `rerun` trial, so no same-task comparison exists there; DeepDebug's
+advice did not resolve it. Two tasks (one with a same-task comparison) is too
+small a population for a resolve-rate or DeepDebug-attribution claim.
+
+## DeepDebug false-positive check, 2026-08-20–21
+
+Question: run diagnosis-only (`run_eval.py diagnose`, no new agent/Harbor
+launch) against Seed-sweep trials that actually **resolved** (reward 1.0, no
+exception) — does DeepDebug's attributor still emit a "root cause" claim on a
+trajectory that succeeded?
+
+Population: the six Seed-sweep trials from the table above with reward 1.0
+and no exception. `circuit-fibsqrt` is excluded from this check even though
+its raw reward is 1.0, because its trial carries an `AgentTimeoutError`
+(infrastructure exclusion, not a clean pass).
+
+| Task | Trial | root_cause_step_index | Evidence quoted by DeepDebug |
+|---|---|---:|---|
+| `sqlite-db-truncate` | `2026-08-16__16-28-20/sqlite-db-truncate__MYhpW3j` | 13 | Agent manually parsing a truncated SQLite page's header/cell array — routine mid-task diagnostic work |
+| `cancel-async-tasks` | `2026-08-16__16-31-16/cancel-async-tasks__98riuFi` | 7 | "Basic concurrency test works... Now let's verify Ctrl-C behavior via SIGINT simulation" — a passing checkpoint |
+| `code-from-image` | `2026-08-17__00-28-35/code-from-image__naXeKCY` | 5 | Hash matched the expected prefix; result written to `output.txt` — this is the task's successful completion step |
+| `kv-store-grpc` | `2026-08-17__00-29-15/kv-store-grpc__eGtNpM9` | 1 | "I'll get started building the KV store server. Let me first install the required packages." — the run's first action |
+| `openssl-selfsigned-cert` | `2026-08-17__00-30-29/openssl-selfsigned-cert__4jE4K6G` | 1 | "I'll create the SSL directory and generate the certificate files." — the run's first action |
+| `distribution-search` | `2026-08-17__00-44-46/distribution-search__P8dzHmh` | 5 | "`python` (not `python3`) has numpy/scipy installed. I'll use that." — reasonable environment detection |
+
+Full reports: `/u/yuchen85/scratch/agentdebug-eval/<task>/<trial-name>/seed.deep.json`
+and `seed.advice.md`.
+
+**Result: 6/6 false positives.** DeepDebug's attributor never abstained — it
+emitted a nonempty "the decision at step N... introduced the earliest error
+that led to the failed outcome" claim on every trace checked, even though
+none of these six trajectories failed. Two cases make the defect concrete
+rather than a matter of interpretation: `kv-store-grpc` flags the agent's
+literal first action, and `code-from-image` flags the successful hash-match
+and output-write step — both labeled as "the earliest error," on runs that
+received reward 1.0.
+
+This is consistent with the constraint noted in `../HANDOFF.md`: `--mode
+deepdebug` performs its own AllAtOnce+MoE attribution regardless of
+`--attributor`, and that attribution path has no gate on reward and no "no
+failure found" output — it forces a root-cause narrative onto whatever
+trajectory it is given. Any DeepDebug root-cause claim in this experiment
+(including the db-wal-recovery and raman-fitting findings above) should be
+read against this: the tool's willingness to name a step is not itself
+evidence that the step is a genuine defect, independent of the reward
+signal.

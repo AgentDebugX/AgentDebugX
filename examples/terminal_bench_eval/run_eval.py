@@ -25,6 +25,7 @@ else:
     from claude_artifact import ClaudeInstallerConfig  # type: ignore[no-redef]
 
 DATASET = 'terminal-bench/terminal-bench-2-1'
+ENVIRONMENT_BACKENDS = ('docker', 'singularity')
 # Set AGENTDEBUG_BIN to pin a specific env's CLI (e.g. the agent-debugx conda env).
 AGENTDEBUG_BIN = os.environ.get('AGENTDEBUG_BIN', 'agentdebug')
 TASK_PREFIX = 'terminal-bench/'
@@ -110,6 +111,13 @@ def _loggable_command(cmd: list[str]) -> str:
     return ' '.join(parts)
 
 
+def _job_dir_from_output(output: str) -> str | None:
+    """Extract Harbor's job dir even when Rich wraps a long path mid-token."""
+    unwrapped = re.sub(r'(?<=\S)\r?\n(?=\S)', '', output)
+    match = JOB_DIR_RE.search(unwrapped)
+    return match.group(1) if match else None
+
+
 def _build_run_command(args: argparse.Namespace, tasks: list[str]) -> list[str]:
     agent = PINNED_CLAUDE_AGENT if args.claude_installer_config else args.agent
     cmd = ['harbor', 'run', '-d', DATASET, '-a', agent, '-n', str(args.n_concurrent)]
@@ -125,12 +133,24 @@ def _build_run_command(args: argparse.Namespace, tasks: list[str]) -> list[str]:
     if args.claude_installer_config:
         for value in _resolved_installer_kwargs(Path(args.claude_installer_config)):
             cmd += ['--agent-kwarg', value]
-    cmd += [
-        '--env', 'singularity',
-        '--environment-kwarg', f'singularity_image_cache_dir={args.sif_cache_dir}',
-        '--jobs-dir', args.jobs_dir,
-        '--yes',
-    ]
+    cmd += ['--env', args.environment_backend]
+    if args.environment_backend == 'singularity':
+        if not args.sif_cache_dir:
+            raise ValueError(
+                '--sif-cache-dir (or HARBOR_SIF_CACHE_DIR) is required '
+                'for the singularity backend'
+            )
+        cmd += [
+            '--environment-kwarg',
+            f'singularity_image_cache_dir={args.sif_cache_dir}',
+        ]
+    else:
+        # Harbor's default Docker cleanup includes ``--rmi local``.  The
+        # evaluation host has a strict image-retention policy, so select the
+        # branch that runs plain ``docker compose down``: completed containers
+        # and networks go away, while every downloaded/built image is retained.
+        cmd.append('--no-delete')
+    cmd += ['--jobs-dir', args.jobs_dir, '--yes']
     if args.install_only:
         cmd.append('--install-only')
     # Method-specific injection: advice files and the AgentDebugX skill bundle.
@@ -172,14 +192,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     sys.stderr.write(proc.stderr)
 
-    log_path = Path(args.jobs_dir) / f'{args.method}.harbor.log'
+    log_path = Path(args.jobs_dir) / (
+        f'{args.environment_backend}.{args.method}.harbor.log'
+    )
     log_path.write_text(proc.stdout + '\n' + proc.stderr, encoding='utf-8')
 
-    match = JOB_DIR_RE.search(proc.stdout) or JOB_DIR_RE.search(proc.stderr)
-    if not match:
+    job_dir = _job_dir_from_output(proc.stdout) or _job_dir_from_output(proc.stderr)
+    if not job_dir:
         print(f'could not find job dir in harbor output; see {log_path}', file=sys.stderr)
         return 1
-    print(match.group(1))
+    print(job_dir)
     return 0
 
 
@@ -188,14 +210,25 @@ def _trial_record(trial_dir: Path) -> dict | None:
     if not result_path.is_file():
         return None
     result = json.loads(result_path.read_text(encoding='utf-8'))
+    config_path = trial_dir / 'config.json'
+    config = (
+        json.loads(config_path.read_text(encoding='utf-8'))
+        if config_path.is_file()
+        else (result.get('config') or {})
+    )
 
     rewards = ((result.get('verifier_result') or {}).get('rewards')) or {}
     reward = rewards.get('reward')
     exception = result.get('exception_info')
 
     agent_dir = trial_dir / 'agent'
-    sessions = sorted(str(p) for p in (agent_dir / 'sessions').glob('*.jsonl'))
+    sessions = sorted(
+        str(p)
+        for p in (agent_dir / 'sessions').rglob('*.jsonl')
+        if 'subagents' not in p.parts
+    )
     trajectory = agent_dir / 'trajectory.json'
+    environment = config.get('environment') or {}
 
     return {
         'task': result.get('task_name'),
@@ -205,6 +238,7 @@ def _trial_record(trial_dir: Path) -> dict | None:
         'resolved': reward == 1.0,
         'errored': exception is not None,
         'exception': (exception or {}).get('exception_type') if isinstance(exception, dict) else exception,
+        'environment_backend': environment.get('type'),
         'trial_dir': str(trial_dir),
         'trajectory': str(trajectory) if trajectory.is_file() else None,
         'sessions': sessions,
@@ -323,6 +357,12 @@ def build_parser() -> argparse.ArgumentParser:
         help='Claude Code reasoning effort (--effort)',
     )
     p_run.add_argument('--n-concurrent', type=int, default=4)
+    p_run.add_argument(
+        '--environment-backend',
+        choices=ENVIRONMENT_BACKENDS,
+        default=os.environ.get('TB_ENVIRONMENT', 'singularity'),
+        help='Harbor runtime backend (default: TB_ENVIRONMENT or singularity)',
+    )
     p_run.add_argument('--jobs-dir', default=os.environ.get('HARBOR_JOBS_DIR', 'jobs'))
     p_run.add_argument('--sif-cache-dir', default=os.environ.get('HARBOR_SIF_CACHE_DIR', ''))
     p_run.add_argument('--extra-instruction-path', action='append')

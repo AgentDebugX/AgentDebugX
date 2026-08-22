@@ -44,7 +44,13 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-def _attempt(task: str, method: str, attempt: int, advice: Path | None) -> dict:
+def _attempt(
+    task: str,
+    method: str,
+    attempt: int,
+    advice: Path | None,
+    environment_backend: str,
+) -> dict:
     """Run one harbor attempt; return the collected trial record."""
     cmd = [
         sys.executable, str(RUN_EVAL), 'run',
@@ -53,6 +59,7 @@ def _attempt(task: str, method: str, attempt: int, advice: Path | None) -> dict:
         '--agent', 'claude-code',
         '--claude-installer-config', str(INSTALLER_CONFIG),
         '--n-concurrent', '1',
+        '--environment-backend', environment_backend,
     ]
     if advice:
         cmd += ['--extra-instruction-path', str(advice)]
@@ -91,6 +98,11 @@ def main() -> int:
     parser.add_argument('--task', required=True)
     parser.add_argument('--method', choices=['control', 'deep'], required=True)
     parser.add_argument(
+        '--environment-backend',
+        choices=['docker', 'singularity'],
+        default=os.environ.get('TB_ENVIRONMENT', 'singularity'),
+    )
+    parser.add_argument(
         '--max-retries',
         type=int,
         default=int(os.environ.get('TB_MAX_RETRIES', '3')),
@@ -110,7 +122,13 @@ def main() -> int:
     advice: Path | None = None
 
     for attempt in range(args.max_retries + 1):
-        record = _attempt(args.task, args.method, attempt, advice)
+        record = _attempt(
+            args.task,
+            args.method,
+            attempt,
+            advice,
+            args.environment_backend,
+        )
         attempts.append({
             'attempt': attempt,
             'reward': record.get('reward'),

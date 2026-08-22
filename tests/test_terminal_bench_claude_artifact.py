@@ -13,8 +13,10 @@ from examples.terminal_bench_eval.claude_artifact import (
 from examples.terminal_bench_eval.install_matrix import build_install_matrix
 from examples.terminal_bench_eval.run_eval import (
     _build_run_command,
+    _job_dir_from_output,
     _loggable_command,
     _resolved_installer_kwargs,
+    _trial_record,
     build_parser,
 )
 
@@ -247,6 +249,65 @@ def test_run_command_omits_resume_flags_for_a_seed_attempt() -> None:
     assert '--agent-env' not in cmd
 
 
+def test_docker_run_preserves_images_and_omits_singularity_cache() -> None:
+    parser = build_parser()
+    args = parser.parse_args([
+        'run', '--method', 'oracle', '--task', 'sqlite-db-truncate',
+        '--agent', 'oracle', '--jobs-dir', 'jobs',
+        '--environment-backend', 'docker',
+    ])
+
+    cmd = _build_run_command(args, ['terminal-bench/sqlite-db-truncate'])
+
+    assert cmd[cmd.index('--env') + 1] == 'docker'
+    assert '--no-delete' in cmd
+    assert '--environment-kwarg' not in cmd
+    assert not any('singularity_image_cache_dir=' in value for value in cmd)
+    assert not any(value in cmd for value in ('--rmi', '--volumes', 'prune'))
+
+
+def test_singularity_run_keeps_existing_cache_contract() -> None:
+    parser = build_parser()
+    args = parser.parse_args([
+        'run', '--method', 'oracle', '--task', 'sqlite-db-truncate',
+        '--agent', 'oracle', '--jobs-dir', 'jobs',
+        '--environment-backend', 'singularity', '--sif-cache-dir', 'sif',
+    ])
+
+    cmd = _build_run_command(args, ['terminal-bench/sqlite-db-truncate'])
+
+    assert cmd[cmd.index('--env') + 1] == 'singularity'
+    assert 'singularity_image_cache_dir=sif' in cmd
+    assert '--no-delete' not in cmd
+
+
+def test_trial_record_finds_nested_primary_claude_session_and_backend(
+    tmp_path: Path,
+) -> None:
+    trial_dir = tmp_path / 'task__trial'
+    session = trial_dir / 'agent' / 'sessions' / 'projects' / '-app' / 'session.jsonl'
+    subagent = session.parent / 'subagents' / 'child.jsonl'
+    session.parent.mkdir(parents=True)
+    subagent.parent.mkdir()
+    session.write_text('{}\n')
+    subagent.write_text('{}\n')
+    (trial_dir / 'config.json').write_text(
+        json.dumps({'environment': {'type': 'docker'}})
+    )
+    (trial_dir / 'result.json').write_text(json.dumps({
+        'task_name': 'terminal-bench/sqlite-db-truncate',
+        'trial_name': 'task__trial',
+        'verifier_result': {'rewards': {'reward': 0.0}},
+        'exception_info': None,
+    }))
+
+    record = _trial_record(trial_dir)
+
+    assert record is not None
+    assert record['environment_backend'] == 'docker'
+    assert record['sessions'] == [str(session)]
+
+
 def test_run_command_carries_recovery_method_instruction_through_to_harbor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -303,6 +364,18 @@ def test_loggable_command_masks_agent_env_values() -> None:
 
     assert 's3cr3t' not in rendered
     assert 'AGENTDEBUG_LLM_API_KEY=***' in rendered
+
+
+def test_job_dir_parser_unwraps_rich_terminal_output() -> None:
+    output = (
+        'Results written to \n'
+        '/workspace/local/harbor-jobs/2026-08-21__02-06-49/re\n'
+        'sult.json\n'
+    )
+
+    assert _job_dir_from_output(output) == (
+        '/workspace/local/harbor-jobs/2026-08-21__02-06-49'
+    )
 
 
 def test_install_matrix_cli_can_run_as_a_script() -> None:

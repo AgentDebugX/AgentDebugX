@@ -227,6 +227,7 @@ def build_seed_run_args(
     *,
     jobs_dir: str,
     sif_cache_dir: str,
+    environment_backend: str = 'singularity',
     model: str | None = None,
     effort: str | None = None,
     claude_installer_config: str | None = None,
@@ -239,8 +240,10 @@ def build_seed_run_args(
         '--agent', 'claude-code',
         '--n-concurrent', '1',
         '--jobs-dir', jobs_dir,
-        '--sif-cache-dir', sif_cache_dir,
+        '--environment-backend', environment_backend,
     ]
+    if environment_backend == 'singularity':
+        args += ['--sif-cache-dir', sif_cache_dir]
     if model:
         args += ['--model', model]
     if effort:
@@ -258,6 +261,7 @@ def build_resume_run_args(
     instruction_path: Path,
     jobs_dir: str,
     sif_cache_dir: str,
+    environment_backend: str = 'singularity',
     model: str | None = None,
     effort: str | None = None,
     claude_installer_config: str | None = None,
@@ -276,10 +280,12 @@ def build_resume_run_args(
         '--agent', 'claude-code',
         '--n-concurrent', '1',
         '--jobs-dir', jobs_dir,
-        '--sif-cache-dir', sif_cache_dir,
+        '--environment-backend', environment_backend,
         '--load-trajectory', str(diagnostic_input.path),
         '--extra-instruction-path', str(instruction_path),
     ]
+    if environment_backend == 'singularity':
+        args += ['--sif-cache-dir', sif_cache_dir]
     if model:
         args += ['--model', model]
     if effort:
@@ -338,6 +344,7 @@ def _run_resume_method(
     instruction_path: Path,
     jobs_dir: str,
     sif_cache_dir: str,
+    environment_backend: str,
     model: str | None,
     effort: str | None,
     claude_installer_config: str | None,
@@ -349,6 +356,7 @@ def _run_resume_method(
         instruction_path=instruction_path,
         jobs_dir=jobs_dir,
         sif_cache_dir=sif_cache_dir,
+        environment_backend=environment_backend,
         model=model,
         effort=effort,
         claude_installer_config=claude_installer_config,
@@ -373,6 +381,7 @@ def run_task(
     out_dir: Path,
     jobs_dir: str,
     sif_cache_dir: str,
+    environment_backend: str,
     model: str | None,
     effort: str | None,
     claude_installer_config: str | None,
@@ -381,6 +390,7 @@ def run_task(
     recovery methods for an eligible failure. Returns one summary row."""
     common = dict(
         jobs_dir=jobs_dir, sif_cache_dir=sif_cache_dir,
+        environment_backend=environment_backend,
         model=model, effort=effort, claude_installer_config=claude_installer_config,
     )
 
@@ -395,8 +405,17 @@ def run_task(
         seed_record = _run_seed(spec.task, **common)
 
     outcome = classify_seed_result(seed_record)
+    seed_backend = seed_record.get('environment_backend')
+    if seed_backend and seed_backend != environment_backend:
+        print(
+            f'warning: importing {seed_backend} Seed trajectory into '
+            f'{environment_backend} recovery environment for {spec.task}',
+            file=sys.stderr,
+        )
     row: dict = {
         'task': spec.task,
+        'environment_backend': environment_backend,
+        'seed_environment_backend': seed_backend,
         'seed_outcome': outcome,
         'seed_reward': seed_record.get('reward'),
         'seed_trial_dir': seed_record.get('trial_dir'),
@@ -458,6 +477,8 @@ def run_task(
     }
     summary = {
         'task': spec.task,
+        'environment_backend': environment_backend,
+        'seed_environment_backend': seed_backend,
         'seed_outcome': outcome,
         'seed_trial_dir': str(seed_trial_dir),
         'diagnostic_input': diagnostic_input.to_metadata(),
@@ -493,6 +514,11 @@ def main() -> int:
         ),
     )
     parser.add_argument('--jobs-dir', default=os.environ.get('HARBOR_JOBS_DIR', 'jobs'))
+    parser.add_argument(
+        '--environment-backend',
+        choices=['docker', 'singularity'],
+        default=os.environ.get('TB_ENVIRONMENT', 'singularity'),
+    )
     parser.add_argument('--sif-cache-dir', default=os.environ.get('HARBOR_SIF_CACHE_DIR', ''))
     parser.add_argument('--model', default=os.environ.get('TB_MODEL'))
     parser.add_argument('--effort', default=os.environ.get('TB_EFFORT'))
@@ -531,6 +557,7 @@ def main() -> int:
 
     common = dict(
         jobs_dir=args.jobs_dir, sif_cache_dir=args.sif_cache_dir,
+        environment_backend=args.environment_backend,
         model=args.model, effort=args.effort,
         claude_installer_config=args.claude_installer_config,
     )
