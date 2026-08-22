@@ -22,10 +22,10 @@ The plugin:
 This first integration targets DeepSeek Harness `0.1.0-rc.7` and AgentDebugX
 `0.3.x`. Harness is in developer preview and may introduce breaking changes.
 
-The current bridge uses AgentDebugX's deterministic heuristic pipeline. The
-external protocol deliberately leaves room for DeepDebug, GUI RCA, discussion,
-and rerun operations without requiring those host-specific concerns to enter
-AgentDebugX core.
+The bridge exposes AgentDebugX's deterministic heuristic pipeline and the
+DeepDebug profile. The external protocol deliberately leaves room for GUI RCA,
+discussion, and rerun operations without requiring those host-specific concerns
+to enter AgentDebugX core.
 
 ## Install from a local checkout
 
@@ -95,10 +95,25 @@ The model-facing tools are:
 - `agentdebug_capabilities`: return the installed integration contract,
   formats, diagnosis mode, and current limitations.
 
-The current bridge runs AgentDebugX's deterministic heuristic
-Detect-Attribute-Recover pipeline. LLM judge, DeepDebug, OSWorld GUI
-root-cause analysis, LLM attribution, rerun, batch processing, and Error Hub
-sharing stay on the `agentdebug` CLI against the same store;
+Both diagnosis tools take a `mode`:
+
+- `heuristic` (default) runs AgentDebugX's deterministic
+  Detect-Attribute-Recover pipeline and makes no model calls;
+- `deep` runs the DeepDebug profile, seeded with the heuristic findings.
+
+Deep mode needs no extra API key: AgentDebugX's `LLMClient` protocol is
+satisfied by an adapter that calls back into the Harness host over the same
+pipe, so diagnosis runs on the model the session already uses. Set
+`llmProvider` and `llmModel` together to pin a different model, which is also
+how you get a second opinion from a model that did not produce the trace.
+
+If a deep run fails, the bridge returns the deterministic report with a
+`deepError` explaining why, rather than discarding the result. Automatic
+per-turn capture never calls a model.
+
+LLM judge, OSWorld GUI root-cause analysis, standalone LLM attribution, rerun,
+batch processing, and Error Hub sharing stay on the `agentdebug` CLI against
+the same store;
 `agentdebug_capabilities` reports them so the model recommends the real command
 instead of assuming the product lacks the feature. That tool reads the
 installed package's own registries (version, ingest formats, and every
@@ -163,6 +178,10 @@ Environment shortcuts:
 - `AGENTDEBUGX_TRACE_ROOTS` (semicolon-separated on Windows, colon-separated
   elsewhere)
 - `AGENTDEBUGX_AUTO_OPEN` (`turn`, `session`, or `off`)
+
+`deepTimeoutMs` (default 900000) bounds a deep run, which issues several model
+calls and therefore takes much longer than `timeoutMs` allows for the
+heuristic path.
 
 Harness patch layers replace a row's complete `config`; when overriding this
 row, repeat every setting you need.

@@ -8,9 +8,10 @@ import { zstdDecompressSync } from 'node:zlib'
 
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { BlockAssembler, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 
 export const name = 'agentdebugx'
-export const inject = ['sessions', 'tools', 'commands', 'systemPrompt']
+export const inject = ['sessions', 'tools', 'commands', 'systemPrompt', 'llm']
 
 export const Config = Schema.object({
   python: Schema.string().default(process.platform === 'win32' ? 'python' : 'python3'),
@@ -20,6 +21,9 @@ export const Config = Schema.object({
   autoCapture: Schema.boolean().default(true),
   traceRoots: Schema.array(Schema.string()).default([process.cwd()]),
   dshSessionsRoot: Schema.string(),
+  deepTimeoutMs: Schema.number().default(900000),
+  llmProvider: Schema.string(),
+  llmModel: Schema.string(),
   autoOpen: Schema.union([
     Schema.const('turn'),
     Schema.const('session'),
@@ -44,6 +48,8 @@ const SUMMARY_SCHEMA = {
       items: { type: 'string' },
     },
     findingCount: { type: 'integer', required: true },
+    mode: { type: 'string' },
+    deepError: { type: 'string' },
     rootCauseEventId: { type: 'string' },
     rootCauseAgent: { type: 'string' },
     rootCauseStepIndex: { type: 'integer' },
@@ -79,6 +85,10 @@ const TRACE_FORMATS = [
   'dsh_session',
 ]
 
+const DIAGNOSE_MODES = ['heuristic', 'deep']
+
+const COMMAND_USAGE = '/agentdebug status | capabilities | diagnose | deep | open'
+
 const IDENTITY =
   'AgentDebugX is an installed DeepSeek Harness Cordis plugin (package dsh-agentdebugx) '
   + 'that bridges this session to the AgentDebugX Python package. It is not a Harness skill.'
@@ -93,7 +103,7 @@ const TOOLS_HERE = [
 // bridge. Listed so the model points at the real command instead of assuming
 // the capability is absent from the product.
 const CLI_ONLY_CAPABILITIES = [
-  'agentdebug diagnose --mode judge|deep|gui-rca: LLM-judge detection, DeepDebug memory-backed root cause, and OSWorld GUI root-cause analysis (gui-rca needs a vision plus tool-calling model).',
+  'agentdebug diagnose --mode judge|gui-rca: LLM-judge detection and OSWorld GUI root-cause analysis (gui-rca needs a vision plus tool-calling model). Mode deep is available here through agentdebug_diagnose.',
   'agentdebug diagnose --attributor all-at-once|step-by-step|binary-search|counterfactual: LLM blame localization over a failing trajectory.',
   'agentdebug diagnose --recovery deepdebug|reflexion|critic|self-refine|auto-manual|saga-rollback: structured fix proposals.',
   'agentdebug rerun: re-run a diagnostic report plan-only, simulated, or live through an HTTP or process runner; agentdebug runner serve exposes your own agent over that protocol.',
@@ -107,7 +117,8 @@ const CLI_ONLY_CAPABILITIES = [
 
 const LIMITATIONS = [
   'External paths must be inside a configured traceRoots entry.',
-  'This bridge runs only the deterministic heuristic pipeline; judge, deep, gui-rca, LLM attribution, and rerun are CLI-only.',
+  'This bridge exposes two tiers: heuristic (deterministic, no model calls) and deep (DeepDebug). Judge, gui-rca, standalone LLM attribution, and rerun stay CLI-only.',
+  'Deep mode runs on this session\'s own model, so it diagnoses a trace produced by the same model that is judging it; configure llmProvider and llmModel for an independent second opinion.',
   'Heuristic detection reasons over events, so a trace recorded as failed can still return zero findings; read recordedOutcome before concluding the run succeeded.',
   'AgentDebugX never applies code patches: recovery produces suggestion text and structured proposals only.',
 ]
@@ -278,6 +289,110 @@ function assertInsideRoots(target, roots) {
   return resolved
 }
 
+function messageText(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map(part => (typeof part === 'string' ? part : part?.text ?? ''))
+    .join('')
+}
+
+/**
+ * Translate AgentDebugX's OpenAI-shaped message list into a Harness request.
+ *
+ * Harness carries the system prompt beside the messages rather than as a role,
+ * so system turns are hoisted out and concatenated.
+ */
+export function toHostRequest(messages) {
+  const system = []
+  const history = []
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const text = messageText(message?.content)
+    if (message?.role === 'system') {
+      if (text !== '') system.push(text)
+      continue
+    }
+    const content = [{ type: 'text', text }]
+    history.push(
+      message?.role === 'assistant'
+        ? createAssistantMessage({ content })
+        : createUserMessage({ content, source: { kind: 'plugin', plugin: 'dsh-agentdebugx' } }),
+    )
+  }
+  return { system: system.join('\n\n'), messages: history }
+}
+
+/**
+ * Run one AgentDebugX completion on the model this session already uses.
+ *
+ * Harness exposes generation only as a stream, so the blocks are assembled here
+ * and returned as the single text answer the Python protocol expects.
+ */
+export async function completeWithHost(ctx, route, params, signal) {
+  const { system, messages } = toHostRequest(params.messages)
+  if (messages.length === 0) throw new Error('llm.complete received no messages')
+  // AgentDebugX asks for JSON mode on some prompts, which Harness generation
+  // options cannot express; state the constraint in the prompt instead. Its
+  // parsers already tolerate a model that answers in prose.
+  const wantsJson = params.responseFormat?.type === 'json_object'
+  const instruction = wantsJson
+    ? `${system}\n\nRespond with a single valid JSON object and no other text.`.trim()
+    : system
+
+  const timeoutMs = Number(params.timeoutMs) > 0 ? Number(params.timeoutMs) : 60_000
+  const signals = [AbortSignal.timeout(timeoutMs)]
+  if (signal !== undefined) signals.push(signal)
+
+  const assembler = new BlockAssembler()
+  for await (const chunk of ctx.llm.stream({
+    provider: route.provider,
+    model: route.model,
+    messages,
+    ...(instruction === '' ? {} : { system: instruction }),
+    maxTokens: Number(params.maxTokens) > 0 ? Number(params.maxTokens) : 2048,
+    temperature: Number(params.temperature) || 0,
+    ...(route.sessionId === undefined ? {} : { sessionId: route.sessionId }),
+    signal: AbortSignal.any(signals),
+  })) {
+    assembler.push(chunk)
+  }
+
+  const text = assembler.blocks()
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('')
+  const usage = assembler.usage ?? {}
+  return {
+    text,
+    finishReason: assembler.finish?.kind,
+    usage: {
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+    },
+  }
+}
+
+/**
+ * Pick the model an AgentDebugX LLM tier should run on.
+ *
+ * The session's own route is the default, so the feature costs no extra
+ * configuration; an explicit pair overrides it when a different model is wanted
+ * for cost, vision support, or an independent second opinion.
+ */
+export function resolveRoute(config, session) {
+  if (config.llmProvider !== undefined && config.llmModel !== undefined) {
+    return { provider: config.llmProvider, model: config.llmModel, sessionId: session?.id }
+  }
+  const logged = session?.requestHeader?.()?.config
+  if (logged?.provider === undefined || logged?.model === undefined) {
+    throw new Error(
+      'AgentDebugX deep mode needs a model route: no request has been logged in this session yet, '
+      + 'so configure llmProvider and llmModel together.',
+    )
+  }
+  return { provider: logged.provider, model: logged.model, sessionId: session?.id }
+}
+
 function traceUrl(dashboardUrl, traceId, eventId = undefined) {
   const base = `${dashboardUrl.replace(/\/+$/, '')}/trace/${encodeURIComponent(traceId)}`
   // The dashboard 404s an event id that is absent from the trajectory, so only
@@ -362,6 +477,46 @@ export class PythonBridge {
     this.process = undefined
     this.pending = new Map()
     this.sequence = 0
+    // Reverse-call routes, keyed by the token handed to the bridge with a
+    // request. Keeping the route here means the Python side never has to know
+    // which model it is talking to.
+    this.routes = new Map()
+    this.handlers = new Map()
+  }
+
+  /** Register the host capability the bridge may call back into. */
+  serve(method, handler) {
+    this.handlers.set(method, handler)
+  }
+
+  /** Lend a route to the bridge for the lifetime of one request. */
+  lend(route) {
+    const token = `route-${++this.sequence}`
+    this.routes.set(token, route)
+    return { token, release: () => this.routes.delete(token) }
+  }
+
+  async dispatch(request) {
+    const handler = this.handlers.get(request.method)
+    if (handler === undefined) {
+      return { id: request.id, error: { type: 'UnknownMethod', message: `no host handler for ${request.method}` } }
+    }
+    try {
+      const params = request.params ?? {}
+      const route = this.routes.get(params.token)
+      if (route === undefined) {
+        throw new Error('host call used an expired or unknown route token')
+      }
+      return { id: request.id, result: await handler(route, params) }
+    } catch (error) {
+      return {
+        id: request.id,
+        error: {
+          type: error instanceof Error ? error.name : 'HostError',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }
+    }
   }
 
   start() {
@@ -386,7 +541,7 @@ export class PythonBridge {
     })
   }
 
-  request(method, params = {}, signal) {
+  request(method, params = {}, signal, { timeoutMs = this.timeoutMs } = {}) {
     this.start()
     if (signal?.aborted) return Promise.reject(abortError(signal))
     const id = `agentdebugx-${++this.sequence}`
@@ -397,8 +552,8 @@ export class PythonBridge {
       }
       const timer = setTimeout(() => {
         this.finish(id)
-        reject(new Error(`AgentDebugX ${method} timed out after ${this.timeoutMs}ms`))
-      }, this.timeoutMs)
+        reject(new Error(`AgentDebugX ${method} timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
       this.pending.set(id, { resolve, reject, timer, signal, onAbort })
       signal?.addEventListener('abort', onAbort, { once: true })
       const payload = `${JSON.stringify({ id, method, params })}\n`
@@ -416,6 +571,12 @@ export class PythonBridge {
       response = JSON.parse(line)
     } catch {
       this.onStderr(`AgentDebugX bridge emitted invalid JSON: ${line}`)
+      return
+    }
+    if (response.method !== undefined && response.method !== null) {
+      void this.dispatch(response).then(reply => {
+        this.process?.stdin.write(`${JSON.stringify(reply)}\n`)
+      })
       return
     }
     const pending = this.pending.get(response.id)
@@ -519,20 +680,49 @@ function renderSummary(value) {
   const outcome = value.recordedOutcome === undefined
     ? ''
     : ` Recorded outcome: ${JSON.stringify(value.recordedOutcome)}.`
+  const tier = value.mode === 'deep'
+    ? value.deepError === undefined
+      ? ' Mode: deep (DeepDebug).'
+      : ` Mode: deep (DeepDebug), degraded: ${value.deepError}.`
+    : value.deepError === undefined
+      ? ''
+      : ` Deep mode failed (${value.deepError}); this is the heuristic result.`
   // Heuristic detection reasons over events, so a trace the benchmark scored as
   // a failure can still produce zero findings; say so instead of letting the
   // caller read silence as success.
-  const gap = value.findingCount === 0 && value.recordedOutcome?.status === 'failure'
-    ? ' Heuristic detection found no event-level failure although the trace is recorded as failed; deeper root-cause modes are not exposed through this bridge.'
+  const gap = value.findingCount === 0
+    && value.recordedOutcome?.status === 'failure'
+    && value.mode !== 'deep'
+    ? ' Heuristic detection found no event-level failure although the trace is recorded as failed; rerun with mode deep to escalate to DeepDebug.'
     : ''
-  return `${value.summary}${root}${outcome}${gap}${dashboard}`
+  return `${value.summary}${tier}${root}${outcome}${gap}${dashboard}`
 }
 
 function appendAnalysisEvent(session, type, data) {
   session.append(type, data)
 }
 
-async function diagnoseSession(bridge, config, session, signal) {
+/**
+ * Lend the session's model route to the bridge for one LLM-backed request.
+ *
+ * The token is revoked as soon as the run ends, so a stale bridge call cannot
+ * spend tokens after the fact.
+ */
+async function withMode(bridge, config, session, mode, run) {
+  if (mode !== 'deep') return run({ mode: 'heuristic' }, config.timeoutMs)
+  const route = resolveRoute(config, session)
+  const lease = bridge.lend(route)
+  try {
+    return await run(
+      { mode: 'deep', llm: { token: lease.token, model: route.model } },
+      config.deepTimeoutMs,
+    )
+  } finally {
+    lease.release()
+  }
+}
+
+async function diagnoseSession(bridge, config, session, signal, mode = 'heuristic') {
   const stable = requireStableSnapshot(session)
   const analysisId = `analysis-${randomUUID()}`
   const boundary = stable.events.at(-1)
@@ -541,20 +731,23 @@ async function diagnoseSession(bridge, config, session, signal) {
     turn: boundary?.data?.turn ?? 0,
     step: boundary?.data?.step ?? 0,
   }
-  appendAnalysisEvent(session, 'agentdebug/start', coordinates)
+  appendAnalysisEvent(session, 'agentdebug/start', { ...coordinates, mode })
   try {
-    const result = await bridge.request(
-      'diagnose',
-      {
-        session: stable,
-        store: config.store,
-        dashboardUrl: config.dashboardUrl,
-        mode: 'heuristic',
-      },
-      signal,
-    )
+    const result = await withMode(bridge, config, session, mode, (modeParams, timeoutMs) =>
+      bridge.request(
+        'diagnose',
+        {
+          session: stable,
+          store: config.store,
+          dashboardUrl: config.dashboardUrl,
+          ...modeParams,
+        },
+        signal,
+        { timeoutMs },
+      ))
     appendAnalysisEvent(session, 'agentdebug/result', {
       ...coordinates,
+      mode,
       traceId: result.summary.traceId,
       reportId: result.summary.reportId,
       summary: result.summary.summary,
@@ -563,13 +756,15 @@ async function diagnoseSession(bridge, config, session, signal) {
   } catch (error) {
     appendAnalysisEvent(session, 'agentdebug/result', {
       ...coordinates,
+      mode,
       error: error instanceof Error ? error.message : String(error),
     })
     throw error
   }
 }
 
-async function diagnosePath(bridge, config, roots, args, signal) {
+async function diagnosePath(bridge, config, roots, args, signal, session = undefined) {
+  const mode = args.mode === 'deep' ? 'deep' : 'heuristic'
   const format = args.format ?? 'auto'
   // A persisted Harness session is read here rather than in Python: the log is
   // a concatenated-Zstandard container Node decodes natively, and routing it
@@ -577,30 +772,34 @@ async function diagnosePath(bridge, config, roots, args, signal) {
   // that generic trace detection would flatten.
   if (format === 'dsh_session' || (format === 'auto' && isSessionLogPath(args.path))) {
     assertInsideRoots(args.path, roots)
-    const result = await bridge.request(
-      'diagnose',
-      {
-        session: readSessionLog(args.path),
-        store: config.store,
-        dashboardUrl: config.dashboardUrl,
-        mode: 'heuristic',
-      },
-      signal,
-    )
+    const result = await withMode(bridge, config, session, mode, (modeParams, timeoutMs) =>
+      bridge.request(
+        'diagnose',
+        {
+          session: readSessionLog(args.path),
+          store: config.store,
+          dashboardUrl: config.dashboardUrl,
+          ...modeParams,
+        },
+        signal,
+        { timeoutMs },
+      ))
     return result.summary
   }
-  const result = await bridge.request(
-    'diagnose_path',
-    {
-      path: args.path,
-      format,
-      traceRoots: roots,
-      store: config.store,
-      dashboardUrl: config.dashboardUrl,
-      mode: 'heuristic',
-    },
-    signal,
-  )
+  const result = await withMode(bridge, config, session, mode, (modeParams, timeoutMs) =>
+    bridge.request(
+      'diagnose_path',
+      {
+        path: args.path,
+        format,
+        traceRoots: roots,
+        store: config.store,
+        dashboardUrl: config.dashboardUrl,
+        ...modeParams,
+      },
+      signal,
+      { timeoutMs },
+    ))
   return result.summary
 }
 
@@ -625,6 +824,10 @@ export function apply(ctx, config) {
       if (text.length > 0) ctx.logger.warn(`[agentdebugx] ${text}`)
     },
   })
+
+  // AgentDebugX's LLM tiers run on the model this session already uses, so the
+  // bridge calls back through here instead of needing its own API credentials.
+  bridge.serve('llm.complete', (route, params) => completeWithHost(ctx, route, params))
 
   const viewer = new TraceViewer({
     dashboardUrl: config.dashboardUrl,
@@ -671,10 +874,13 @@ export function apply(ctx, config) {
       + 'for a saved trace, which covers two sources you are expected to debug: your own past DeepSeek Harness '
       + `sessions, persisted as session.jsonl.zstd under ${sessionsRootHint}, and trace or trajectory files inside `
       + 'the open workspace, including OSWorld trajectory directories. Both must sit inside a configured trace root. '
-      + 'This bridge runs only '
-      + 'the deterministic heuristic Detect-Attribute-Recover pipeline, so zero findings on a trace whose '
+      + 'Both tools take a mode: heuristic is the deterministic Detect-Attribute-Recover pipeline and costs no model '
+      + 'calls, so keep it as the default; deep runs the DeepDebug profile on this session\'s own model (about six '
+      + 'extra calls, no separate API key) and is the right escalation when heuristic returns zero findings on a run '
+      + 'that actually failed, or when the root cause is semantic rather than a malformed call, loop, or explicit '
+      + 'error. Zero heuristic findings on a trace whose '
       + 'recordedOutcome is a failure means the heuristics found nothing, not that the run succeeded. AgentDebugX '
-      + 'itself also offers LLM judge, DeepDebug, OSWorld GUI root-cause analysis, LLM attribution, rerun, batch '
+      + 'itself also offers LLM judge, OSWorld GUI root-cause analysis, standalone LLM attribution, rerun, batch '
       + 'processing, and Error Hub sharing through its agentdebug CLI against the same store; recommend the CLI '
       + 'command for those rather than claiming the capability is missing. Call agentdebug_capabilities for the '
       + 'exact installed surface, supported formats, and limits.',
@@ -683,18 +889,24 @@ export function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: 'agentdebug_diagnose',
     description:
-      'Run AgentDebugX deterministic Detect-Attribute-Recover diagnosis on this DSH session through its latest completed turn. For an existing trajectory file or OSWorld directory, use agentdebug_analyze_trace instead.',
-    parameters: {},
+      'Run AgentDebugX Detect-Attribute-Recover diagnosis on this DSH session through its latest completed turn. Mode heuristic is deterministic and free; mode deep runs the DeepDebug profile on this session\'s own model (roughly six extra model calls, no separate API key). For a saved trace, use agentdebug_analyze_trace instead.',
+    parameters: {
+      mode: {
+        type: 'string',
+        enum: DIAGNOSE_MODES,
+        description: 'heuristic (default, no model calls) or deep (DeepDebug, escalate when the heuristic tier finds nothing or the root cause is semantic).',
+      },
+    },
     output: {
       schema: SUMMARY_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: renderSummary(value) }],
     },
-    async execute(_args, exec) {
+    async execute(args, exec) {
       if (exec.agent === undefined) {
         throw new Error('agentdebug_diagnose requires a calling agent')
       }
       const session = exec.agent.session
-      const summary = await diagnoseSession(bridge, config, session, exec.signal)
+      const summary = await diagnoseSession(bridge, config, session, exec.signal, args.mode)
       await viewer.open(String(session.id), summary.traceId, summary.rootCauseEventId)
       return summary
     },
@@ -720,13 +932,20 @@ export function apply(ctx, config) {
         enum: TRACE_FORMATS,
         description: 'Input format; auto detects Harness session logs, common file formats, and OSWorld directories. Use dsh_session to force reading a Harness session log.',
       },
+      mode: {
+        type: 'string',
+        enum: DIAGNOSE_MODES,
+        description: 'heuristic (default, no model calls) or deep (DeepDebug on this session\'s own model).',
+      },
     },
     output: {
       schema: SUMMARY_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: renderSummary(value) }],
     },
     async execute(args, exec) {
-      const summary = await diagnosePath(bridge, config, traceRoots, args, exec.signal)
+      const summary = await diagnosePath(
+        bridge, config, traceRoots, args, exec.signal, exec.agent?.session,
+      )
       await viewer.open(`trace:${summary.traceId}`, summary.traceId, summary.rootCauseEventId)
       return summary
     },
@@ -774,7 +993,8 @@ export function apply(ctx, config) {
           openPolicy,
         ],
         diagnosisInThisSession:
-          'deterministic heuristic Detect-Attribute-Recover pipeline (HeuristicAnalyzer plus HeuristicAttributor), no LLM',
+          'two tiers: heuristic (HeuristicAnalyzer plus HeuristicAttributor, deterministic, no model calls, the default) '
+          + 'and deep (DeepDebug seeded with the heuristic findings, driven by this session\'s own model)',
         ingestFormats: [...(installed.ingestFormats ?? TRACE_FORMATS), 'dsh_session'],
         readableTraceRoots: traceRoots,
         diagnoseComponents: installed.diagnoseComponents ?? [],
@@ -797,7 +1017,7 @@ export function apply(ctx, config) {
   ctx.commands.register({
     name: 'agentdebug',
     description: 'inspect or diagnose this session with AgentDebugX',
-    input: { hint: 'status | capabilities | diagnose | open' },
+    input: { hint: 'status | capabilities | diagnose | deep | open' },
     // A slash command must never surface an unhandled rejection: a bad word or
     // an unavailable bridge is answered with text, not a thrown failure.
     handler: invocation => runCommand(invocation).catch(error => ({
@@ -812,7 +1032,7 @@ export function apply(ctx, config) {
       const status = await bridge.request('status', {}, invocation.signal)
       return {
         kind: 'success',
-        text: `AgentDebugX ${status.agentdebugxVersion}; store=${config.store}. Usage: /agentdebug status | capabilities | diagnose | open`,
+        text: `AgentDebugX ${status.agentdebugxVersion}; store=${config.store}. Usage: ${COMMAND_USAGE}`,
       }
     }
     if (command === 'open') {
@@ -845,15 +1065,21 @@ export function apply(ctx, config) {
         ].join('\n'),
       }
     }
-    if (command === 'diagnose') {
+    if (command === 'diagnose' || command === 'deep') {
       const session = invocation.agent.session
-      const result = await diagnoseSession(bridge, config, session, invocation.signal)
+      const result = await diagnoseSession(
+        bridge,
+        config,
+        session,
+        invocation.signal,
+        command === 'deep' ? 'deep' : 'heuristic',
+      )
       await viewer.open(String(session.id), result.traceId, result.rootCauseEventId)
       return { kind: 'success', text: renderSummary(result) }
     }
     return {
       kind: 'error',
-      text: `Unknown subcommand ${command}. Usage: /agentdebug status | capabilities | diagnose | open`,
+      text: `Unknown subcommand ${command}. Usage: ${COMMAND_USAGE}`,
     }
   }
 }

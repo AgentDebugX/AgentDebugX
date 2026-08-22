@@ -9,9 +9,12 @@ import { zstdCompressSync } from 'node:zlib'
 import {
   PythonBridge,
   TraceViewer,
+  completeWithHost,
   isSessionLogPath,
   readSessionLog,
+  resolveRoute,
   scanZstdFrames,
+  toHostRequest,
 } from '../index.js'
 
 const python = process.env.AGENTDEBUGX_PYTHON
@@ -224,6 +227,157 @@ test('a persisted Harness session diagnoses through the bridge', async () => {
     })
     assert.equal(result.summary.traceId, 'dsh_session-abc')
     assert.equal(typeof result.summary.reportId, 'string')
+  } finally {
+    await bridge.close()
+  }
+})
+
+test('system turns are hoisted out of the host request', () => {
+  const request = toHostRequest([
+    { role: 'system', content: 'You localize failures.' },
+    { role: 'user', content: 'Which step broke?' },
+    { role: 'assistant', content: [{ type: 'text', text: 'Step 3.' }] },
+  ])
+
+  assert.equal(request.system, 'You localize failures.')
+  assert.deepEqual(request.messages.map(message => message.role), ['user', 'assistant'])
+  assert.equal(request.messages[1].content[0].text, 'Step 3.')
+})
+
+test('a streamed answer is assembled into one completion', async () => {
+  const seen = {}
+  const ctx = {
+    llm: {
+      async *stream(options) {
+        Object.assign(seen, options)
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: 'Step 3 ' }
+        yield { type: 'text-delta', index: 0, text: 'broke it.' }
+        yield { type: 'reasoning-delta', index: 1, text: 'thinking out loud' }
+        yield { type: 'usage', usage: { inputTokens: 12, outputTokens: 5 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      },
+    },
+  }
+
+  const result = await completeWithHost(ctx, { provider: 'p', model: 'm' }, {
+    messages: [{ role: 'user', content: 'Which step?' }],
+    responseFormat: { type: 'json_object' },
+    maxTokens: 512,
+  })
+
+  assert.equal(result.text, 'Step 3 broke it.')
+  assert.deepEqual(result.usage, { promptTokens: 12, completionTokens: 5 })
+  assert.equal(seen.model, 'm')
+  assert.equal(seen.maxTokens, 512)
+  // Harness generation options cannot express JSON mode, so the constraint has
+  // to reach the model through the prompt.
+  assert.match(seen.system, /single valid JSON object/)
+})
+
+test('the session route is used unless an explicit pair overrides it', () => {
+  const session = { id: 'session-1', requestHeader: () => ({ config: { provider: 'p', model: 'm' } }) }
+
+  assert.deepEqual(resolveRoute({}, session), { provider: 'p', model: 'm', sessionId: 'session-1' })
+  assert.deepEqual(
+    resolveRoute({ llmProvider: 'other', llmModel: 'big' }, session),
+    { provider: 'other', model: 'big', sessionId: 'session-1' },
+  )
+  assert.throws(
+    () => resolveRoute({}, { id: 'session-2', requestHeader: () => undefined }),
+    /no request has been logged/,
+  )
+})
+
+test('deep mode drives AgentDebugX through the host model', async () => {
+  const bridge = new PythonBridge({ python, timeoutMs: 120_000, onStderr: () => {} })
+  const prompts = []
+  bridge.serve('llm.complete', (route, params) => {
+    prompts.push({ route, messages: params.messages })
+    return {
+      text: JSON.stringify({
+        step: 1,
+        agent: 'dsh-agent',
+        summary: 'The tool call was malformed.',
+        evidence: 'Fix the build.',
+        correction: 'Send valid arguments.',
+        confidence: 0.6,
+      }),
+      usage: { promptTokens: 11, completionTokens: 7 },
+    }
+  })
+  const lease = bridge.lend({ provider: 'stub', model: 'stub-model' })
+  try {
+    const result = await bridge.request('diagnose', {
+      session: {
+        id: 'session-deep',
+        header: { cwd: 'C:/workspace' },
+        events: [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          {
+            type: 'user/message',
+            seq: 1,
+            time: 2,
+            data: { role: 'user', content: [{ type: 'text', text: 'Fix the build.' }] },
+          },
+          { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+        ],
+      },
+      store: path.join(mkdtempSync(path.join(tmpdir(), 'dsh-store-')), 'agentdebug.sqlite'),
+      mode: 'deep',
+      llm: { token: lease.token, model: 'stub-model' },
+    })
+
+    assert.ok(prompts.length > 0, 'expected the bridge to call back into the host model')
+    assert.equal(prompts[0].route.model, 'stub-model')
+    assert.ok(
+      JSON.stringify(prompts[0].messages).includes('Fix the build.'),
+      'expected the trajectory to reach the host model',
+    )
+    assert.equal(result.summary.mode, 'deep')
+    assert.equal(result.summary.deepError, undefined)
+    assert.equal(typeof result.summary.reportId, 'string')
+  } finally {
+    lease.release()
+    await bridge.close()
+  }
+})
+
+test('a forged route token cannot spend host tokens', async () => {
+  const bridge = new PythonBridge({ python, timeoutMs: 60_000, onStderr: () => {} })
+  let calls = 0
+  bridge.serve('llm.complete', () => {
+    calls += 1
+    return { text: '{}' }
+  })
+  try {
+    const result = await bridge.request('diagnose', {
+      session: {
+        id: 'session-forged',
+        header: {},
+        events: [
+          { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
+          {
+            type: 'user/message',
+            seq: 1,
+            time: 2,
+            data: { role: 'user', content: [{ type: 'text', text: 'Fix the build.' }] },
+          },
+          { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+        ],
+      },
+      store: path.join(mkdtempSync(path.join(tmpdir(), 'dsh-store-')), 'agentdebug.sqlite'),
+      mode: 'deep',
+      llm: { token: 'route-does-not-exist', model: 'stub' },
+    })
+
+    assert.equal(calls, 0, 'an unknown token must not reach the model')
+    // DeepDebug's tiers absorb failed calls and can still assemble a verdict.
+    // A verdict no model ever saw must not be labelled a deep diagnosis, and
+    // the transport failure must survive that internal error handling.
+    assert.equal(result.summary.mode, 'heuristic')
+    assert.match(result.summary.deepError, /no host model call succeeded/)
+    assert.match(result.summary.deepError, /expired or unknown route token/)
   } finally {
     await bridge.close()
   }
