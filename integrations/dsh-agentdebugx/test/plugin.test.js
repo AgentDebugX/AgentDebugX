@@ -23,6 +23,7 @@ import {
   isSessionLogPath,
   listPersistedSessions,
   readSessionLog,
+  renderSystemPrompt,
   resolveRoute,
   scanZstdFrames,
   toHostRequest,
@@ -414,6 +415,46 @@ test('list tool registration is Node-only and prompt contract requires disambigu
   assert.match(promptSections[0].text, /agentdebug_list_sessions/)
   assert.match(promptSections[0].text, /past or external/i)
   assert.match(promptSections[0].text, /ask the user to choose/i)
+})
+
+test('system prompt renderer replaces every required placeholder', () => {
+  const template = [
+    '{{CAPTURE_POLICY}}',
+    '{{OPEN_POLICY}}',
+    '{{SESSIONS_ROOT_HINT}}',
+    '{{CAPTURE_POLICY}}',
+  ].join('\n')
+
+  assert.equal(
+    renderSystemPrompt(template, {
+      capturePolicy: 'capture-policy',
+      openPolicy: 'open-policy',
+      sessionsRootHint: 'sessions-root',
+    }),
+    ['capture-policy', 'open-policy', 'sessions-root', 'capture-policy'].join('\n'),
+  )
+})
+
+test('system prompt renderer rejects missing and unresolved placeholders', () => {
+  const values = {
+    capturePolicy: 'capture-policy',
+    openPolicy: 'open-policy',
+    sessionsRootHint: 'sessions-root',
+  }
+  const valid = '{{CAPTURE_POLICY}} {{OPEN_POLICY}} {{SESSIONS_ROOT_HINT}}'
+
+  assert.throws(
+    () => renderSystemPrompt(valid.replace('{{OPEN_POLICY}}', ''), values),
+    /\{\{OPEN_POLICY\}\}/,
+  )
+  assert.throws(
+    () => renderSystemPrompt(valid, { ...values, capturePolicy: undefined }),
+    /capturePolicy/,
+  )
+  assert.throws(
+    () => renderSystemPrompt(`${valid} {{UNKNOWN_POLICY}}`, values),
+    /unresolved.*\{\{UNKNOWN_POLICY\}\}/i,
+  )
 })
 
 test('a plain trajectory file is not mistaken for a session log', () => {
