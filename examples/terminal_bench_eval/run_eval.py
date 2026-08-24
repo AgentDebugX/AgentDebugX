@@ -20,8 +20,10 @@ import sys
 from pathlib import Path
 
 if __package__:
+    from .agentdebug_artifact import AgentDebugInstallerConfig
     from .claude_artifact import ClaudeInstallerConfig
 else:
+    from agentdebug_artifact import AgentDebugInstallerConfig  # type: ignore[no-redef]
     from claude_artifact import ClaudeInstallerConfig  # type: ignore[no-redef]
 
 DATASET = 'terminal-bench/terminal-bench-2-1'
@@ -32,6 +34,9 @@ TASK_PREFIX = 'terminal-bench/'
 JOB_DIR_RE = re.compile(r'Results written to\s+(\S+)/result\.json')
 PINNED_CLAUDE_AGENT = (
     'examples.terminal_bench_eval.pinned_claude:PinnedClaudeCode'
+)
+AGENTDEBUG_CLAUDE_AGENT = (
+    'examples.terminal_bench_eval.agentdebug_claude:AgentDebugClaudeCode'
 )
 
 
@@ -44,6 +49,17 @@ def _resolved_installer_kwargs(config_path: Path) -> list[str]:
         f'claude_artifact_version={config.artifact.version}',
         f'claude_install_path={config.install_path}',
         f'claude_installer_config_source={resolved_path}',
+    ]
+
+
+def _resolved_agentdebug_installer_kwargs(config_path: Path) -> list[str]:
+    resolved_path = config_path.expanduser().resolve()
+    config = AgentDebugInstallerConfig.load(resolved_path)
+    return [
+        f'agentdebug_wheel_path={config.artifact.path}',
+        f'agentdebug_wheel_sha256={config.artifact.sha256}',
+        f'agentdebug_version={config.artifact.version}',
+        f'agentdebug_installer_config_source={resolved_path}',
     ]
 
 
@@ -119,7 +135,18 @@ def _job_dir_from_output(output: str) -> str | None:
 
 
 def _build_run_command(args: argparse.Namespace, tasks: list[str]) -> list[str]:
-    agent = PINNED_CLAUDE_AGENT if args.claude_installer_config else args.agent
+    if args.agentdebug_installer_config:
+        if not args.claude_installer_config:
+            raise ValueError(
+                '--agentdebug-installer-config requires --claude-installer-config'
+            )
+        if args.environment_backend != 'docker':
+            raise ValueError(
+                'AgentDebugX CLI provisioning currently supports only Docker'
+            )
+        agent = AGENTDEBUG_CLAUDE_AGENT
+    else:
+        agent = PINNED_CLAUDE_AGENT if args.claude_installer_config else args.agent
     cmd = ['harbor', 'run', '-d', DATASET, '-a', agent, '-n', str(args.n_concurrent)]
     for name in tasks:
         cmd += ['-i', name]
@@ -132,6 +159,11 @@ def _build_run_command(args: argparse.Namespace, tasks: list[str]) -> list[str]:
         cmd += ['--agent-kwarg', value]
     if args.claude_installer_config:
         for value in _resolved_installer_kwargs(Path(args.claude_installer_config)):
+            cmd += ['--agent-kwarg', value]
+    if args.agentdebug_installer_config:
+        for value in _resolved_agentdebug_installer_kwargs(
+            Path(args.agentdebug_installer_config)
+        ):
             cmd += ['--agent-kwarg', value]
     cmd += ['--env', args.environment_backend]
     if args.environment_backend == 'singularity':
@@ -384,6 +416,11 @@ def build_parser() -> argparse.ArgumentParser:
         help='Pass this env var through to the agent by name; repeatable',
     )
     p_run.add_argument('--claude-installer-config')
+    p_run.add_argument(
+        '--agentdebug-installer-config',
+        help='Pinned AgentDebugX wheel config; selects the Docker-only custom '
+        'Claude + AgentDebugX agent and requires --claude-installer-config',
+    )
     p_run.add_argument('--install-only', action='store_true')
     p_run.set_defaults(func=cmd_run)
 

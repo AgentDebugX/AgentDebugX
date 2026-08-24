@@ -1,7 +1,7 @@
 # Every experiment method should use this same file. To select another Claude Code
 # release, stage its native Linux x86-64 executable and update the first three
 # fields together.
-version: '2.1.233'
-artifact_path: /u/yuchen85/scratch/claude-code-artifacts/claude-code-2.1.233-linux-x86_64
-artifact_sha256: 55d281096f57d411ebbdd94dbf5e9ff3accb7c05713e37348c2c11d4b83bf9d9
-install_path: ~/.local/share/agentdebugx/claude/2.1.233/claude
+version: '2.1.241'
+artifact_path: ../../local/claude-artifacts/claude-code-2.1.241-linux-x86_64
+artifact_sha256: 0771bd866cff82b76581fc0499f6529e1a36845078f144f8c81dccb3bc7037b8
+install_path: ~/.local/share/agentdebugx/claude/2.1.241/claude

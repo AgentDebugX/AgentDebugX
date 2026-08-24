@@ -1,0 +1,5 @@
+# Built from this AgentDebugX checkout for the Docker provisioning pilot.
+# Rebuild the wheel and update all three fields together when the source changes.
+version: '0.3.1'
+artifact_path: ../../local/agentdebug-artifacts/agentdebugx-0.3.1-py3-none-any.whl
+artifact_sha256: e1a645d2cbae198bc4be9cdbf46ca5b1780c869f06f5310d8c6fa6fb6b93d654

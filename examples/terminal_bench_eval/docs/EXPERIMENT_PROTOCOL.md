@@ -27,7 +27,8 @@ effect of reflection, additional inference, or tool use.
 | Primary-session selection and immutable diagnostic copy | Implemented, offline-tested (`session_selection.py`) |
 | `run_eval.py` pass-throughs for `--load-trajectory`, mounts, agent-env | Implemented, offline-tested |
 | Seed classification + rerun/rerun-deep method orchestration | Implemented, offline-tested and Harbor-verified end to end (`resume_experiment.py`); one real trial completed (all methods 0.0, see log) |
-| Noninteractive skill contract (`AGENTDEBUG_TRAJECTORY_PATH`, `AGENTDEBUG_OUT_DIR`, `AGENTDEBUG_NONINTERACTIVE`) | Implemented in the skill (`SKILL.md`) |
+| Docker custom agent: pinned Claude + in-container AgentDebugX CLI | Implemented and install-only validated on `sqlite-db-truncate` (2026-08-22) |
+| Noninteractive/live-snapshot skill contract | Not implemented |
 | rerun-adamast method | Not implemented |
 | rerun-skill (in-container AgentDebugX skill) method | Not implemented |
 

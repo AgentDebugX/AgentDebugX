@@ -50,6 +50,8 @@ prune or image-removal commands.
 | `tasks_preflight_25.txt` | 25-task candidate pool: 11 oracle-confirmed plus 14 static Apptainer candidates |
 | `tasks_docker_oracle_5.txt` | bounded five-task Docker development and Oracle-qualification set |
 | `pinned_claude.py` | Harbor `ClaudeCode` subclass that installs one pinned host artifact without APT |
+| `agentdebug_artifact.py`, `agentdebug_installer.yaml` | validate and pin the AgentDebugX wheel used inside Docker trials |
+| `agentdebug_claude.py` | Docker-only custom agent that installs pinned Claude and AgentDebugX, then runs `agentdebug doctor` before Claude starts |
 | `install_matrix.py` | Collect install-only results and classify setup failures |
 | `tasks_installer_matrix.txt` | 11 oracle-verified images plus six prior APT installer failures |
 
@@ -64,9 +66,9 @@ Edit `claude_installer.yaml` once for the experiment. It is the shared contract
 for every method:
 
 ```yaml
-version: '2.1.233'
-artifact_path: /shared/artifacts/claude-code-2.1.233-linux-x86_64
-artifact_sha256: 55d281096f57d411ebbdd94dbf5e9ff3accb7c05713e37348c2c11d4b83bf9d9
+version: '2.1.241'
+artifact_path: ../../local/claude-artifacts/claude-code-2.1.241-linux-x86_64
+artifact_sha256: 0771bd866cff82b76581fc0499f6529e1a36845078f144f8c81dccb3bc7037b8
 install_path: ~/.local/bin/claude
 ```
 
@@ -94,6 +96,31 @@ python examples/terminal_bench_eval/run_eval.py run \
   --claude-installer-config examples/terminal_bench_eval/claude_installer.yaml
 ```
 
+## Provision AgentDebugX for Claude in Docker
+
+Build the wheel named by `agentdebug_installer.yaml`, update its SHA-256 in
+that file, and run the Docker-only custom agent in install-only mode:
+
+```bash
+python -m build --wheel --outdir local/agentdebug-artifacts
+
+python examples/terminal_bench_eval/run_eval.py run \
+  --method provision-agentdebug \
+  --task sqlite-db-truncate \
+  --jobs-dir "$HARBOR_JOBS_DIR" \
+  --environment-backend docker \
+  --install-only \
+  --claude-installer-config examples/terminal_bench_eval/claude_installer.yaml \
+  --agentdebug-installer-config examples/terminal_bench_eval/agentdebug_installer.yaml
+```
+
+The second config selects `AgentDebugClaudeCode`. Setup installs the pinned
+wheel as Claude's container user, checks that its declared version imports,
+checks that `agentdebug` resolves on `PATH`, and runs `agentdebug doctor`.
+Harbor records independent `agent/claude-install.json` and
+`agent/agentdebug-install.json` files. This provisioning step does not inject
+the skill or implement repeated/live diagnosis.
+
 ## Experiment and implementation status
 
 The canonical seed/rerun/rerun-deep/rerun-adamast/rerun-skill design,
@@ -104,19 +131,20 @@ recovery design is in [the architecture](docs/architecture.md).
 | Capability | Status |
 |---|---|
 | Configurable pinned Claude installer | Implemented and validated |
+| Docker Claude + AgentDebugX CLI provisioning | Implemented and install-only validated on `sqlite-db-truncate` (2026-08-22) |
 | Singularity install-only compatibility matrix | Implemented and validated |
 | Docker backend + bounded Oracle qualification | Implemented; 5/5 resolved on 2026-08-21 |
 | Fresh control/deep retry loop | Implemented legacy harness |
 | Primary-session selection and immutable diagnostic copy | Implemented, offline-tested (`session_selection.py`) |
 | `run_eval.py` resume pass-throughs (`--load-trajectory`, `--mount`, `--agent-env`) | Implemented, offline-tested |
 | Seed classification + rerun/rerun-deep method orchestration | Implemented, offline-tested and Harbor-verified (`resume_experiment.py`); one real trial completed (`raman-fitting`: seed/rerun/rerun-deep all 0.0) |
-| Noninteractive skill contract | Implemented in the skill (`SKILL.md`) |
+| Noninteractive/live-snapshot skill contract | Not implemented |
 | rerun-adamast method | Not implemented |
 | rerun-skill (in-container AgentDebugX skill) method | Not implemented |
 
-Docker validation intentionally stops at the Oracle stage. The pinned-Claude
-installer, Seed, rerun, and rerun-deep paths are wired for backend selection but
-have not been executed under Docker.
+Docker task qualification stops at the Oracle stage. The pinned-Claude plus
+AgentDebugX custom agent has completed an install-only Docker trial; Seed,
+rerun, and rerun-deep have not been executed under Docker.
 
 ## Seed/rerun/rerun-deep resume orchestration
 
