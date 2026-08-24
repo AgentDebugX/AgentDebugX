@@ -2,6 +2,16 @@
   "name": "dsh-agentdebugx",
   "version": "0.1.0",
   "description": "DeepSeek Harness plugin bridge for AgentDebugX diagnostics",
+  "author": "AgentDebugX",
+  "homepage": "https://github.com/AgentDebugX/AgentDebugX/tree/main/integrations/dsh-agentdebugx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentDebugX/AgentDebugX.git",
+    "directory": "integrations/dsh-agentdebugx"
+  },
+  "bugs": {
+    "url": "https://github.com/AgentDebugX/AgentDebugX/issues"
+  },
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -9,6 +19,7 @@
   },
   "files": [
     "index.js",
+    "SYSTEM_PROMPT.md",
     "cordis.patch.yml",
     "bridge/agentdebug_bridge.py",
     "README.md",
@@ -16,7 +27,8 @@
   ],
   "scripts": {
     "test": "node --test",
-    "test:bridge": "python -m unittest discover -s test -p \"test_bridge.py\""
+    "test:bridge": "python -m unittest discover -s test -p \"test_bridge.py\"",
+    "prepublishOnly": "npm test && npm run test:bridge"
   },
   "keywords": [
     "deepseek-harness",
@@ -26,31 +38,61 @@
     "observability"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": "^22.19.0 || >=24"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "plugin": {
+      "displayName": "AgentDebugX",
+      "summary": {
+        "en": "Diagnose live and saved DeepSeek Harness trajectories with AgentDebugX.",
+        "zh-CN": "使用 AgentDebugX 诊断实时和已保存的 DeepSeek Harness 轨迹。"
+      }
     }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-commands": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-llm": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-session": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7"
+    "@deepseek-ai/dsh-commands": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-commands": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-system-prompt": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-commands": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-llm": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-session": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.7",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7"
+    "@deepseek-ai/dsh-commands": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2"
   }
 }

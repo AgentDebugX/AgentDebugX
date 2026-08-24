@@ -98,6 +98,15 @@ Published npm/tarball installations are copies instead of links. For those,
 bump the plugin version, run `pnpm pack` or publish to npm, update the DSH
 profile dependency, and restart DSH.
 
+### Maintaining the system prompt
+
+`SYSTEM_PROMPT.md` is the shipped source of truth for the model-facing
+AgentDebugX instructions. `index.js` resolves it relative to `import.meta.url`
+and strictly renders its capture, open, and sessions-root policy placeholders
+from plugin configuration when registering the prompt. Semantic edits must
+preserve the persisted-session contract: list candidates first, present them
+to the user, and confirm the selected saved session before diagnosis.
+
 ## Use
 
 AgentDebugX is loaded as a Cordis plugin, not a Harness skill. After at least
