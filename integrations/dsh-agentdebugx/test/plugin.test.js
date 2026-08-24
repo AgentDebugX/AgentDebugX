@@ -1,16 +1,27 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import test from 'node:test'
 
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 
 import {
+  DashboardProcess,
   PythonBridge,
   TraceViewer,
+  apply,
   completeWithHost,
   isSessionLogPath,
+  listPersistedSessions,
   readSessionLog,
   resolveRoute,
   scanZstdFrames,
@@ -25,6 +36,7 @@ test('Python bridge reports AgentDebugX availability', async () => {
     python,
     timeoutMs: 10_000,
   })
+  assert.equal(bridge.process, undefined, 'constructing the plugin must not start Python')
   try {
     const status = await bridge.request('status')
     assert.equal(status.ok, true)
@@ -32,6 +44,77 @@ test('Python bridge reports AgentDebugX availability', async () => {
   } finally {
     await bridge.close()
   }
+})
+
+function fakeChild() {
+  const child = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.killCalls = []
+  child.kill = signal => {
+    child.killCalls.push(signal)
+    queueMicrotask(() => child.emit('exit', 0, signal))
+    return true
+  }
+  return child
+}
+
+test('dashboard starts once on concurrent first use and closes with the host', async () => {
+  const child = fakeChild()
+  const launches = []
+  let healthy = false
+  const dashboard = new DashboardProcess({
+    python: 'python-test',
+    store: 'trace.sqlite',
+    dashboardUrl: 'http://127.0.0.1:7777',
+    spawnProcess(command, args, options) {
+      launches.push({ command, args, options })
+      queueMicrotask(() => {
+        healthy = true
+      })
+      return child
+    },
+    fetchFn: async () => ({ ok: healthy }),
+    pollIntervalMs: 1,
+  })
+
+  assert.equal(dashboard.process, undefined)
+  assert.deepEqual(await Promise.all([dashboard.ensure(), dashboard.ensure()]), [true, true])
+  assert.equal(launches.length, 1)
+  assert.equal(launches[0].command, 'python-test')
+  assert.deepEqual(launches[0].args, [
+    '-m',
+    'agentdebug.cli',
+    'serve',
+    '--store-sqlite',
+    'trace.sqlite',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    '7777',
+  ])
+
+  await dashboard.close()
+  assert.equal(child.killCalls.length, 1)
+  assert.equal(dashboard.process, undefined)
+})
+
+test('dashboard reuses an external healthy server without owning it', async () => {
+  let launches = 0
+  const dashboard = new DashboardProcess({
+    python,
+    store: 'trace.sqlite',
+    dashboardUrl: 'http://localhost:7777/',
+    spawnProcess() {
+      launches += 1
+      return fakeChild()
+    },
+    fetchFn: async () => ({ ok: true }),
+  })
+
+  assert.equal(await dashboard.ensure(), false)
+  assert.equal(launches, 0)
+  await dashboard.close()
+  assert.equal(dashboard.process, undefined)
 })
 
 /** A viewer that records URLs instead of launching a browser. */
@@ -145,6 +228,35 @@ function writeSessionLog({ compressed = true, batches = 2 } = {}) {
   return { sessionDir, file }
 }
 
+function writeListedSession(root, {
+  workspace = 'workspace-a',
+  sessionId = 'session-abc',
+  cwd = `C:/${workspace}`,
+  prompt = 'Fix the build.',
+  compressed = true,
+  modifiedAt = new Date('2026-08-24T12:00:00Z'),
+} = {}) {
+  const sessionDir = path.join(root, workspace, sessionId)
+  mkdirSync(sessionDir, { recursive: true })
+  const records = [
+    { type: 'session', id: sessionId, cwd, workspace },
+    {
+      type: 'user/message',
+      seq: 1,
+      data: { role: 'user', content: [{ type: 'text', text: prompt }] },
+    },
+    { type: 'turn/end', seq: 2, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const text = `${records.map(record => JSON.stringify(record)).join('\n')}\n`
+  const file = path.join(sessionDir, compressed ? 'session.jsonl.zstd' : 'session.jsonl')
+  writeFileSync(
+    file,
+    compressed ? zstdCompressSync(Buffer.from(text, 'utf8')) : text,
+  )
+  utimesSync(file, modifiedAt, modifiedAt)
+  return { sessionDir, file }
+}
+
 test('reads a Harness session log across concatenated zstd frames', () => {
   const { file } = writeSessionLog({ batches: 2 })
   const raw = readFileSync(file)
@@ -165,6 +277,143 @@ test('reads a session log from its session directory and uncompressed', () => {
 
   assert.equal(isSessionLogPath(sessionDir), true)
   assert.equal(readSessionLog(sessionDir).events.length, 3)
+})
+
+test('session listing enumerates compressed and plain logs with bounded metadata', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'dsh-listing-'))
+  const newest = writeListedSession(root, {
+    workspace: 'game-tools',
+    sessionId: 'session-new',
+    cwd: 'C:/work/game-tools',
+    prompt: `  Diagnose\n${'a'.repeat(500)}  `,
+    modifiedAt: new Date('2026-08-24T13:00:00Z'),
+  })
+  writeListedSession(root, {
+    workspace: 'docs',
+    sessionId: 'session-old',
+    compressed: false,
+    modifiedAt: new Date('2026-08-24T12:00:00Z'),
+  })
+  writeFileSync(path.join(newest.sessionDir, 'session.jsonl'), '{"not":"preferred"}\n')
+
+  const result = listPersistedSessions(root)
+
+  assert.equal(result.available, true)
+  assert.equal(result.scanned, 2)
+  assert.equal(result.skipped, 0)
+  assert.equal(result.limit, 10)
+  assert.deepEqual(result.sessions.map(session => session.sessionId), ['session-new', 'session-old'])
+  assert.equal(result.sessions[0].path, path.resolve(newest.file))
+  assert.equal(result.sessions[0].workspace, 'game-tools')
+  assert.equal(result.sessions[0].cwd, 'C:/work/game-tools')
+  assert.equal(result.sessions[0].firstUserPrompt.includes('\n'), false)
+  assert.ok(result.sessions[0].firstUserPrompt.length <= 240)
+  assert.equal(result.sessions[0].modifiedAt, '2026-08-24T13:00:00.000Z')
+  assert.equal(typeof result.sessions[0].modifiedTimeMs, 'number')
+})
+
+test('session listing ranks token matches deterministically and clamps limits', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'dsh-ranking-'))
+  writeListedSession(root, {
+    workspace: 'alpha',
+    sessionId: 'session-older',
+    prompt: 'Repair alpha parser failure',
+    modifiedAt: new Date('2026-08-24T11:00:00Z'),
+  })
+  writeListedSession(root, {
+    workspace: 'beta',
+    sessionId: 'session-newer',
+    prompt: 'Alpha release notes',
+    modifiedAt: new Date('2026-08-24T13:00:00Z'),
+  })
+  writeListedSession(root, {
+    workspace: 'gamma',
+    sessionId: 'session-gamma',
+    prompt: 'Unrelated task',
+    modifiedAt: new Date('2026-08-24T14:00:00Z'),
+  })
+
+  const ranked = listPersistedSessions(root, { query: '  ALPHA   parser ', limit: 3 })
+  assert.deepEqual(ranked.sessions.map(session => session.sessionId), [
+    'session-older',
+    'session-newer',
+  ])
+  assert.equal(ranked.query, 'alpha parser')
+  assert.equal(listPersistedSessions(root, { limit: 0 }).limit, 1)
+  assert.equal(listPersistedSessions(root, { limit: -3 }).limit, 1)
+  assert.equal(listPersistedSessions(root, { limit: 2.9 }).limit, 2)
+  assert.equal(listPersistedSessions(root, { limit: 500 }).limit, 25)
+  assert.equal(listPersistedSessions(root, { limit: Number.POSITIVE_INFINITY }).limit, 10)
+})
+
+test('session listing contains corrupt logs and does not follow symlinks', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'dsh-contained-'))
+  writeListedSession(root, { sessionId: 'session-good' })
+  const corruptDir = path.join(root, 'workspace-b', 'session-corrupt')
+  mkdirSync(corruptDir, { recursive: true })
+  writeFileSync(path.join(corruptDir, 'session.jsonl.zstd'), Buffer.from('broken'))
+  const outside = mkdtempSync(path.join(tmpdir(), 'dsh-outside-'))
+  writeListedSession(outside, { sessionId: 'session-outside' })
+  try {
+    symlinkSync(outside, path.join(root, 'linked-outside'), 'junction')
+  } catch {
+    // Windows developer mode may disable symlink creation; corruption coverage
+    // remains valid and the traversal test is skipped on that host.
+  }
+
+  const result = listPersistedSessions(root, { query: 'session' })
+
+  assert.deepEqual(result.sessions.map(session => session.sessionId), ['session-good'])
+  assert.equal(result.scanned, 2)
+  assert.equal(result.skipped, 1)
+  assert.equal(result.warnings.length, 1)
+  assert.ok(result.warnings[0].length <= 300)
+  assert.equal(result.sessions.some(session => session.path.includes(outside)), false)
+  assert.deepEqual(listPersistedSessions(undefined).sessions, [])
+  assert.equal(listPersistedSessions(undefined).available, false)
+  assert.deepEqual(listPersistedSessions(path.join(root, 'missing')).sessions, [])
+})
+
+test('list tool registration is Node-only and prompt contract requires disambiguation', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'dsh-list-tool-'))
+  writeListedSession(root, { sessionId: 'session-choice', prompt: 'Repair the renderer' })
+  const tools = new Map()
+  const promptSections = []
+  const ctx = {
+    logger: { warn() {} },
+    llm: {},
+    effect() {},
+    on() {},
+    commands: { register() {} },
+    systemPrompt: { section(section) { promptSections.push(section) } },
+    tools: { register(tool) { tools.set(tool.name, tool) } },
+  }
+
+  apply(ctx, {
+    python: 'python-must-not-start',
+    store: '.agentdebug/test.sqlite',
+    dashboardUrl: 'http://127.0.0.1:7777',
+    timeoutMs: 10,
+    deepTimeoutMs: 10,
+    autoCapture: false,
+    autoOpen: 'off',
+    traceRoots: [],
+    dshSessionsRoot: root,
+  })
+
+  const tool = tools.get('agentdebug_list_sessions')
+  assert.ok(tool)
+  assert.equal(tools.has('agentdebug_diagnose'), true)
+  const result = await tool.execute({ query: 'renderer', limit: 4 }, {})
+  assert.equal(result.sessions[0].sessionId, 'session-choice')
+  assert.equal(result.limit, 4)
+  assert.match(tool.description, /past|external/i)
+  assert.match(tool.description, /choose|confirm/i)
+  assert.match(tools.get('agentdebug_diagnose').description, /current|latest|just-now/i)
+  assert.match(tools.get('agentdebug_analyze_trace').description, /list|confirm/i)
+  assert.match(promptSections[0].text, /agentdebug_list_sessions/)
+  assert.match(promptSections[0].text, /past or external/i)
+  assert.match(promptSections[0].text, /ask the user to choose/i)
 })
 
 test('a plain trajectory file is not mistaken for a session log', () => {
