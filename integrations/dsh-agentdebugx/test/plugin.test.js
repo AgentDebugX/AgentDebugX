@@ -477,11 +477,13 @@ test('system prompt renderer rejects missing and unresolved placeholders', () =>
 })
 
 test('package dry-run includes the system prompt Markdown asset', () => {
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const result = spawnSync(npm, ['pack', '--dry-run', '--json'], {
+  const command = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm'
+  const args = process.platform === 'win32'
+    ? ['/d', '/s', '/c', 'npm.cmd pack --dry-run --json']
+    : ['pack', '--dry-run', '--json']
+  const result = spawnSync(command, args, {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     encoding: 'utf8',
-    shell: process.platform === 'win32',
   })
   assert.equal(
     result.status,
