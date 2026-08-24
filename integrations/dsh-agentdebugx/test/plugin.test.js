@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
 
@@ -12,6 +13,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { zstdCompressSync } from 'node:zlib'
 
 import {
@@ -471,6 +473,27 @@ test('system prompt renderer rejects missing and unresolved placeholders', () =>
   assert.throws(
     () => renderSystemPrompt(`${valid} {{UNKNOWN_POLICY}}`, values),
     /unresolved.*\{\{UNKNOWN_POLICY\}\}/i,
+  )
+})
+
+test('package dry-run includes the system prompt Markdown asset', () => {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+  const result = spawnSync(npm, ['pack', '--dry-run', '--json'], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  })
+  assert.equal(
+    result.status,
+    0,
+    `npm pack --dry-run failed:\n${result.stderr || result.stdout}`,
+  )
+  const manifest = JSON.parse(result.stdout)
+  const files = manifest.flatMap(entry => entry.files ?? [])
+    .map(file => file.path.replaceAll('\\', '/'))
+  assert.ok(
+    files.includes('SYSTEM_PROMPT.md'),
+    `package manifest omitted SYSTEM_PROMPT.md:\n${files.join('\n')}`,
   )
 })
 
