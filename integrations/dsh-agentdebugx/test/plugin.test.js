@@ -412,9 +412,26 @@ test('list tool registration is Node-only and prompt contract requires disambigu
   assert.match(tool.description, /choose|confirm/i)
   assert.match(tools.get('agentdebug_diagnose').description, /current|latest|just-now/i)
   assert.match(tools.get('agentdebug_analyze_trace').description, /list|confirm/i)
+  const template = readFileSync(new URL('../SYSTEM_PROMPT.md', import.meta.url), 'utf8')
+  const expectedPrompt = renderSystemPrompt(template, {
+    capturePolicy: 'AgentDebugX stays stopped until an AgentDebugX tool or /agentdebug command is explicitly used.',
+    openPolicy: 'Automatic viewer opening is disabled.',
+    sessionsRootHint: root,
+  })
+  assert.equal(promptSections[0].text, expectedPrompt)
+  assert.doesNotMatch(promptSections[0].text, /\{\{[^{}]*\}\}/)
   assert.match(promptSections[0].text, /agentdebug_list_sessions/)
   assert.match(promptSections[0].text, /past or external/i)
+  assert.match(promptSections[0].text, /present the matching candidates/i)
   assert.match(promptSections[0].text, /ask the user to choose/i)
+  assert.match(promptSections[0].text, /never silently substitute the current session/i)
+  assert.match(promptSections[0].text, /current, latest, or just-now/i)
+  assert.match(promptSections[0].text, /saved path is explicit or confirmed/i)
+  assert.match(promptSections[0].text, /heuristic.*deterministic/i)
+  assert.match(promptSections[0].text, /deep runs the DeepDebug profile/i)
+  assert.match(promptSections[0].text, /recordedOutcome/)
+  assert.match(promptSections[0].text, /CLI against the same store/i)
+  assert.match(promptSections[0].text, /agentdebug_capabilities/)
 })
 
 test('system prompt renderer replaces every required placeholder', () => {

@@ -35,6 +35,46 @@ const BRIDGE_PATH = fileURLToPath(
   new URL('./bridge/agentdebug_bridge.py', import.meta.url),
 )
 
+const SYSTEM_PROMPT_TEMPLATE = readFileSync(
+  new URL('./SYSTEM_PROMPT.md', import.meta.url),
+  'utf8',
+)
+
+const SYSTEM_PROMPT_PLACEHOLDERS = [
+  ['{{CAPTURE_POLICY}}', 'capturePolicy'],
+  ['{{OPEN_POLICY}}', 'openPolicy'],
+  ['{{SESSIONS_ROOT_HINT}}', 'sessionsRootHint'],
+]
+
+/**
+ * Render the packaged model instructions through fixed literal substitutions.
+ *
+ * Markdown is treated only as text: every known token is mandatory, values
+ * must be strings, and no double-brace token may survive registration.
+ */
+export function renderSystemPrompt(template, values) {
+  if (typeof template !== 'string') {
+    throw new TypeError('AgentDebugX system prompt template must be a string')
+  }
+
+  let rendered = template
+  for (const [token, key] of SYSTEM_PROMPT_PLACEHOLDERS) {
+    if (!rendered.includes(token)) {
+      throw new Error(`AgentDebugX system prompt template is missing required token ${token}`)
+    }
+    if (typeof values?.[key] !== 'string') {
+      throw new TypeError(`AgentDebugX system prompt value ${key} must be a string`)
+    }
+    rendered = rendered.split(token).join(values[key])
+  }
+
+  const unresolved = rendered.match(/\{\{[^{}]*\}\}/)?.[0]
+  if (unresolved !== undefined) {
+    throw new Error(`AgentDebugX system prompt has unresolved placeholder ${unresolved}`)
+  }
+  return rendered
+}
+
 const SUMMARY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -1245,26 +1285,11 @@ export function apply(ctx, config) {
   ctx.systemPrompt.section({
     name: 'tool:agentdebugx',
     order: 117,
-    text:
-      'AgentDebugX is an installed Cordis plugin (dsh-agentdebugx), not a skill. '
-      + `${capturePolicy} ${openPolicy} `
-      + 'When a user refers ambiguously to a past or external DSH conversation, call agentdebug_list_sessions first, '
-      + 'present the matching candidates, and ask the user to choose before diagnosing anything; never silently '
-      + 'substitute the current session. Use agentdebug_diagnose only when the user clearly identifies this current, '
-      + 'latest, or just-now conversation, or after they provide an exact current target. Use agentdebug_analyze_trace '
-      + 'only after a saved path is explicit or confirmed. Saved traces cover two sources: your own past DeepSeek Harness '
-      + `sessions, persisted as session.jsonl.zstd under ${sessionsRootHint}, and trace or trajectory files inside `
-      + 'the open workspace, including OSWorld trajectory directories. Both must sit inside a configured trace root. '
-      + 'Both tools take a mode: heuristic is the deterministic Detect-Attribute-Recover pipeline and costs no model '
-      + 'calls, so keep it as the default; deep runs the DeepDebug profile on this session\'s own model (about six '
-      + 'extra calls, no separate API key) and is the right escalation when heuristic returns zero findings on a run '
-      + 'that actually failed, or when the root cause is semantic rather than a malformed call, loop, or explicit '
-      + 'error. Zero heuristic findings on a trace whose '
-      + 'recordedOutcome is a failure means the heuristics found nothing, not that the run succeeded. AgentDebugX '
-      + 'itself also offers LLM judge, OSWorld GUI root-cause analysis, standalone LLM attribution, rerun, batch '
-      + 'processing, and Error Hub sharing through its agentdebug CLI against the same store; recommend the CLI '
-      + 'command for those rather than claiming the capability is missing. Call agentdebug_capabilities for the '
-      + 'exact installed surface, supported formats, and limits.',
+    text: renderSystemPrompt(SYSTEM_PROMPT_TEMPLATE, {
+      capturePolicy,
+      openPolicy,
+      sessionsRootHint,
+    }),
   })
 
   ctx.tools.register(defineTool({
