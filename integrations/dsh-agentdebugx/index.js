@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import readline from 'node:readline'
@@ -18,7 +18,7 @@ export const Config = Schema.object({
   store: Schema.string().default('.agentdebug/agentdebug.sqlite'),
   dashboardUrl: Schema.string().default('http://127.0.0.1:7777'),
   timeoutMs: Schema.number().default(120000),
-  autoCapture: Schema.boolean().default(true),
+  autoCapture: Schema.boolean().default(false),
   traceRoots: Schema.array(Schema.string()).default([process.cwd()]),
   dshSessionsRoot: Schema.string(),
   deepTimeoutMs: Schema.number().default(900000),
@@ -28,7 +28,7 @@ export const Config = Schema.object({
     Schema.const('turn'),
     Schema.const('session'),
     Schema.const('off'),
-  ]).default('turn'),
+  ]).default('off'),
 })
 
 const BRIDGE_PATH = fileURLToPath(
@@ -94,8 +94,9 @@ const IDENTITY =
   + 'that bridges this session to the AgentDebugX Python package. It is not a Harness skill.'
 
 const TOOLS_HERE = [
-  'agentdebug_diagnose: diagnose this DSH session through its latest completed turn',
-  'agentdebug_analyze_trace: diagnose a saved trace, including this agent\'s own past Harness sessions (session.jsonl.zstd under $DSH_HOME/sessions) and trace or OSWorld trajectory files in the open workspace',
+  'agentdebug_list_sessions: list and search persisted DSH sessions before choosing an unidentified past or external conversation',
+  'agentdebug_diagnose: diagnose this current DSH session through its latest completed turn',
+  'agentdebug_analyze_trace: diagnose a confirmed saved trace, including this agent\'s own past Harness sessions (session.jsonl.zstd under $DSH_HOME/sessions) and trace or OSWorld trajectory files in the open workspace',
   'agentdebug_capabilities: report this integration contract and the installed AgentDebugX surface',
 ]
 
@@ -151,6 +152,44 @@ const CAPABILITIES_SCHEMA = {
     limitations: { type: 'array', required: true, items: { type: 'string' } },
     dashboardUrl: { type: 'string', required: true },
     guiTaxonomyModeCount: { type: 'integer' },
+  },
+}
+
+const SESSION_CANDIDATE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', required: true },
+    relativePath: { type: 'string', required: true },
+    sessionId: { type: 'string', required: true },
+    cwd: { type: 'string', required: true },
+    workspace: { type: 'string', required: true },
+    firstUserPrompt: { type: 'string', required: true },
+    modifiedAt: { type: 'string', required: true },
+    modifiedTimeMs: { type: 'number', required: true },
+  },
+}
+
+const SESSION_LIST_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    sessions: {
+      type: 'array',
+      required: true,
+      items: SESSION_CANDIDATE_SCHEMA,
+    },
+    scanned: { type: 'integer', required: true },
+    skipped: { type: 'integer', required: true },
+    query: { type: 'string', required: true },
+    limit: { type: 'integer', required: true },
+    root: { type: 'string', required: true },
+    available: { type: 'boolean', required: true },
+    warnings: {
+      type: 'array',
+      required: true,
+      items: { type: 'string' },
+    },
   },
 }
 
@@ -297,6 +336,187 @@ function messageText(content) {
     .join('')
 }
 
+function boundedText(value, limit) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`
+}
+
+function normalizedQuery(value) {
+  return boundedText(value, 500).toLocaleLowerCase().split(/\s+/).filter(Boolean).join(' ')
+}
+
+function effectiveSessionLimit(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 10
+  return Math.min(25, Math.max(1, Math.floor(number)))
+}
+
+function comparePath(left, right) {
+  if (left.path === right.path) return 0
+  return left.path < right.path ? -1 : 1
+}
+
+function sessionSearchScore(candidate, query) {
+  if (query === '') return undefined
+  const tokens = [...new Set(query.split(' '))]
+  const fields = [
+    candidate.sessionId,
+    candidate.path,
+    candidate.relativePath,
+    candidate.cwd,
+    candidate.workspace,
+    candidate.firstUserPrompt,
+  ].map(value => value.toLocaleLowerCase())
+  const matchedTokens = tokens.filter(token => fields.some(field => field.includes(token))).length
+  if (matchedTokens === 0) return undefined
+  return {
+    matchedTokens,
+    fullQuery: fields.some(field => field.includes(query)) ? 1 : 0,
+    matchedFields: fields.filter(field => tokens.some(token => field.includes(token))).length,
+  }
+}
+
+function sessionCandidate(root, file) {
+  const session = readSessionLog(file)
+  const stats = statSync(file)
+  const relativePath = path.relative(root, file)
+  const relativeParts = relativePath.split(path.sep).filter(Boolean)
+  const cwd = boundedText(session.header?.cwd, 300)
+  const pathWorkspace = relativeParts.length > 2 ? relativeParts[0] : ''
+  const workspace = boundedText(
+    session.header?.workspace
+      || pathWorkspace
+      || (cwd === '' ? '' : path.basename(cwd)),
+    120,
+  )
+  const firstUser = session.events.find(event =>
+    event?.type === 'user/message'
+    && (event?.data?.role === undefined || event.data.role === 'user'))
+  return {
+    path: path.resolve(file),
+    relativePath: boundedText(relativePath, 300),
+    sessionId: boundedText(session.id, 160),
+    cwd,
+    workspace,
+    firstUserPrompt: boundedText(messageText(firstUser?.data?.content), 240),
+    modifiedAt: stats.mtime.toISOString(),
+    modifiedTimeMs: stats.mtimeMs,
+  }
+}
+
+/**
+ * Enumerate saved Harness sessions strictly beneath the configured sessions root.
+ *
+ * The caller supplies search text only; the filesystem boundary always comes
+ * from plugin configuration.
+ */
+export function listPersistedSessions(sessionsRoot, options = {}) {
+  const query = normalizedQuery(options?.query)
+  const limit = effectiveSessionLimit(options?.limit)
+  const root = sessionsRoot === undefined || sessionsRoot === null || sessionsRoot === ''
+    ? ''
+    : path.resolve(sessionsRoot)
+  const result = {
+    sessions: [],
+    scanned: 0,
+    skipped: 0,
+    query,
+    limit,
+    root,
+    available: false,
+    warnings: [],
+  }
+  const warn = text => {
+    if (result.warnings.length < 5) result.warnings.push(boundedText(text, 300))
+  }
+  if (root === '') {
+    warn('DSH persisted-session discovery is disabled because no sessions root is configured.')
+    return result
+  }
+  try {
+    const rootStats = lstatSync(root)
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
+      warn('The configured DSH sessions root is unavailable or is a symbolic link.')
+      return result
+    }
+  } catch {
+    warn('The configured DSH sessions root is unavailable or unreadable.')
+    return result
+  }
+  result.available = true
+
+  const candidates = []
+  const directories = [root]
+  while (directories.length > 0) {
+    const directory = directories.pop()
+    let entries
+    try {
+      entries = readdirSync(directory, { withFileTypes: true })
+    } catch {
+      result.skipped += 1
+      warn(`Skipped unreadable directory ${boundedText(path.relative(root, directory) || '.', 220)}.`)
+      continue
+    }
+
+    const entriesByName = new Map(entries.map(entry => [entry.name, entry]))
+    let selected
+    for (const name of SESSION_LOG_NAMES) {
+      const entry = entriesByName.get(name)
+      if (entry?.isFile() && !entry.isSymbolicLink()) {
+        selected = path.join(directory, name)
+        break
+      }
+    }
+    if (selected !== undefined) {
+      result.scanned += 1
+      try {
+        const confined = assertInsideRoots(selected, [root])
+        candidates.push(sessionCandidate(root, confined))
+      } catch {
+        result.skipped += 1
+        warn(`Skipped unreadable or malformed session ${boundedText(path.relative(root, selected), 220)}.`)
+      }
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue
+      const child = path.join(directory, entry.name)
+      try {
+        const stats = lstatSync(child)
+        if (!stats.isDirectory() || stats.isSymbolicLink()) continue
+        assertInsideRoots(child, [root])
+        directories.push(child)
+      } catch {
+        result.skipped += 1
+        warn(`Skipped unreadable directory ${boundedText(path.relative(root, child), 220)}.`)
+      }
+    }
+  }
+
+  const ranked = candidates
+    .map(candidate => ({ candidate, score: sessionSearchScore(candidate, query) }))
+    .filter(item => query === '' || item.score !== undefined)
+  ranked.sort((left, right) => {
+    if (query !== '') {
+      if (left.score.matchedTokens !== right.score.matchedTokens) {
+        return right.score.matchedTokens - left.score.matchedTokens
+      }
+      if (left.score.fullQuery !== right.score.fullQuery) {
+        return right.score.fullQuery - left.score.fullQuery
+      }
+      if (left.score.matchedFields !== right.score.matchedFields) {
+        return right.score.matchedFields - left.score.matchedFields
+      }
+    }
+    if (left.candidate.modifiedTimeMs !== right.candidate.modifiedTimeMs) {
+      return right.candidate.modifiedTimeMs - left.candidate.modifiedTimeMs
+    }
+    return comparePath(left.candidate, right.candidate)
+  })
+  result.sessions = ranked.slice(0, limit).map(item => item.candidate)
+  return result
+}
+
 /**
  * Translate AgentDebugX's OpenAI-shaped message list into a Harness request.
  *
@@ -414,6 +634,149 @@ function openInBrowser(url) {
     windowsHide: true,
   })
   child.unref()
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+/**
+ * Lazily owns the AgentDebugX dashboard used by this plugin.
+ *
+ * A healthy server already bound to dashboardUrl is reused and never stopped.
+ * Otherwise the first diagnosis or explicit open command starts one process;
+ * concurrent callers share the same startup promise.
+ */
+export class DashboardProcess {
+  constructor({
+    python,
+    store,
+    dashboardUrl,
+    onStderr = () => {},
+    spawnProcess = spawn,
+    fetchFn = fetch,
+    startupTimeoutMs = 15_000,
+    pollIntervalMs = 100,
+  }) {
+    const url = new URL(dashboardUrl)
+    const loopback = new Set(['127.0.0.1', 'localhost', '[::1]'])
+    if (url.protocol !== 'http:' || !loopback.has(url.hostname)) {
+      throw new Error('AgentDebugX dashboardUrl must be an http loopback URL')
+    }
+    this.python = python
+    this.store = store
+    this.dashboardUrl = dashboardUrl.replace(/\/+$/, '')
+    this.host = url.hostname === '[::1]' ? '::1' : url.hostname
+    this.port = Number(url.port || 80)
+    this.onStderr = onStderr
+    this.spawnProcess = spawnProcess
+    this.fetchFn = fetchFn
+    this.startupTimeoutMs = startupTimeoutMs
+    this.pollIntervalMs = pollIntervalMs
+    this.process = undefined
+    this.starting = undefined
+  }
+
+  async reachable() {
+    try {
+      const response = await this.fetchFn(`${this.dashboardUrl}/healthz`, {
+        signal: AbortSignal.timeout(1500),
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  ensure() {
+    if (this.starting !== undefined) return this.starting
+    this.starting = this.start().finally(() => {
+      this.starting = undefined
+    })
+    return this.starting
+  }
+
+  async start() {
+    if (await this.reachable()) return false
+    if (this.process !== undefined) {
+      await this.waitUntilReady()
+      return true
+    }
+    const child = this.spawnProcess(
+      this.python,
+      [
+        '-m',
+        'agentdebug.cli',
+        'serve',
+        '--store-sqlite',
+        this.store,
+        '--host',
+        this.host,
+        '--port',
+        String(this.port),
+      ],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      },
+    )
+    this.process = child
+    this.stderr = ''
+    child.once('error', error => {
+      this.stderr = error instanceof Error ? error.message : String(error)
+      if (this.process === child) this.process = undefined
+    })
+    child.stderr?.on('data', chunk => {
+      const text = String(chunk).trimEnd()
+      this.stderr = `${this.stderr}\n${text}`.trim().slice(-4000)
+      if (text.length > 0) this.onStderr(text)
+    })
+    child.once('exit', () => {
+      if (this.process === child) this.process = undefined
+    })
+    try {
+      await this.waitUntilReady(child)
+      return true
+    } catch (error) {
+      await this.close()
+      const detail = this.stderr === '' ? '' : ` ${this.stderr}`
+      throw new Error(
+        `AgentDebugX dashboard failed to start. Install UI support with `
+        + `\`python -m pip install "agentdebugx[ui]"\`.`
+        + `${detail || ` ${error instanceof Error ? error.message : String(error)}`}`,
+      )
+    }
+  }
+
+  async waitUntilReady(child = this.process) {
+    const deadline = Date.now() + this.startupTimeoutMs
+    while (Date.now() < deadline) {
+      if (await this.reachable()) return
+      if (this.process !== child) {
+        throw new Error('dashboard process exited before becoming healthy')
+      }
+      await delay(this.pollIntervalMs)
+    }
+    throw new Error(`dashboard did not become healthy within ${this.startupTimeoutMs}ms`)
+  }
+
+  async close() {
+    const child = this.process
+    if (child === undefined) return
+    this.process = undefined
+    child.kill()
+    await new Promise(resolve => {
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        resolve()
+      }, 1000)
+      child.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  }
 }
 
 /** Viewer opener that skips a dead dashboard and never reopens the same page. */
@@ -835,10 +1198,18 @@ export function apply(ctx, config) {
     onWarn: text => ctx.logger.warn(`[agentdebugx] ${text}`),
   })
 
+  const dashboard = new DashboardProcess({
+    python: config.python,
+    store: config.store,
+    dashboardUrl: config.dashboardUrl,
+    onStderr: text => {
+      if (text.length > 0) ctx.logger.warn(`[agentdebugx dashboard] ${text}`)
+    },
+  })
+
   ctx.effect(() => {
-    bridge.start()
-    return () => bridge.close()
-  }, 'agentdebugx: python bridge')
+    return () => Promise.all([bridge.close(), dashboard.close()])
+  }, 'agentdebugx: lazy runtime cleanup')
 
   if (config.autoCapture) {
     ctx.on('session/event', (session, event) => {
@@ -846,7 +1217,11 @@ export function apply(ctx, config) {
       void bridge.request('ingest_snapshot', {
         session: snapshot(session, event.seq),
         store: config.store,
-      }).then(result => viewer.open(String(session.id), result.traceId, result.lastEventId))
+      }).then(async result => {
+        if (config.autoOpen === 'off') return false
+        await dashboard.ensure()
+        return viewer.open(String(session.id), result.traceId, result.lastEventId)
+      })
         .catch(error => {
           ctx.logger.warn(
             `[agentdebugx] automatic capture failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -863,15 +1238,21 @@ export function apply(ctx, config) {
     : config.autoOpen === 'session'
       ? 'The AgentDebugX viewer opens once per session on the first completed turn.'
       : 'The AgentDebugX viewer opens automatically after every completed turn, showing that turn in the captured trace.'
+  const capturePolicy = config.autoCapture
+    ? 'Every completed turn is captured into the AgentDebugX trace store automatically.'
+    : 'AgentDebugX stays stopped until an AgentDebugX tool or /agentdebug command is explicitly used.'
 
   ctx.systemPrompt.section({
     name: 'tool:agentdebugx',
     order: 117,
     text:
-      'AgentDebugX is an installed Cordis plugin (dsh-agentdebugx), not a skill. Every completed turn of this '
-      + `session is captured into the AgentDebugX trace store automatically. ${openPolicy} `
-      + 'Use agentdebug_diagnose for this session through its latest completed turn. Use agentdebug_analyze_trace '
-      + 'for a saved trace, which covers two sources you are expected to debug: your own past DeepSeek Harness '
+      'AgentDebugX is an installed Cordis plugin (dsh-agentdebugx), not a skill. '
+      + `${capturePolicy} ${openPolicy} `
+      + 'When a user refers ambiguously to a past or external DSH conversation, call agentdebug_list_sessions first, '
+      + 'present the matching candidates, and ask the user to choose before diagnosing anything; never silently '
+      + 'substitute the current session. Use agentdebug_diagnose only when the user clearly identifies this current, '
+      + 'latest, or just-now conversation, or after they provide an exact current target. Use agentdebug_analyze_trace '
+      + 'only after a saved path is explicit or confirmed. Saved traces cover two sources: your own past DeepSeek Harness '
       + `sessions, persisted as session.jsonl.zstd under ${sessionsRootHint}, and trace or trajectory files inside `
       + 'the open workspace, including OSWorld trajectory directories. Both must sit inside a configured trace root. '
       + 'Both tools take a mode: heuristic is the deterministic Detect-Attribute-Recover pipeline and costs no model '
@@ -887,9 +1268,46 @@ export function apply(ctx, config) {
   })
 
   ctx.tools.register(defineTool({
+    name: 'agentdebug_list_sessions',
+    description:
+      'List and deterministically search persisted DSH sessions under the configured sessions root without starting Python or the dashboard. Use this first for an unidentified past or external DSH conversation, present the candidates, and ask the user to choose or confirm one before passing its path to agentdebug_analyze_trace.',
+    parameters: {
+      query: {
+        type: 'string',
+        description: 'Optional remembered text from a session id, path, cwd/workspace, or first user prompt.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum candidates to return; defaults to 10 and is clamped to an integer from 1 through 25.',
+      },
+    },
+    output: {
+      schema: SESSION_LIST_SCHEMA,
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.sessions.length === 0
+          ? `No persisted DSH sessions matched "${value.query}". Scanned ${value.scanned}; skipped ${value.skipped}.`
+          : [
+              `Persisted DSH sessions (${value.sessions.length}; scanned ${value.scanned}; skipped ${value.skipped}):`,
+              ...value.sessions.map(session =>
+                `${session.sessionId} | ${session.workspace || session.cwd || 'unknown workspace'} | ${session.modifiedAt} | ${session.firstUserPrompt || '(no user prompt)'} | ${session.path}`),
+            ].join('\n'),
+      }],
+    },
+    execute(args) {
+      return listPersistedSessions(sessionsRoot, args)
+    },
+    presentCall: () => ({
+      card: 'generic',
+      title: 'List persisted DSH sessions',
+      kind: 'search',
+    }),
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'agentdebug_diagnose',
     description:
-      'Run AgentDebugX Detect-Attribute-Recover diagnosis on this DSH session through its latest completed turn. Mode heuristic is deterministic and free; mode deep runs the DeepDebug profile on this session\'s own model (roughly six extra model calls, no separate API key). For a saved trace, use agentdebug_analyze_trace instead.',
+      'Run AgentDebugX Detect-Attribute-Recover diagnosis on this current DSH session through its latest completed turn. Use it only when the user clearly means the current, latest, or just-now conversation. For an unidentified past or external session, call agentdebug_list_sessions and ask the user to choose instead. Mode heuristic is deterministic and free; mode deep runs the DeepDebug profile on this session\'s own model (roughly six extra model calls, no separate API key). For a confirmed saved trace, use agentdebug_analyze_trace.',
     parameters: {
       mode: {
         type: 'string',
@@ -905,6 +1323,7 @@ export function apply(ctx, config) {
       if (exec.agent === undefined) {
         throw new Error('agentdebug_diagnose requires a calling agent')
       }
+      await dashboard.ensure()
       const session = exec.agent.session
       const summary = await diagnoseSession(bridge, config, session, exec.signal, args.mode)
       await viewer.open(String(session.id), summary.traceId, summary.rootCauseEventId)
@@ -920,7 +1339,7 @@ export function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: 'agentdebug_analyze_trace',
     description:
-      'Load and diagnose a saved agent trace with AgentDebugX. Two common sources: a past DeepSeek Harness session of this agent itself, persisted as session.jsonl.zstd under $DSH_HOME/sessions/<workspace>/session-<uuid>/, and trace or trajectory files inside the open workspace (including OSWorld trajectory directories). The path must be inside a configured traceRoots entry. Supports Harness session logs plus canonical AgentTrajectory, message/event exports, OpenAI Agents, CrewAI, LangGraph, Claude Code, OpenClaw, Hermes, GAIA ODR, WebShop, and OSWorld.',
+      'Load and diagnose an explicit or confirmed saved agent trace with AgentDebugX. For an unidentified past or external DSH conversation, first call agentdebug_list_sessions, present candidates, and ask the user to confirm one. Two common sources: a past DeepSeek Harness session of this agent itself, persisted as session.jsonl.zstd under $DSH_HOME/sessions/<workspace>/session-<uuid>/, and trace or trajectory files inside the open workspace (including OSWorld trajectory directories). The path must be inside a configured traceRoots entry. Supports Harness session logs plus canonical AgentTrajectory, message/event exports, OpenAI Agents, CrewAI, LangGraph, Claude Code, OpenClaw, Hermes, GAIA ODR, WebShop, and OSWorld.',
     parameters: {
       path: {
         type: 'string',
@@ -943,6 +1362,7 @@ export function apply(ctx, config) {
       render: (_args, value) => [{ type: 'text', text: renderSummary(value) }],
     },
     async execute(args, exec) {
+      await dashboard.ensure()
       const summary = await diagnosePath(
         bridge, config, traceRoots, args, exec.signal, exec.agent?.session,
       )
@@ -1036,6 +1456,7 @@ export function apply(ctx, config) {
       }
     }
     if (command === 'open') {
+      await dashboard.ensure()
       const session = invocation.agent.session
       const result = await bridge.request(
         'ingest_snapshot',
@@ -1043,12 +1464,6 @@ export function apply(ctx, config) {
         invocation.signal,
       )
       const url = traceUrl(config.dashboardUrl, result.traceId, result.lastEventId)
-      if (!await viewer.reachable()) {
-        return {
-          kind: 'error',
-          text: `AgentDebugX dashboard is not running at ${config.dashboardUrl}. Start it with: agentdebug serve --store-sqlite ${config.store}`,
-        }
-      }
       openInBrowser(url)
       return { kind: 'success', text: `Opened ${url}` }
     }
@@ -1066,6 +1481,7 @@ export function apply(ctx, config) {
       }
     }
     if (command === 'diagnose' || command === 'deep') {
+      await dashboard.ensure()
       const session = invocation.agent.session
       const result = await diagnoseSession(
         bridge,
