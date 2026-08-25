@@ -5,9 +5,8 @@ description: Debug failed or unclear LLM agent trajectories with AgentDebugX. Us
 
 # AgentDebugX Debug Skill
 
-Drive the locally installed `agentdebug` CLI to debug failed or unclear LLM
-agent trajectories. This same workflow applies whether the agent is debugging
-its own run or a trajectory exported from another runtime.
+Use the locally installed `agentdebug` CLI to create one durable debug run for
+a trajectory supplied by the user or an external harness.
 
 Read references as needed:
 
@@ -50,33 +49,29 @@ silently inspect host-local private state to find traces.
 
 ## Procedure
 
-1. Run `agentdebug doctor` if availability is uncertain. If `agentdebug` is
-   missing or LLM setup fails, read `references/setup.md`.
-2. Create `.agentdebug/` if needed and write generated outputs there unless
-   the user gave a different output directory.
-3. If the input is a raw host export, normalize it:
-   `agentdebug ingest <input> --format auto --out .agentdebug/<name>.trajectory.json`.
-4. Prefer explicit formats when known:
-   `--format hermes`, `--format openclaw`, or future `--format openhands_events`.
-5. Verify the normalized trajectory exists and has events before diagnosing.
-6. Run the deterministic pass first:
-   `agentdebug diagnose <trajectory.json> --mode heuristic --attributor none --recovery none --traceback --no-color`.
-7. If the user wants recovery guidance, rerun or run JSON output with an
-   explicit recovery mode such as:
-   `agentdebug diagnose <trajectory.json> --mode heuristic --attributor heuristic --recovery reflexion --out .agentdebug/<name>.report.json`.
-8. If deterministic evidence is weak and LLM credentials are configured, escalate with
-   `agentdebug diagnose <trajectory.json> --mode judge --attributor all-at-once --recovery critic`.
-9. If the failure is multi-step, ambiguous, or judge output is weak, use
-   `agentdebug diagnose <trajectory.json> --mode deepdebug`.
-   DeepDebug performs attribution and fix guidance internally; the two `none`
-   values are required only by the current CLI compatibility contract.
-10. Report the candidate root cause, step/event id, evidence, failure mode,
-   and suggested fix. Include confidence only when the LLM Judge emitted it.
+1. If no trajectory, export, store trace ID, or supported collection was
+   supplied, ask the user for one. Never discover or snapshot the current host
+   conversation.
+2. Use `standard` unless the user asks for another profile. Use `gui` for a
+   compatible CUA/GUI trajectory only when its LLM requirement has been
+   disclosed. The `deep` and `gui` profiles may perform LLM-backed work.
+3. Invoke exactly one primary operation:
+   `agentdebug run <supplied-input> --profile <profile> --ui --json`.
+   Pass through explicit `--format`, `--diagnoser`, `--attributor`, or
+   `--recovery` choices instead of reinterpreting them.
+4. Parse the returned object. Report its status, `run_id`, `trace_id`,
+   `report_id`, resolved pipeline, candidate root cause, and top evidence.
+   Preserve the distinction between trajectory facts, deterministic findings,
+   LLM conclusions, recovery proposals, and externally supplied labels.
+5. Offer the returned `ui_url` when present. If UI startup produced a warning,
+   keep the successful diagnosis and report the warning separately.
+6. Treat all recovery output as suggest-only. Do not apply a fix or execute a
+   rerun without separate user authorization.
 
 ## Ground Rules
 
-- Do not manually inspect raw trajectory JSON when an AgentDebugX importer can
-  parse it. Use the CLI.
+- Do not reproduce ingest/diagnose/recovery orchestration in shell commands;
+  `agentdebug run` owns that state machine.
 - Do not make trajectory acquisition the default workflow; assume the user has
   provided an exported trajectory or ask for one.
 - Do not apply fixes, rerun tools, or mutate a workspace unless the user

@@ -9,6 +9,8 @@ extracted incrementally.
 from __future__ import annotations
 
 import argparse
+import sys
+from types import ModuleType
 from collections.abc import Sequence
 from typing import Optional
 
@@ -21,9 +23,11 @@ from agentdebug.cli.commands import (
     ingest,
     integrations,
     rerun,
+    run,
     runner,
     serve,
     store,
+    ui,
 )
 
 
@@ -66,6 +70,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     legacy._add_ingest_args(p_ingest)
     p_ingest.set_defaults(handler=ingest.run)
+
+    p_run = sub.add_parser('run', help='Run one durable, unified debug workflow')
+    p_run.add_argument('input', help='Trajectory/export path or stored trace ID')
+    p_run.add_argument('--profile', choices=('quick', 'standard', 'deep', 'gui'), default='standard')
+    p_run.add_argument('--format', dest='format_override', default=None)
+    p_run.add_argument('--diagnoser')
+    p_run.add_argument('--attributor')
+    p_run.add_argument('--recovery')
+    store_group = p_run.add_mutually_exclusive_group()
+    store_group.add_argument('--store-sqlite')
+    store_group.add_argument('--store-jsonl')
+    p_run.add_argument('--run-root', default='.agentdebug')
+    p_run.add_argument('--plan', action='store_true')
+    p_run.add_argument('--ui', action='store_true')
+    p_run.add_argument('--json', action='store_true')
+    p_run.set_defaults(handler=run.run)
+
+    p_ui = sub.add_parser('ui', help='Manage the local inspection UI')
+    ui_sub = p_ui.add_subparsers(dest='ui_command', required=True)
+    p_ui_ensure = ui_sub.add_parser('ensure')
+    p_ui_ensure.add_argument('--run-id', required=True)
+    p_ui_ensure.add_argument('--run-root', default='.agentdebug')
+    p_ui_ensure.add_argument('--open-browser', action='store_true')
+    p_ui_ensure.add_argument('--json', action='store_true')
+    p_ui_ensure.set_defaults(handler=ui.run)
+    p_ui_status = ui_sub.add_parser('status')
+    p_ui_status.add_argument('--run-root', default='.agentdebug')
+    p_ui_status.add_argument('--json', action='store_true')
+    p_ui_status.set_defaults(handler=ui.run)
 
     p_batch = sub.add_parser(
         'batch',
@@ -180,3 +213,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if handler is None:
         return 1
     return handler(args)
+
+
+# Importing a submodule normally replaces ``agentdebug.cli.main`` on the parent
+# package with the module object. Preserve the long-standing callable package
+# API while keeping package initialization lazy enough for service reuse.
+_parent_package = sys.modules.get('agentdebug.cli')
+if _parent_package is not None:
+    _parent_package.main = main  # type: ignore[attr-defined]
+
+
+class _CallableMainModule(ModuleType):
+    """Keep ``from agentdebug.cli import main`` callable after submodule imports."""
+
+    def __call__(self, argv: Optional[Sequence[str]] = None) -> int:
+        return main(argv)
+
+
+sys.modules[__name__].__class__ = _CallableMainModule

@@ -41,7 +41,9 @@ After install:
 
 ```bash
 agentdebug doctor
-agentdebug integrations skill --platform claude --target ~/.claude/skills --name agentdebug
+agentdebug integrations install --platform claude
+agentdebug integrations install --platform codex
+agentdebug integrations status --platform codex --json
 ```
 
 Use the platform target the user requested; do not install into another host's

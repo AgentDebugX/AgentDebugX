@@ -10,16 +10,18 @@ tool, agent runtime, or assistant environment.
 
 Current integration families include:
 
-- Claude Code, Hermes, and OpenClaw debugging skill generation
+- managed Claude Code and Codex skills
+- generated Hermes and OpenClaw skills using the same canonical run contract
 - OpenHands integration assets
 - shared reference documents and generic debug skill templates
 
 ## Flow
 
 1. Select the target integration.
-2. Render templates or package static skill resources.
-3. Write generated assets to the requested output location.
-4. Let the external tool load those assets through its normal mechanism.
+2. Render the canonical `agentdebug run` contract with host-edge metadata.
+3. Install managed Claude/Codex assets or generate Hermes/OpenClaw assets.
+4. Validate ownership, contract version, CLI availability, UI extras, and the
+   writable run root with `agentdebug integrations status`.
 
 ## Dependencies
 

@@ -5,12 +5,24 @@ Use `agentdebug ...` when installed. From a source checkout, use
 
 ## Mental Model
 
-The CLI flow is:
+The integration flow is:
 
-1. `ingest`: normalize external traces into AgentDebugX `AgentTrajectory` JSON.
-2. `diagnose`: run diagnosis, optional attribution, and optional recovery.
-3. `rerun`: prepare a second-stage retry from a diagnostic report.
-4. `inspect`, `list`, `show`: inspect stored traces.
+1. `run`: resolve, normalize, diagnose, and persist one supplied trajectory.
+2. `ui ensure`: start or reuse the local UI and return a run-scoped link.
+3. `ingest` and `diagnose`: expert composable interfaces.
+4. `rerun`: separately authorized second-stage execution.
+
+The primary skill command is:
+
+```bash
+agentdebug run INPUT --profile standard --ui --json
+```
+
+Profiles are `quick` (deterministic diagnosis), `standard` (deterministic
+diagnosis plus local attribution/guidance), `deep` (LLM-backed DeepDebug), and
+`gui` (LLM-backed CUA RCA). Use `--plan --json` to inspect resolution without
+diagnosing or creating a completed report. Explicit `--format`, `--diagnoser`,
+`--attributor`, and `--recovery` values are recorded as overrides.
 
 Legacy public `agentdebug judge` and `agentdebug deep` commands are not the
 preferred interface. Use `diagnose --mode judge` and `diagnose --mode deep`.
@@ -301,7 +313,11 @@ SQLite stores use `--store-sqlite PATH` instead of `--store-jsonl PATH`.
 
 ```bash
 agentdebug integrations skill --platform claude --target ~/.claude/skills --name agentdebug
+agentdebug integrations skill --platform codex --target ~/.agents/skills --name agentdebug
 agentdebug integrations skill --platform hermes --target ~/.hermes/skills/debugging --name agentdebug
 agentdebug integrations skill --platform openclaw --target ~/.openclaw/skills --name agentdebug
+agentdebug integrations install --platform claude
+agentdebug integrations install --platform codex
+agentdebug integrations status --platform codex --json
 agentdebug integrations openhands-microagent --target .openhands/microagents --name agentdebug
 ```

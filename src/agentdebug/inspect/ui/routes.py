@@ -54,6 +54,7 @@ from agentdebug.schema import SEED_FAILURE_MODES, model_to_json
 def build_app(
     store: TraceStore,
     *,
+    run_registry: Optional[Any] = None,
     discussion_store: Optional[SQLiteDiscussionStore] = None,
     discussion_llm_factory: Optional[Any] = None,
 ) -> Any:
@@ -331,6 +332,46 @@ def build_app(
     @app.get('/overview', response_class=HTMLResponse)
     def overview_page() -> str:
         return render_page(store, view='overview')
+
+    @app.get('/runs/{run_id}', response_class=HTMLResponse)
+    def run_page(run_id: str) -> str:
+        if run_registry is None:
+            raise HTTPException(status_code=404, detail='run registry is not configured')
+        try:
+            run = run_registry.load_run(run_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail=f'unknown run_id: {run_id}') from exc
+        trace_id = run.artifacts.trace_id
+        report_id = run.artifacts.report_id
+        if not trace_id or not report_id:
+            raise HTTPException(status_code=409, detail='run has no completed trajectory and report')
+        trajectory = store.load_trajectory(trace_id)
+        report = store.load_report(trace_id, report_id)
+        if trajectory is None or report is None:
+            raise HTTPException(status_code=409, detail='run artifact consistency error: exact trajectory or report is missing')
+        return render_page(store, view='trace', trace_id=trace_id, report_id=report_id)
+
+    @app.get('/api/v1/runs/{run_id}')
+    def get_run(run_id: str) -> Dict[str, Any]:
+        if run_registry is None:
+            raise HTTPException(status_code=404, detail='run registry is not configured')
+        try:
+            run = run_registry.load_run(run_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail=f'unknown run_id: {run_id}') from exc
+        payload = _to_dict(run)
+        trace_id, report_id = run.artifacts.trace_id, run.artifacts.report_id
+        payload['artifacts_consistent'] = bool(
+            trace_id and report_id and store.load_trajectory(trace_id)
+            and store.load_report(trace_id, report_id)
+        )
+        if payload['artifacts_consistent']:
+            payload['resolved_artifacts'] = {
+                'trace_id': trace_id,
+                'report_id': report_id,
+                'report_source': 'stored',
+            }
+        return payload
 
     @app.get('/space', response_class=HTMLResponse)
     def space_page() -> str:

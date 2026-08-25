@@ -22,8 +22,9 @@ def render_page(
     view: str,
     trace_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    report_id: Optional[str] = None,
 ) -> str:
-    bootstrap = _build_bootstrap(store, view=view, trace_id=trace_id, event_id=event_id)
+    bootstrap = _build_bootstrap(store, view=view, trace_id=trace_id, event_id=event_id, report_id=report_id)
     payload = json.dumps(bootstrap).replace('</', '<\\/')
     html = _INDEX_HTML.replace('__BOOTSTRAP_JSON__', payload)
     overview_panel = _build_overview_panel(bootstrap['overview']) if view == 'overview' else ''
@@ -36,6 +37,7 @@ def _build_bootstrap(
     view: str,
     trace_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    report_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     trace_ids = store.list_traces()
     bootstrap: Dict[str, Any] = {
@@ -49,7 +51,7 @@ def _build_bootstrap(
     if view in {'trace', 'event'} and trace_id is not None:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is not None:
-            analysis = _resolve_trace_analysis(store, trajectory)
+            analysis = _resolve_trace_analysis(store, trajectory, report_id=report_id)
             report = analysis['report']
             bootstrap['selected'] = {
                 'trajectory': _to_dict(trajectory),

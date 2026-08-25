@@ -375,8 +375,14 @@ agentdebug hub push <trace-id> \
 Generate a debugging skill for a supported host runtime:
 
 ```bash
-agentdebug integrations skill --platform claude --target .claude/skills
+agentdebug integrations install --platform claude
+agentdebug integrations install --platform codex
+agentdebug integrations status --platform codex --json
 ```
+
+Generated Hermes and OpenClaw skills remain available through
+`agentdebug integrations skill --platform hermes|openclaw`. Refresh generated
+skills after upgrading so they use the shared `agentdebug run` contract.
 
 ### Optional: launch the local console
 
@@ -390,10 +396,27 @@ agentdebug serve \
   --port 7777
 ```
 
+For the integrated single-run path, AgentDebugX can manage the loopback server
+and return a readiness-checked deep link without opening a browser:
+
+```bash
+agentdebug run trace.json --profile standard --ui --json
+agentdebug ui ensure --run-id <run-id> --json
+agentdebug ui status --json
+```
+
+The run manifest, normalized trajectory, selected report, inline JSON, and
+`/runs/<run-id>` page retain the same `run_id`, `trace_id`, and `report_id`.
+The `deep` and `gui` profiles are explicitly LLM-backed; `quick` and
+`standard` never escalate to an LLM implicitly. UI startup failure is reported
+separately and does not change a completed diagnosis into a failed run.
+
 ## CLI Reference
 
 | Command | Purpose |
 | --- | --- |
+| `agentdebug run` | Create one durable trajectory/report run from a supplied input |
+| `agentdebug ui ensure` / `status` | Start, reuse, or inspect the readiness-checked local UI |
 | `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |
 | `agentdebug batch ingest` | Normalize every JSON file or independent JSONL record |
@@ -403,7 +426,7 @@ agentdebug serve \
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
 | `agentdebug config` | Manage and test LLM endpoints and persistent HTTP runners |
 | `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
-| `agentdebug integrations` | Generate external runtime integration assets |
+| `agentdebug integrations` | Generate, install, and validate host integration assets |
 | `agentdebug act` | Compatibility namespace for Hub and integration actions |
 | `agentdebug serve` / `agentdebug inspect` | Launch the optional local web console |
 | `agentdebug doctor` | Report optional dependency and configuration status |

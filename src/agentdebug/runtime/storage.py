@@ -30,12 +30,24 @@ class TraceStore(Protocol):
     def list_traces(self) -> List[str]:
         ...
 
+    def save_report(self, report: DiagnosticReport) -> None:
+        ...
+
+    def list_reports(self, trace_id: Optional[str] = None) -> List[DiagnosticReport]:
+        ...
+
+    def load_report(
+        self, trace_id: str, report_id: str
+    ) -> Optional[DiagnosticReport]:
+        ...
+
 
 class JsonlTraceStore:
     """Append-only local store for quick adoption and reproducible examples."""
 
     def __init__(self, path: str = '.agentdebug/traces.jsonl') -> None:
         self.path = Path(path)
+        self.reports_path = self.path.with_name(self.path.stem + '.reports.jsonl')
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def save_trajectory(self, trajectory: AgentTrajectory) -> None:
@@ -66,6 +78,32 @@ class JsonlTraceStore:
                     continue
                 trace_ids.append(_trajectory_from_jsonl_line(line, idx).trace_id)
         return trace_ids
+
+    def save_report(self, report: DiagnosticReport) -> None:
+        with self.reports_path.open('a', encoding='utf-8') as handle:
+            handle.write(model_to_json(report))
+            handle.write('\n')
+
+    def list_reports(self, trace_id: Optional[str] = None) -> List[DiagnosticReport]:
+        if not self.reports_path.exists():
+            return []
+        reports: dict[str, DiagnosticReport] = {}
+        with self.reports_path.open('r', encoding='utf-8') as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                report = report_from_json(line)
+                if trace_id is None or report.trace_id == trace_id:
+                    reports[report.report_id] = report
+        return sorted(reports.values(), key=lambda item: item.generated_at, reverse=True)
+
+    def load_report(
+        self, trace_id: str, report_id: str
+    ) -> Optional[DiagnosticReport]:
+        return next(
+            (r for r in self.list_reports(trace_id) if r.report_id == report_id),
+            None,
+        )
 
 
 def _trajectory_from_jsonl_line(line: str, index: int) -> AgentTrajectory:
@@ -251,6 +289,17 @@ class SQLiteTraceStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [report_from_json(str(row[0])) for row in rows]
+
+    def load_report(
+        self, trace_id: str, report_id: str
+    ) -> Optional[DiagnosticReport]:
+        with self._connect() as conn:
+            row = conn.execute(
+                'SELECT payload_json FROM diagnostic_reports '
+                'WHERE trace_id = ? AND report_id = ?',
+                (trace_id, report_id),
+            ).fetchone()
+        return None if row is None else report_from_json(str(row[0]))
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path)

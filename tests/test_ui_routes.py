@@ -26,6 +26,9 @@ from agentdebug.schema import (
     EventType,
     Modality,
 )
+from agentdebug.workbench.models import DebugRun, RunArtifactRefs, RunInput
+from agentdebug.workbench.profiles import resolve_pipeline
+from agentdebug.workbench.registry import RunRegistry
 
 
 fastapi = pytest.importorskip('fastapi')
@@ -51,6 +54,32 @@ def test_health_trace_and_taxonomy_routes(ui_client: TestClient) -> None:
 
     assert ui_client.get('/api/v1/traces/missing').status_code == 404
     assert ui_client.get('/api/v1/taxonomy').json()['modes']
+
+
+def test_run_route_resolves_exact_stored_report(tmp_path, failed_trajectory) -> None:
+    store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    selected = DiagnosticReport(report_id='selected', trace_id=failed_trajectory.trace_id, summary='selected report')
+    newer = DiagnosticReport(report_id='newer', trace_id=failed_trajectory.trace_id, summary='must not substitute')
+    store.save_report(selected)
+    store.save_report(newer)
+    registry = RunRegistry(str(tmp_path / 'state'))
+    run = DebugRun(
+        status='completed', input=RunInput(reference='fixture'), requested_profile='quick',
+        resolved_pipeline=resolve_pipeline('quick'),
+        artifacts=RunArtifactRefs(trace_id=failed_trajectory.trace_id, report_id='selected', store_type='sqlite', store_path=str(tmp_path / 'traces.sqlite')),
+    )
+    registry.create_run(run)
+    client = TestClient(routes.build_app(store, run_registry=registry))
+    payload = client.get(f'/api/v1/runs/{run.run_id}').json()
+    assert payload['artifacts']['report_id'] == 'selected'
+    assert payload['artifacts_consistent'] is True
+    page = client.get(f'/runs/{run.run_id}')
+    assert page.status_code == 200
+    assert 'selected report' in page.text
+    with store._connect() as conn:
+        conn.execute('DELETE FROM diagnostic_reports WHERE report_id = ?', ('selected',))
+    assert client.get(f'/runs/{run.run_id}').status_code == 409
 
 
 def _visual_ui_client(tmp_path):

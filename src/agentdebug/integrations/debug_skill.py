@@ -14,7 +14,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Literal, Optional
 
-SkillPlatform = Literal['claude', 'hermes', 'openclaw']
+SkillPlatform = Literal['claude', 'codex', 'hermes', 'openclaw']
+CONTRACT_VERSION = '2.0.0'
 
 
 def _read_skill_file(rel_path: str) -> str:
@@ -75,6 +76,8 @@ def write_debug_skill_bundle(bundle: DebugSkillBundle, *, target_dir: Path) -> P
     target = target_dir.expanduser()
     if bundle.platform == 'claude':
         root = target / bundle.name
+    elif bundle.platform == 'codex':
+        root = target / bundle.name
     elif bundle.platform == 'hermes':
         root = target / bundle.name
     elif bundle.platform == 'openclaw':
@@ -93,6 +96,17 @@ def _platform_files(platform: SkillPlatform, name: str) -> dict[str, str]:
     if platform == 'claude':
         return {
             'SKILL.md': _claude_skill_md(name),
+            'references/cli_reference.md': CLI_REFERENCE,
+            'references/setup.md': SETUP_REFERENCE,
+            'references/formats.md': FORMAT_REFERENCE,
+            'references/analysis.md': ANALYSIS_REFERENCE,
+            'references/recovery.md': RECOVERY_REFERENCE,
+            'references/safety.md': SAFETY_REFERENCE,
+        }
+    if platform == 'codex':
+        return {
+            'SKILL.md': _codex_skill_md(name),
+            'agents/openai.yaml': _codex_openai_yaml(name),
             'references/cli_reference.md': CLI_REFERENCE,
             'references/setup.md': SETUP_REFERENCE,
             'references/formats.md': FORMAT_REFERENCE,
@@ -130,9 +144,33 @@ name: "{name}"
 description: "Debug failed or unclear LLM agent trajectories with AgentDebugX. Use for root-cause analysis, trajectory diagnosis, tool failures, repeated loops, or cross-agent debugging."
 argument-hint: "debug this agent run, why did this agent fail, diagnose this trajectory, debug this Hermes/OpenClaw/OpenHands trace"
 allowed-tools: Bash(agentdebug *)
+metadata:
+  agentdebug-contract-version: "{CONTRACT_VERSION}"
 ---
 
 {CANONICAL_SKILL_BODY}
+"""
+
+
+def _codex_skill_md(name: str) -> str:
+    return f"""\
+---
+name: {name}
+description: Debug supplied agent trajectories with one durable AgentDebugX run.
+metadata:
+  agentdebug-contract-version: "{CONTRACT_VERSION}"
+---
+
+{CANONICAL_SKILL_BODY}
+"""
+
+
+def _codex_openai_yaml(name: str) -> str:
+    return f"""\
+interface:
+  display_name: AgentDebugX
+  short_description: Debug supplied agent trajectories
+  default_prompt: Use ${name} to diagnose the supplied trajectory with AgentDebugX.
 """
 
 
@@ -141,8 +179,9 @@ def _hermes_skill_md(name: str) -> str:
 ---
 name: {name}
 description: Debug failed or unclear LLM agent trajectories with AgentDebugX.
-version: 1.0.0
+version: {CONTRACT_VERSION}
 metadata:
+  agentdebug-contract-version: "{CONTRACT_VERSION}"
   hermes:
     category: debugging
     tags: [agent-debugging, trajectory, root-cause]
@@ -158,8 +197,9 @@ def _openclaw_skill_md(name: str) -> str:
 ---
 name: {name}
 description: Debug failed or unclear LLM agent trajectories with AgentDebugX.
-version: 1.0.0
+version: {CONTRACT_VERSION}
 metadata:
+  agentdebug-contract-version: "{CONTRACT_VERSION}"
   openclaw:
     category: debugging
     tags: [agent-debugging, trajectory, root-cause]
@@ -174,6 +214,7 @@ __all__ = [
     'CLI_REFERENCE',
     'ANALYSIS_REFERENCE',
     'CANONICAL_SKILL_MD',
+    'CONTRACT_VERSION',
     'DebugSkillBundle',
     'FORMAT_REFERENCE',
     'RECOVERY_REFERENCE',

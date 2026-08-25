@@ -14,6 +14,7 @@ def serve(
     *,
     host: str = '127.0.0.1',
     port: int = 7777,
+    run_registry: object = None,
 ) -> None:
     try:
         import uvicorn
@@ -22,7 +23,7 @@ def serve(
             'AgentDebugX UI requires `uvicorn`. '
             'Install with `pip install agentdebugx[ui]`.'
         ) from exc
-    app = build_app(store)
+    app = build_app(store, run_registry=run_registry)
     LOG.info('Serving AgentDebugX console at http://%s:%s', host, port)
     uvicorn.run(app, host=host, port=port, log_level='warning')
 
@@ -32,5 +33,4 @@ def store_from_path(path: str) -> TraceStore:
     if path.endswith(('.sqlite', '.db')):
         return SQLiteTraceStore(path)
     return JsonlTraceStore(path)
-
 
