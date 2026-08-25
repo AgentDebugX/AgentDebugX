@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from agentdebug.inspect.ui import routes
+from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.inspect.ui.branch_store import (
     _append_case_record,
     _append_debug_branch_record,
@@ -34,11 +35,21 @@ pytest.importorskip('uvicorn')
 TestClient = pytest.importorskip('fastapi.testclient').TestClient
 
 
+def _save_completed_test_report(
+    store: SQLiteTraceStore,
+    trajectory: AgentTrajectory,
+) -> None:
+    report = HeuristicAnalyzer().analyze(trajectory)
+    report.metadata['source'] = 'explicit_test_run'
+    store.save_report(report)
+
+
 @pytest.fixture
 def ui_client(tmp_path, monkeypatch, failed_trajectory: AgentTrajectory):
     monkeypatch.chdir(tmp_path)
     store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
     store.save_trajectory(failed_trajectory)
+    _save_completed_test_report(store, failed_trajectory)
     return TestClient(routes.build_app(store))
 
 
@@ -52,6 +63,38 @@ def test_health_trace_and_taxonomy_routes(ui_client: TestClient) -> None:
 
     assert ui_client.get('/api/v1/traces/missing').status_code == 404
     assert ui_client.get('/api/v1/taxonomy').json()['modes']
+
+
+def test_trace_without_stored_report_is_explicitly_not_diagnosed(
+    tmp_path,
+    monkeypatch,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    store = SQLiteTraceStore(str(tmp_path / 'not-run.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    client = TestClient(routes.build_app(store))
+
+    selected = client.get('/api/v1/traces/trace_failed')
+    assert selected.status_code == 200
+    assert selected.json()['report'] is None
+    assert selected.json()['report_source'] == 'not_run'
+    assert selected.json()['reports'] == []
+
+    overview = client.get('/api/v1/overview').json()
+    assert overview['analyzed_trace_count'] == 0
+    assert overview['error_trace_count'] == 0
+    assert overview['clean_trace_count'] == 0
+    assert overview['trace_catalog'][0]['status'] == 'not_run'
+    assert all(
+        item['state'] == 'unknown'
+        for item in overview['trace_catalog'][0]['mini_timeline']
+    )
+
+    page = client.get('/trace/trace_failed')
+    assert page.status_code == 200
+    assert 'The debugger has not been run for this trace.' in page.text
+    assert 'heuristic fallback' not in page.text
 
 
 def _visual_ui_client(tmp_path):
@@ -207,6 +250,7 @@ def test_discussion_api_persists_generic_trace_session_and_draft(
 ) -> None:
     store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
     store.save_trajectory(failed_trajectory)
+    _save_completed_test_report(store, failed_trajectory)
     discussion_path = tmp_path / 'discussions.sqlite'
     discussion_store = SQLiteDiscussionStore(str(discussion_path))
     cited_event_id = failed_trajectory.events[0].event_id
@@ -303,6 +347,7 @@ def test_discussion_api_sanitizes_provider_failures(
 ) -> None:
     store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
     store.save_trajectory(failed_trajectory)
+    _save_completed_test_report(store, failed_trajectory)
 
     def failing_llm(_messages, _tools):
         raise RuntimeError('provider leaked sk-secret-value')

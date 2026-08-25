@@ -53,7 +53,7 @@ def _build_bootstrap(
             report = analysis['report']
             bootstrap['selected'] = {
                 'trajectory': _to_dict(trajectory),
-                'report': _to_dict(report),
+                'report': _to_dict(report) if report is not None else None,
                 'report_source': analysis['report_source'],
                 'reports': analysis['reports'],
                 'visual_capability': build_visual_capability(trajectory),
@@ -98,7 +98,7 @@ def _space_project_card(item: Dict[str, Any], idx: int) -> str:
     title = _space_project_title(item, idx)
     findings = int(item.get('finding_count') or item.get('error_count') or 0)
     events = int(item.get('event_count') or 0)
-    status = 'failed' if findings else 'passed'
+    status = str(item.get('status') or ('failed' if findings else 'passed'))
     heartbeat = min(99, max(0, findings))
     updated = _space_updated_label(idx)
     env = _space_short_label(item.get('task_type') or item.get('framework') or item.get('dataset_type') or 'trace')
@@ -4960,6 +4960,7 @@ function familyClass(family) {
   return 'good';
 }
 function eventProblem(ev) {
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return false;
   const payload = (fmt(ev.error) + ' ' + fmt(ev.output) + ' ' + fmt(ev.metadata)).toLowerCase();
   return Boolean(ev.error || payload.includes('missing context') || payload.includes('premature') || payload.includes('loop') || payload.includes('handoff'));
 }
@@ -5266,14 +5267,18 @@ function renderTraceList(traceIds, selectedId) {
     const tid = item.trace_id;
     const li = document.createElement('li');
     li.className = 'run' + (CURRENT_VIEW === 'trace' && tid === selectedId ? ' active' : '');
-    const statusClass = Number(item.finding_count || 0) ? 'bad' : 'good';
-    const statusLabel = Number(item.finding_count || 0) ? 'Failed' : 'Passed';
+    const notRun = item.status === 'not_run';
+    const statusClass = notRun ? '' : (Number(item.finding_count || 0) ? 'bad' : 'good');
+    const statusLabel = notRun ? 'Not diagnosed' : (Number(item.finding_count || 0) ? 'Failed' : 'Passed');
+    const errorSummary = notRun
+      ? 'debugger not run'
+      : (item.error_count || item.finding_count || 0) + ' errors';
     const dataset = shortDatasetLabel(item.task_type || item.dataset_type || item.framework || 'trace');
-    li.title = tid + '\\n' + dataset + ' · ' + shortModelLabel(item.model || item.framework || 'model') + '\\n' + (item.event_count || 0) + ' steps · ' + (item.error_count || item.finding_count || 0) + ' errors';
+    li.title = tid + '\\n' + dataset + ' · ' + shortModelLabel(item.model || item.framework || 'model') + '\\n' + (item.event_count || 0) + ' steps · ' + errorSummary;
     li.innerHTML = '<button class="run-save-case" type="button" data-save-case aria-label="Save ' + escapeHtml(tid) + ' as case" title="Save this trace as case"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"></path></svg></button>' +
       '<div class="run-id">' + escapeHtml(runCardTitle(item)) + '</div>' +
       '<div class="run-meta"><span>' + escapeHtml(dataset) + '</span><span>•</span><span>' + escapeHtml(shortModelLabel(item.model || item.framework || 'model')) + '</span><span class="chip ' + statusClass + '">' + statusLabel + '</span></div>' +
-      '<div class="run-meta"><span>' + escapeHtml(item.event_count || 0) + ' steps</span><span>•</span><span>' + escapeHtml(item.error_count || item.finding_count || 0) + ' errors</span></div>';
+      '<div class="run-meta"><span>' + escapeHtml(item.event_count || 0) + ' steps</span><span>•</span><span>' + escapeHtml(errorSummary) + '</span></div>';
     const saveCaseButton = li.querySelector('[data-save-case]');
     saveCaseButton.dataset.traceId = tid;
     saveCaseButton.onclick = event => {
@@ -5334,7 +5339,7 @@ function traceMatchesFilter(item) {
   const text = ((item.trace_id || '') + ' ' + (item.framework || '') + ' ' + (item.dataset_type || '') + ' ' + (item.top_family || '')).toLowerCase();
   if (ACTIVE_TRACE_FILTER === 'all') return true;
   if (ACTIVE_TRACE_FILTER === 'error') return Number(item.finding_count || 0) > 0;
-  if (ACTIVE_TRACE_FILTER === 'clean') return Number(item.finding_count || 0) === 0;
+  if (ACTIVE_TRACE_FILTER === 'clean') return item.status !== 'not_run' && Number(item.finding_count || 0) === 0;
   if (ACTIVE_TRACE_FILTER === 'root-early') return Number(item.first_error_step || item.root_cause_step_index || 9999) <= 5;
   return text.includes(ACTIVE_TRACE_FILTER);
 }
@@ -5374,9 +5379,11 @@ function durationLabel(ms) {
   return (value / 1000).toFixed(value < 10000 ? 1 : 0) + 's';
 }
 function statusLabel(item) {
+  if (item.status === 'not_run') return 'Not diagnosed';
   return Number(item.finding_count || 0) ? 'Failed' : 'Passed';
 }
 function statusClassForItem(item) {
+  if (item.status === 'not_run') return 'not-run';
   return Number(item.finding_count || 0) ? 'failed' : 'passed';
 }
 async function selectTrace(tid, li, reportId) {
@@ -5440,6 +5447,7 @@ function renderTraceViewToggle(traceId, capability, mode) {
     '</div>';
 }
 function renderTrace(traj, report) {
+  report = report || {};
   document.body.classList.add('trace-editor-mode');
   document.body.classList.remove('hub-mode', 'overview-mode', 'cases-mode');
   setRailMode('trace');
@@ -5470,10 +5478,11 @@ function renderTrace(traj, report) {
   const branches = getDebugBranches(traj.trace_id || '');
   const visualCapability = CURRENT_TRACE_DATA?.visual_capability || {enabled: false, events: {}};
   const viewMode = traceViewMode(traj.trace_id || '', visualCapability);
+  const hasReport = CURRENT_TRACE_DATA?.report_source === 'stored' && Boolean(report.report_id);
   document.getElementById('trace-count').textContent =
     shortDatasetLabel((traj.metadata || {}).task_type || traj.framework || 'trace') + ' · ' +
     shortModelLabel((traj.metadata || {}).llm_model || traj.framework || 'model') + ' · ' +
-    (findings.length ? 'Failed' : 'Passed') + ' · ' + events.length + ' events · ' + findings.length + ' errors';
+    (hasReport ? ((findings.length ? 'Failed' : 'Passed') + ' · ' + findings.length + ' errors') : 'Not diagnosed · debugger not run') + ' · ' + events.length + ' events';
   let html = '';
   html += '<div class="editor-workbench">';
   html += '<main class="editor-main">';
@@ -5483,10 +5492,12 @@ function renderTrace(traj, report) {
   html += renderTraceViewToggle(traj.trace_id || '', visualCapability, viewMode);
   if (selectedEvent) {
     html += '<span class="chip">' + escapeHtml(events.length) + ' steps</span>';
-    html += '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>';
-    html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Prepare Rerun</button>';
-    html += '<button class="timeline-tool" id="diagnose-pipeline-btn" type="button" data-open-diagnose>Diagnose Pipeline</button>';
-    html += '<button class="timeline-tool" id="discussion-btn" type="button" aria-expanded="false" aria-controls="discussion-drawer">Discuss with Debugger</button>';
+    html += hasReport
+      ? '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>'
+      : '<span class="chip">Not diagnosed</span>';
+    html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected ' + (hasReport ? '' : 'disabled title="Run Debugger first"') + '>Prepare Rerun</button>';
+    html += '<button class="timeline-tool" id="diagnose-pipeline-btn" type="button" data-open-diagnose>Run Debugger</button>';
+    html += '<button class="timeline-tool" id="discussion-btn" type="button" aria-expanded="false" aria-controls="discussion-drawer" ' + (hasReport ? '' : 'disabled title="Run Debugger first"') + '>Discuss with Debugger</button>';
     const reportOptions = Array.isArray(CURRENT_TRACE_DATA?.reports) ? CURRENT_TRACE_DATA.reports : [];
     const storedReportOptions = reportOptions.filter(item => item?.source === 'stored');
     if (storedReportOptions.length) {
@@ -5494,9 +5505,7 @@ function renderTrace(traj, report) {
         storedReportOptions.map(item => '<option value="' + escapeHtml(item.report_id || '') + '" ' + (item.report_id === report.report_id ? 'selected' : '') + '>' + escapeHtml(reportOptionLabel(item)) + '</option>').join('') +
         '</select>';
     }
-    if (reportOptions.length) {
-      html += '<span class="chip cyan">' + escapeHtml(CURRENT_TRACE_DATA?.report_source === 'stored' ? 'stored report' : 'heuristic fallback') + '</span>';
-    }
+    html += '<span class="chip cyan">' + escapeHtml(hasReport ? 'stored report' : 'debugger not run') + '</span>';
   }
   html += '</div></div>';
   html += '<div class="editor-stage-body">';
@@ -5507,7 +5516,7 @@ function renderTrace(traj, report) {
     : '<div class="editor-empty"><div><strong>No event selected</strong><span>Choose a clip from the timeline.</span></div></div>';
   html += '</div></section>';
   html += '</main>';
-  html += renderDiagnosisPanel(report, findings, selectedEvent, selectableEvents);
+  html += renderDiagnosisPanel(report, findings, selectedEvent, selectableEvents, hasReport);
   html += '</div>';
   html += '<section class="timeline-dock" id="timeline"><div class="panel-head"><div><div class="panel-title">Timeline</div><div class="panel-hint">Scrub events first; rerun attempts are grouped below as branches.</div></div><div class="timeline-toolbar timeline-toolbar-quiet"><button class="timeline-tool timeline-tool-primary" data-open-sessions type="button">Sessions ' + branches.length + '</button><button class="timeline-tool timeline-tool-primary" data-error-nav="-1" type="button">← Prev Error</button><button class="timeline-tool timeline-tool-primary" data-error-nav="1" type="button">Next Error →</button><span class="timeline-tool-group"><button class="timeline-tool" data-timeline-fit type="button">Fit</button><button class="timeline-tool" data-timeline-zoom="-1" type="button">−</button><button class="timeline-tool" data-timeline-zoom="1" type="button">＋</button></span><span class="chip cyan">' + alignmentEvents.length + ' clips</span></div></div><div class="panel-body">';
   html += renderStepExplorer(traj, alignmentEvents, findings, rootId, CURRENT_EXPANDED_EVENT_ID);
@@ -6241,6 +6250,7 @@ function rootCauseCoverage(catalog) {
   return Math.round((found / failed.length) * 100);
 }
 function severityLabel(item) {
+  if (item.status === 'not_run') return 'Not diagnosed';
   const findings = Number(item.finding_count || item.error_count || 0);
   if (findings >= 20) return 'Critical';
   if (findings >= 10) return 'High';
@@ -6408,11 +6418,11 @@ function renderRunsTable(catalog) {
     .slice()
     .sort((a, b) => criticalScore(b) - criticalScore(a))
     .map(item => {
-      const failed = Number(item.finding_count || 0) > 0;
+      const statusClass = statusClassForItem(item);
       const env = shortDatasetLabel(item.task_type || item.dataset_type || item.framework || '-');
       const primaryMode = item.top_error_type || item.top_family || '-';
-      return '<tr data-trace-id="' + escapeHtml(item.trace_id || '') + '" data-status="' + (failed ? 'failed' : 'passed') + '" data-search="' + escapeHtml(((item.trace_id || '') + ' ' + readableTaskName(item) + ' ' + env + ' ' + (item.model || '') + ' ' + primaryMode).toLowerCase()) + '" data-tooltip="' + escapeHtml(caseTooltipHtml(item)) + '">' +
-        '<td><span class="status-dot ' + (failed ? 'failed' : 'passed') + '">' + escapeHtml(statusLabel(item)) + '</span></td>' +
+      return '<tr data-trace-id="' + escapeHtml(item.trace_id || '') + '" data-status="' + escapeHtml(statusClass) + '" data-search="' + escapeHtml(((item.trace_id || '') + ' ' + readableTaskName(item) + ' ' + env + ' ' + (item.model || '') + ' ' + primaryMode).toLowerCase()) + '" data-tooltip="' + escapeHtml(caseTooltipHtml(item)) + '">' +
+        '<td><span class="status-dot ' + escapeHtml(statusClass) + '">' + escapeHtml(statusLabel(item)) + '</span></td>' +
         '<td><strong>' + escapeHtml(readableTaskName(item)) + '</strong><div class="event-type mono">' + escapeHtml(truncate(item.trace_id || '', 36)) + '</div></td>' +
         '<td>' + escapeHtml(env) + '</td>' +
         '<td>' + escapeHtml(shortModelLabel(item.model || item.framework || '-')) + '</td>' +
@@ -6678,21 +6688,26 @@ function findingForEvent(findings, eventId) {
   return (findings || []).find(f => f.event_id === eventId) || null;
 }
 function eventStateClass(ev, finding) {
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return 'unknown';
   if (finding || eventProblem(ev)) return 'error';
   return 'clean';
 }
 function eventAccentLabel(ev, finding, isRoot) {
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return 'not diagnosed';
   if (isRoot) return 'root';
   if (finding?.failure_mode?.mode_id) return finding.failure_mode.mode_id;
   if (eventProblem(ev)) return 'signal';
   return 'clean';
 }
 function timelineStatus(ev, finding) {
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return 'unknown';
   return (finding || eventProblem(ev)) ? 'error' : 'ok';
 }
 function timelineTooltip(ev, finding, isRoot, ordinal) {
   const status = timelineStatus(ev, finding);
-  const mode = finding?.failure_mode?.mode_id || finding?.failure_mode?.family || (eventProblem(ev) ? 'signal' : 'clean step');
+  const mode = status === 'unknown'
+    ? 'debugger not run'
+    : (finding?.failure_mode?.mode_id || finding?.failure_mode?.family || (eventProblem(ev) ? 'signal' : 'clean step'));
   const rootText = isRoot ? ' · root cause' : '';
   return 'event ' + (ordinal ?? '-') + ' · recorded step ' + (ev.step_index ?? '-') + ' · ' + status + rootText + ' · ' + mode;
 }
@@ -7021,7 +7036,16 @@ function localContext(events, eventId) {
 function eventShort(ev) {
   return (ev.agent_name || 'agent') + ' / ' + (ev.event_type || 'event') + '\\n' + truncate(ev.error || ev.output || ev.input || 'No payload recorded.', 180);
 }
-function renderDiagnosisPanel(report, findings, selectedEvent, events) {
+function renderDiagnosisPanel(report, findings, selectedEvent, events, hasReport) {
+  if (!hasReport) {
+    let html = '<aside class="diagnosis-panel compact-clean">';
+    html += '<div class="diagnosis-section diagnosis-hero"><div class="diagnosis-hero-head"><div class="diagnosis-hero-copy"><div class="diagnosis-label">Diagnosis</div><div class="diagnosis-title">Not diagnosed</div></div>';
+    html += '<button class="workspace-launcher" id="hub-btn" type="button" aria-label="Open Error Hub panel" title="Open Error Hub panel" aria-expanded="false" aria-controls="hub-drawer"><span>Error Hub</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button></div>';
+    html += '<div class="lane-meta"><span class="chip">not run</span></div></div>';
+    html += '<div class="diagnosis-section diagnosis-next-step"><div class="diagnosis-label">Debugger status</div><div class="diagnosis-copy">The debugger has not been run for this trace. No error step or root cause is known.</div><button class="button primary" type="button" data-open-diagnose>Run Debugger</button></div>';
+    html += '</aside>';
+    return html;
+  }
   const selectedFinding = selectedEvent ? findingForEvent(findings, selectedEvent.event_id) : null;
   const primary = selectedFinding || (selectedEvent?.event_id === report.root_cause_event_id ? (findings || [])[0] : null);
   const debug = selectedEvent ? errorTrace(selectedEvent, primary) : null;
@@ -8849,6 +8873,8 @@ async function showDiagnosePipelineModal() {
   } catch (error) {
     notify('Using built-in Diagnose options: ' + (error.message || error));
   }
+  const sourceFormat = String(CURRENT_TRACE_DATA?.trajectory?.metadata?.source_format || '').toLowerCase();
+  const preferredMode = ['osworld', 'cua'].includes(sourceFormat) ? 'gui-rca' : 'deep';
   let modal = document.getElementById('diagnose-pipeline-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -8860,10 +8886,10 @@ async function showDiagnosePipelineModal() {
     '<div class="continuation-shell workflow-modal-shell" role="dialog" aria-modal="true" aria-label="Diagnose Pipeline">' +
       '<div class="continuation-head"><div><div class="continuation-kicker">Detect → Attribute → Recover</div><div class="continuation-title">Diagnose Pipeline</div><div class="continuation-sub">' + escapeHtml(CURRENT_TRACE_ID) + '</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
       '<div class="workflow-modal-body"><div class="workflow-grid">' +
-        pipelineSelect('diagnose-mode', 'Detect', diagnoseOptionPairs(options.modes, 'heuristic')) +
-        pipelineSelect('diagnose-attributor', 'Attribute', diagnoseOptionPairs(options.attributors, 'heuristic')) +
-        pipelineSelect('diagnose-recovery', 'Recover', diagnoseOptionPairs(options.recoveries, 'none')) +
-        pipelineSelect('diagnose-rule-pack', 'Rule pack', diagnoseOptionPairs(options.rule_packs, 'auto')) +
+        pipelineSelect('diagnose-mode', 'Detect', diagnoseOptionPairs(options.modes, preferredMode)) +
+        pipelineSelect('diagnose-attributor', 'Attribute', diagnoseOptionPairs(options.attributors, 'none')) +
+        pipelineSelect('diagnose-recovery', 'Recover', diagnoseOptionPairs(options.recoveries, preferredMode === 'deep' ? 'deepdebug' : 'none')) +
+        pipelineSelect('diagnose-rule-pack', 'Rule pack', diagnoseOptionPairs(options.rule_packs, preferredMode === 'gui-rca' ? 'gui' : 'auto')) +
         '<input class="composer-input wide" id="diagnose-base-url" placeholder="LLM Base URL (optional for heuristic)">' +
         passwordField('diagnose-api-key', 'API key from LLM Settings', '') +
         '<input class="composer-input" id="diagnose-model" placeholder="Model">' +
@@ -8899,10 +8925,13 @@ function bindDiagnoseChoiceConstraints() {
   if (!mode || !attributor || !recovery) return;
   const apply = () => {
     const deep = mode.value === 'deep';
-    Array.from(attributor.options).forEach(option => { option.disabled = deep && option.value !== 'none'; });
+    const ownsAttribution = deep || mode.value === 'gui-rca';
+    Array.from(attributor.options).forEach(option => { option.disabled = ownsAttribution && option.value !== 'none'; });
     Array.from(recovery.options).forEach(option => { option.disabled = deep && !['none', 'deepdebug'].includes(option.value); });
-    if (deep) {
+    if (ownsAttribution) {
       attributor.value = 'none';
+    }
+    if (deep) {
       if (recovery.value !== 'none') recovery.value = 'deepdebug';
     }
   };

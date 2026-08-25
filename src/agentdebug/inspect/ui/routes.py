@@ -189,13 +189,21 @@ def build_app(
         version='0.1.0',
     )
 
+    def require_debugger_report(report: Any) -> Any:
+        if report is None:
+            raise HTTPException(
+                status_code=409,
+                detail='Debugger has not been run for this trace. Run Diagnose Pipeline first.',
+            )
+        return report
+
     def discussion_session_payload(session: Any) -> Dict[str, Any]:
         trajectory = store.load_trajectory(session.trace_id)
         stale_report = False
         if trajectory is not None:
             try:
                 current = _resolve_trace_analysis(store, trajectory)['report']
-                stale_report = (
+                stale_report = current is None or (
                     DiscussionService(trajectory, current).report_digest
                     != session.report_digest
                 )
@@ -400,6 +408,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         trajectory_payload = _to_dict(trajectory)
         report_payload = _to_dict(report)
         primary = report_payload.get('findings', [{}])[0] if report_payload.get('findings') else {}
@@ -493,7 +502,7 @@ def build_app(
         report = analysis['report']
         return {
             'trajectory': _to_dict(trajectory),
-            'report': _to_dict(report),
+            'report': _to_dict(report) if report is not None else None,
             'report_source': analysis['report_source'],
             'reports': analysis['reports'],
             'visual_capability': build_visual_capability(trajectory),
@@ -552,6 +561,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         model = str(
             payload.get('model')
             or os.environ.get('AGENTDEBUG_LLM_MODEL')
@@ -831,6 +841,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         try:
             return _build_debug_continuation_context(
                 trajectory,
@@ -952,6 +963,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         report.suggestions = [prompt_text]
         default_checkpoint_policy = str(
             os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'
