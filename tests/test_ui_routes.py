@@ -25,6 +25,7 @@ from agentdebug.schema import (
     DiagnosticReport,
     EventType,
     Modality,
+    model_to_json,
 )
 
 
@@ -374,6 +375,74 @@ def test_upload_converts_message_log_without_llm(ui_client: TestClient) -> None:
     trace_id = uploaded.json()['imported'][0]
     assert uploaded.json()['converters'][trace_id] == 'adapter'
     assert len(ui_client.get(f'/api/v1/traces/{trace_id}').json()['trajectory']['events']) == 2
+
+
+def test_sync_imports_adds_native_trajectory_and_report(
+    ui_client: TestClient,
+    tmp_path,
+) -> None:
+    import_dir = tmp_path / '.agentdebug' / 'imports'
+    import_dir.mkdir(parents=True)
+    trajectory = AgentTrajectory(
+        trace_id='trace_synced',
+        task_id='sync-task',
+        events=[AgentEvent(
+            trace_id='trace_synced',
+            event_id='sync-event',
+            event_type=EventType.ERROR,
+            step_index=1,
+            error='failed',
+        )],
+    )
+    report = DiagnosticReport(
+        report_id='report_synced',
+        trace_id='trace_synced',
+        task_id='sync-task',
+        root_cause_event_id='sync-event',
+        root_cause_step_index=1,
+        summary='Imported report',
+        metadata={'analyzer': 'DeepDebugAnalyzer'},
+    )
+    trajectory_payload = json.loads(model_to_json(trajectory))
+    trajectory_payload.pop('started_at')
+    trajectory_payload['events'][0].pop('timestamp')
+    (import_dir / 'case.trajectory.json').write_text(
+        json.dumps(trajectory_payload),
+        encoding='utf-8',
+    )
+    (import_dir / 'case.report.json').write_text(
+        model_to_json(report),
+        encoding='utf-8',
+    )
+
+    first = ui_client.post('/api/v1/imports/sync')
+    assert first.status_code == 200
+    assert first.json() == {
+        'ok': True,
+        'import_dir': str(import_dir.resolve()),
+        'scanned': 2,
+        'imported': 2,
+        'updated': 0,
+        'skipped': 0,
+        'failed': 0,
+        'errors': [],
+    }
+    selected = ui_client.get('/api/v1/traces/trace_synced')
+    assert selected.status_code == 200
+    assert selected.json()['report']['report_id'] == 'report_synced'
+
+    second = ui_client.post('/api/v1/imports/sync')
+    assert second.status_code == 200
+    assert second.json()['imported'] == 0
+    assert second.json()['updated'] == 0
+    assert second.json()['skipped'] == 2
+
+
+def test_space_page_exposes_sync_imports_control(ui_client: TestClient) -> None:
+    page = ui_client.get('/space')
+    assert page.status_code == 200
+    assert 'id="sync-imports-btn"' in page.text
+    assert "fetch('/api/v1/imports/sync', { method: 'POST' })" in page.text
 
 
 def test_heuristic_diagnose_pipeline_stores_report(ui_client: TestClient) -> None:

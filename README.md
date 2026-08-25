@@ -490,6 +490,10 @@ Open [http://127.0.0.1:7777](http://127.0.0.1:7777) in a browser. For a JSONL
 store, replace `--store-sqlite` with
 `--store-jsonl .agentdebug/traces.jsonl`. Keep the default loopback host unless
 the UI is deployed behind appropriate authentication and transport security.
+Place native trajectory and diagnostic-report JSON files under
+`.agentdebug/imports/`, then use **Sync imports** in the workspace to import
+new or changed files. Set `AGENTDEBUG_IMPORT_DIR` to use another server-owned
+directory.
 
 ![AgentDebugX local inspection UI](docs/assets/UI.png)
 

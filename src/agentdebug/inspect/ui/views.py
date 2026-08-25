@@ -370,6 +370,7 @@ _SPACE_HTML = """<!doctype html>
       </div>
       <div class="top-actions">
         <a class="icon-btn" href="/overview" title="Open overview">▣</a>
+        <button class="icon-btn" type="button" title="Sync imports" id="sync-imports-btn">⇅</button>
         <button class="icon-btn" type="button" title="Refresh" id="refresh-btn">↯</button>
         <div class="top-avatar">AD</div>
       </div>
@@ -466,6 +467,21 @@ document.querySelectorAll('.project-more').forEach(button => {
   });
 });
 document.getElementById('create-btn').addEventListener('click', () => notify('当前首页只读取本地 trace store'));
+document.getElementById('sync-imports-btn').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/v1/imports/sync', { method: 'POST' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'sync failed');
+    notify(`Sync complete: ${payload.imported} imported, ${payload.updated} updated, ${payload.skipped} skipped, ${payload.failed} failed`);
+    window.setTimeout(() => window.location.reload(), 700);
+  } catch (error) {
+    notify(`Sync failed: ${error.message || error}`);
+  } finally {
+    button.disabled = false;
+  }
+});
 document.getElementById('refresh-btn').addEventListener('click', () => window.location.reload());
 document.querySelectorAll('[data-placeholder]').forEach(button => {
   button.addEventListener('click', () => notify('设置页先占位，现有配置仍在原 UI 中'));
