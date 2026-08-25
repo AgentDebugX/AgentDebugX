@@ -118,6 +118,21 @@ The package is installed as `agentdebugx` and imported as `agentdebug`:
 import agentdebug
 ```
 
+## DeepSeek Harness Plugin
+
+AgentDebugX is also available as the
+[`dsh-agentdebugx`](https://www.npmjs.com/package/dsh-agentdebugx) plugin for
+DeepSeek Harness. It diagnoses current and saved Harness trajectories and
+starts the Python bridge and local dashboard only when they are needed.
+
+```bash
+pip install "agentdebugx[ui]>=0.3.1,<0.4"
+dsh plugin --profile web add dsh-agentdebugx
+```
+
+See the [plugin documentation](integrations/dsh-agentdebugx/README.md) for
+configuration, commands, saved-session discovery, and deep diagnosis.
+
 ## Quick Start: Python API
 
 Record a trajectory and analyze it locally:
