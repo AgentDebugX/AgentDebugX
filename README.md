@@ -33,21 +33,21 @@ runners, and local agent development workflows. AgentDebugX is local-first by
 default: traces stay on your machine, sharing is opt-in, and recovery proposals
 carry explicit policy and approval metadata into the Rerun boundary.
 
-## News
+## 📰 News
 
-- **2026-08-25** — Released
+- 🔌 **2026-08-25** — Released
   [`dsh-agentdebugx` v0.1.0](https://www.npmjs.com/package/dsh-agentdebugx),
   the AgentDebugX plugin for DeepSeek Harness.
-- **2026-07-31** — Released
+- 📄 **2026-07-31** — Released
   [CUADebug](https://arxiv.org/abs/2608.02643), our framework for diagnosing
   and repairing computer-use agent failures.
-- **2026-07-21** — Released the
+- 📄 **2026-07-21** — Released the
   [AgentDebugX paper](https://arxiv.org/abs/2607.18754), presenting our
   open-source toolkit for failure observability, attribution, recovery, and
   rerun in LLM agents.
-- **2026-05-16** — Released AgentDebugX on
+- 📦 **2026-05-16** — Released AgentDebugX on
   [PyPI](https://pypi.org/project/agentdebugx/).
-- **2025-09-29** — Released
+- 📄 **2025-09-29** — Released
   [Where LLM Agents Fail and How They Can Learn From Failures](https://arxiv.org/abs/2509.25370),
   introducing AgentErrorTaxonomy, AgentErrorBench, and AgentDebug.
 
