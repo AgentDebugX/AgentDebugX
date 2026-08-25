@@ -80,7 +80,8 @@ agentic skill.
 - **Rerun**: three explicit modes for plan/export only, labeled simulation, or
   observed execution in an application-owned process or persistent HTTP runner.
 - **Local inspection UI**: no-build FastAPI dashboard for traces, reports,
-  CUA screenshots, saved cases, debug branches, and rerun-from-event workflows.
+  before/after CUA visuals, debugger discussions, saved cases, debug branches,
+  and rerun-from-event workflows.
 - **Error Hub**: scrubbed, shareable failure bundles for regression tests,
   benchmark corpora, and team debugging memory.
 - **Agent integrations**: generate host-runtime assets such as debugging skills
