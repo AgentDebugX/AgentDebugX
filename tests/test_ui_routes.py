@@ -97,6 +97,36 @@ def test_trace_without_stored_report_is_explicitly_not_diagnosed(
     assert 'heuristic fallback' not in page.text
 
 
+def test_unparseable_stored_report_is_not_treated_as_not_run(
+    tmp_path,
+    monkeypatch,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    store = SQLiteTraceStore(str(tmp_path / 'parse-error.sqlite'))
+    store.save_trajectory(failed_trajectory)
+
+    def broken_reports(_trace_id):
+        raise ValueError('invalid stored report JSON')
+
+    monkeypatch.setattr(store, 'list_reports', broken_reports)
+    client = TestClient(routes.build_app(store))
+
+    selected = client.get('/api/v1/traces/trace_failed')
+    assert selected.status_code == 200
+    assert selected.json()['report'] is None
+    assert selected.json()['report_source'] == 'parse_error'
+    assert selected.json()['report_error'] == 'ValueError: invalid stored report JSON'
+
+    overview = client.get('/api/v1/overview').json()
+    assert overview['trace_catalog'][0]['status'] == 'parse_error'
+    assert overview['analyzed_trace_count'] == 0
+
+    page = client.get('/trace/trace_failed')
+    assert page.status_code == 200
+    assert 'A stored debugger report exists but could not be parsed.' in page.text
+
+
 def _visual_ui_client(tmp_path):
     source_dir = tmp_path / 'osworld_trace'
     source_dir.mkdir()
@@ -422,6 +452,26 @@ def test_upload_converts_message_log_without_llm(ui_client: TestClient) -> None:
     assert len(ui_client.get(f'/api/v1/traces/{trace_id}').json()['trajectory']['events']) == 2
 
 
+def test_upload_does_not_enable_llm_conversion_by_default(
+    ui_client: TestClient,
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_import(_store, _text, **options):
+        captured.update(options)
+        return {'imported': [], 'count': 0, 'errors': [], 'converters': {}}
+
+    monkeypatch.setattr(routes, 'import_upload_text', fake_import)
+    response = ui_client.post(
+        '/api/v1/traces/upload',
+        json={'content': json.dumps({'unknown': 'shape'})},
+    )
+
+    assert response.status_code == 200
+    assert captured['allow_llm'] is False
+
+
 def test_sync_imports_adds_native_trajectory_and_report(
     ui_client: TestClient,
     tmp_path,
@@ -488,6 +538,18 @@ def test_space_page_exposes_sync_imports_control(ui_client: TestClient) -> None:
     assert page.status_code == 200
     assert 'id="sync-imports-btn"' in page.text
     assert "fetch('/api/v1/imports/sync', { method: 'POST' })" in page.text
+
+
+def test_trace_ui_never_promotes_raw_event_payload_to_diagnosis(
+    ui_client: TestClient,
+) -> None:
+    page = ui_client.get('/trace/trace_failed')
+
+    assert page.status_code == 200
+    assert 'The event payload itself carries the signal' not in page.text
+    assert 'Failure signal detected' not in page.text
+    assert 'Raw error-like text is preserved in Details' in page.text
+    assert 'id="upload-allow-llm" checked' not in page.text
 
 
 def test_heuristic_diagnose_pipeline_stores_report(ui_client: TestClient) -> None:

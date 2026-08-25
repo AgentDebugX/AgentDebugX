@@ -209,19 +209,27 @@ def _resolve_trace_analysis(
     """Return one selected report plus the reports available for this trace."""
 
     stored_reports: List[DiagnosticReport] = []
+    report_error: Optional[str] = None
     list_reports = getattr(store, 'list_reports', None)
     if callable(list_reports):
         try:
-            stored_reports = [
+            loaded_reports = list(list_reports(trajectory.trace_id))
+            invalid_reports = [
                 report
-                for report in list_reports(trajectory.trace_id)
-                if isinstance(report, DiagnosticReport)
-                and report.trace_id == trajectory.trace_id
+                for report in loaded_reports
+                if not isinstance(report, DiagnosticReport)
+                or report.trace_id != trajectory.trace_id
             ]
-        except (OSError, ValueError):
+            if invalid_reports:
+                raise ValueError('stored diagnostic report has an invalid shape or trace_id')
+            stored_reports = loaded_reports
+        except (OSError, ValueError) as exc:
             stored_reports = []
+            report_error = f'{exc.__class__.__name__}: {exc}'
 
-    if report_id:
+    if report_error is not None:
+        selected = None
+    elif report_id:
         selected = next(
             (report for report in stored_reports if report.report_id == report_id),
             None,
@@ -235,13 +243,18 @@ def _resolve_trace_analysis(
     else:
         selected = None
 
-    source = 'stored' if selected is not None else 'not_run'
+    source = (
+        'parse_error'
+        if report_error is not None
+        else ('stored' if selected is not None else 'not_run')
+    )
     reports = [
         _report_descriptor(report, source='stored') for report in stored_reports
     ]
     return {
         'report': selected,
         'report_source': source,
+        'report_error': report_error,
         'reports': reports,
     }
 
@@ -734,7 +747,8 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
         event_count = len(trajectory.events)
         event_counts.append(event_count)
         total_events += event_count
-        report = _resolve_trace_analysis(store, trajectory)['report']
+        analysis = _resolve_trace_analysis(store, trajectory)
+        report = analysis['report']
         findings = report.findings if report is not None else []
         if report is not None:
             analyzed_trace_count += 1
@@ -854,13 +868,23 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
             'finding_count': finding_count,
             'error_count': error_event_count,
             'status': (
-                'failed' if finding_count else ('passed' if report is not None else 'not_run')
+                'parse_error'
+                if analysis['report_source'] == 'parse_error'
+                else (
+                    'failed'
+                    if finding_count
+                    else ('passed' if report is not None else 'not_run')
+                )
             ),
             'first_error_step': first_error_step,
             'root_cause_step_index': report.root_cause_step_index if report is not None else None,
             'root_cause_found': bool(report and report.root_cause_event_id),
             'duration_ms': total_duration_ms,
-            'summary': report.summary if report is not None else '',
+            'summary': (
+                report.summary
+                if report is not None
+                else (analysis['report_error'] or '')
+            ),
             'mini_timeline': mini_timeline,
             'top_family': findings[0].failure_mode.family if findings else '',
             'top_error_type': findings[0].failure_mode.mode_id if findings else '',

@@ -366,7 +366,7 @@ def build_app(
             return import_upload_text(
                 store,
                 text,
-                allow_llm=bool(options.get('allow_llm', True)),
+                allow_llm=bool(options.get('allow_llm', False)),
                 base_url=str(options.get('base_url') or ''),
                 api_key=str(options.get('api_key') or ''),
                 model=str(options.get('model') or ''),
@@ -504,6 +504,7 @@ def build_app(
             'trajectory': _to_dict(trajectory),
             'report': _to_dict(report) if report is not None else None,
             'report_source': analysis['report_source'],
+            'report_error': analysis['report_error'],
             'reports': analysis['reports'],
             'visual_capability': build_visual_capability(trajectory),
         }

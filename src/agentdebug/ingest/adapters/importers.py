@@ -561,7 +561,6 @@ def _convert_conversation_payload(
             continue
         if remainder:
             event_type = _classify_observation_event(remainder)
-            err = 'Nothing happens' if 'nothing happens' in remainder.lower() else None
             traj.add_event(
                 AgentEvent(
                     trace_id=traj.trace_id,
@@ -570,7 +569,7 @@ def _convert_conversation_payload(
                     module=_module_for_event_type(event_type),
                     step_index=step,
                     output=remainder,
-                    error=err,
+                    error=None,
                     metadata={'source_format': 'conversations', 'source_index': idx},
                 )
             )
