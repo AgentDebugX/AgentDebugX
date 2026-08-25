@@ -100,6 +100,21 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(failure.parent_event_id, tool_call.event_id)
         self.assertIn('1 failed', failure.error)
 
+    def test_numbers_every_event_so_attribution_can_name_one_step(self) -> None:
+        trajectory = bridge.session_to_trajectory(snapshot())
+
+        steps = [event.step_index for event in trajectory.events]
+        self.assertEqual(steps, list(range(len(trajectory.events))))
+        # A Harness turn groups many events under one step number. Carrying
+        # that number through would leave every candidate ambiguous, and
+        # DeepDebug refuses to localize a root cause it cannot ground in a
+        # unique event.
+        turns = {
+            event.metadata['dsh_step'] for event in trajectory.events
+            if event.metadata.get('dsh_step') is not None
+        }
+        self.assertLess(len(turns), len(trajectory.events))
+
     def test_diagnose_persists_trajectory_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = str(Path(directory) / 'agentdebug.sqlite')

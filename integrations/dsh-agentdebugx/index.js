@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import readline from 'node:readline'
@@ -8,28 +8,72 @@ import { zstdDecompressSync } from 'node:zlib'
 
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { BlockAssembler, createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 
 export const name = 'agentdebugx'
-export const inject = ['sessions', 'tools', 'commands', 'systemPrompt']
+export const inject = ['sessions', 'tools', 'commands', 'systemPrompt', 'llm']
 
 export const Config = Schema.object({
   python: Schema.string().default(process.platform === 'win32' ? 'python' : 'python3'),
   store: Schema.string().default('.agentdebug/agentdebug.sqlite'),
   dashboardUrl: Schema.string().default('http://127.0.0.1:7777'),
   timeoutMs: Schema.number().default(120000),
-  autoCapture: Schema.boolean().default(true),
+  autoCapture: Schema.boolean().default(false),
   traceRoots: Schema.array(Schema.string()).default([process.cwd()]),
   dshSessionsRoot: Schema.string(),
+  deepTimeoutMs: Schema.number().default(900000),
+  llmProvider: Schema.string(),
+  llmModel: Schema.string(),
   autoOpen: Schema.union([
     Schema.const('turn'),
     Schema.const('session'),
     Schema.const('off'),
-  ]).default('turn'),
+  ]).default('off'),
 })
 
 const BRIDGE_PATH = fileURLToPath(
   new URL('./bridge/agentdebug_bridge.py', import.meta.url),
 )
+
+const SYSTEM_PROMPT_TEMPLATE = readFileSync(
+  new URL('./SYSTEM_PROMPT.md', import.meta.url),
+  'utf8',
+)
+
+const SYSTEM_PROMPT_PLACEHOLDERS = [
+  ['{{CAPTURE_POLICY}}', 'capturePolicy'],
+  ['{{OPEN_POLICY}}', 'openPolicy'],
+  ['{{SESSIONS_ROOT_HINT}}', 'sessionsRootHint'],
+]
+
+/**
+ * Render the packaged model instructions through fixed literal substitutions.
+ *
+ * Markdown is treated only as text: every known token is mandatory, values
+ * must be strings, and no double-brace token may survive registration.
+ */
+export function renderSystemPrompt(template, values) {
+  if (typeof template !== 'string') {
+    throw new TypeError('AgentDebugX system prompt template must be a string')
+  }
+
+  let rendered = template
+  for (const [token, key] of SYSTEM_PROMPT_PLACEHOLDERS) {
+    if (!rendered.includes(token)) {
+      throw new Error(`AgentDebugX system prompt template is missing required token ${token}`)
+    }
+    if (typeof values?.[key] !== 'string') {
+      throw new TypeError(`AgentDebugX system prompt value ${key} must be a string`)
+    }
+    rendered = rendered.split(token).join(values[key])
+  }
+
+  const unresolved = rendered.match(/\{\{[^{}]*\}\}/)?.[0]
+  if (unresolved !== undefined) {
+    throw new Error(`AgentDebugX system prompt has unresolved placeholder ${unresolved}`)
+  }
+  return rendered
+}
 
 const SUMMARY_SCHEMA = {
   type: 'object',
@@ -44,6 +88,8 @@ const SUMMARY_SCHEMA = {
       items: { type: 'string' },
     },
     findingCount: { type: 'integer', required: true },
+    mode: { type: 'string' },
+    deepError: { type: 'string' },
     rootCauseEventId: { type: 'string' },
     rootCauseAgent: { type: 'string' },
     rootCauseStepIndex: { type: 'integer' },
@@ -79,13 +125,18 @@ const TRACE_FORMATS = [
   'dsh_session',
 ]
 
+const DIAGNOSE_MODES = ['heuristic', 'deep']
+
+const COMMAND_USAGE = '/agentdebug status | capabilities | diagnose | deep | open'
+
 const IDENTITY =
   'AgentDebugX is an installed DeepSeek Harness Cordis plugin (package dsh-agentdebugx) '
   + 'that bridges this session to the AgentDebugX Python package. It is not a Harness skill.'
 
 const TOOLS_HERE = [
-  'agentdebug_diagnose: diagnose this DSH session through its latest completed turn',
-  'agentdebug_analyze_trace: diagnose a saved trace, including this agent\'s own past Harness sessions (session.jsonl.zstd under $DSH_HOME/sessions) and trace or OSWorld trajectory files in the open workspace',
+  'agentdebug_list_sessions: list and search persisted DSH sessions before choosing an unidentified past or external conversation',
+  'agentdebug_diagnose: diagnose this current DSH session through its latest completed turn',
+  'agentdebug_analyze_trace: diagnose a confirmed saved trace, including this agent\'s own past Harness sessions (session.jsonl.zstd under $DSH_HOME/sessions) and trace or OSWorld trajectory files in the open workspace',
   'agentdebug_capabilities: report this integration contract and the installed AgentDebugX surface',
 ]
 
@@ -93,7 +144,7 @@ const TOOLS_HERE = [
 // bridge. Listed so the model points at the real command instead of assuming
 // the capability is absent from the product.
 const CLI_ONLY_CAPABILITIES = [
-  'agentdebug diagnose --mode judge|deep|gui-rca: LLM-judge detection, DeepDebug memory-backed root cause, and OSWorld GUI root-cause analysis (gui-rca needs a vision plus tool-calling model).',
+  'agentdebug diagnose --mode judge|gui-rca: LLM-judge detection and OSWorld GUI root-cause analysis (gui-rca needs a vision plus tool-calling model). Mode deep is available here through agentdebug_diagnose.',
   'agentdebug diagnose --attributor all-at-once|step-by-step|binary-search|counterfactual: LLM blame localization over a failing trajectory.',
   'agentdebug diagnose --recovery deepdebug|reflexion|critic|self-refine|auto-manual|saga-rollback: structured fix proposals.',
   'agentdebug rerun: re-run a diagnostic report plan-only, simulated, or live through an HTTP or process runner; agentdebug runner serve exposes your own agent over that protocol.',
@@ -107,7 +158,8 @@ const CLI_ONLY_CAPABILITIES = [
 
 const LIMITATIONS = [
   'External paths must be inside a configured traceRoots entry.',
-  'This bridge runs only the deterministic heuristic pipeline; judge, deep, gui-rca, LLM attribution, and rerun are CLI-only.',
+  'This bridge exposes two tiers: heuristic (deterministic, no model calls) and deep (DeepDebug). Judge, gui-rca, standalone LLM attribution, and rerun stay CLI-only.',
+  'Deep mode runs on this session\'s own model, so it diagnoses a trace produced by the same model that is judging it; configure llmProvider and llmModel for an independent second opinion.',
   'Heuristic detection reasons over events, so a trace recorded as failed can still return zero findings; read recordedOutcome before concluding the run succeeded.',
   'AgentDebugX never applies code patches: recovery produces suggestion text and structured proposals only.',
 ]
@@ -140,6 +192,44 @@ const CAPABILITIES_SCHEMA = {
     limitations: { type: 'array', required: true, items: { type: 'string' } },
     dashboardUrl: { type: 'string', required: true },
     guiTaxonomyModeCount: { type: 'integer' },
+  },
+}
+
+const SESSION_CANDIDATE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', required: true },
+    relativePath: { type: 'string', required: true },
+    sessionId: { type: 'string', required: true },
+    cwd: { type: 'string', required: true },
+    workspace: { type: 'string', required: true },
+    firstUserPrompt: { type: 'string', required: true },
+    modifiedAt: { type: 'string', required: true },
+    modifiedTimeMs: { type: 'number', required: true },
+  },
+}
+
+const SESSION_LIST_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    sessions: {
+      type: 'array',
+      required: true,
+      items: SESSION_CANDIDATE_SCHEMA,
+    },
+    scanned: { type: 'integer', required: true },
+    skipped: { type: 'integer', required: true },
+    query: { type: 'string', required: true },
+    limit: { type: 'integer', required: true },
+    root: { type: 'string', required: true },
+    available: { type: 'boolean', required: true },
+    warnings: {
+      type: 'array',
+      required: true,
+      items: { type: 'string' },
+    },
   },
 }
 
@@ -278,6 +368,291 @@ function assertInsideRoots(target, roots) {
   return resolved
 }
 
+function messageText(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map(part => (typeof part === 'string' ? part : part?.text ?? ''))
+    .join('')
+}
+
+function boundedText(value, limit) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`
+}
+
+function normalizedQuery(value) {
+  return boundedText(value, 500).toLocaleLowerCase().split(/\s+/).filter(Boolean).join(' ')
+}
+
+function effectiveSessionLimit(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 10
+  return Math.min(25, Math.max(1, Math.floor(number)))
+}
+
+function comparePath(left, right) {
+  if (left.path === right.path) return 0
+  return left.path < right.path ? -1 : 1
+}
+
+function sessionSearchScore(candidate, query) {
+  if (query === '') return undefined
+  const tokens = [...new Set(query.split(' '))]
+  const fields = [
+    candidate.sessionId,
+    candidate.path,
+    candidate.relativePath,
+    candidate.cwd,
+    candidate.workspace,
+    candidate.firstUserPrompt,
+  ].map(value => value.toLocaleLowerCase())
+  const matchedTokens = tokens.filter(token => fields.some(field => field.includes(token))).length
+  if (matchedTokens === 0) return undefined
+  return {
+    matchedTokens,
+    fullQuery: fields.some(field => field.includes(query)) ? 1 : 0,
+    matchedFields: fields.filter(field => tokens.some(token => field.includes(token))).length,
+  }
+}
+
+function sessionCandidate(root, file) {
+  const session = readSessionLog(file)
+  const stats = statSync(file)
+  const relativePath = path.relative(root, file)
+  const relativeParts = relativePath.split(path.sep).filter(Boolean)
+  const cwd = boundedText(session.header?.cwd, 300)
+  const pathWorkspace = relativeParts.length > 2 ? relativeParts[0] : ''
+  const workspace = boundedText(
+    session.header?.workspace
+      || pathWorkspace
+      || (cwd === '' ? '' : path.basename(cwd)),
+    120,
+  )
+  const firstUser = session.events.find(event =>
+    event?.type === 'user/message'
+    && (event?.data?.role === undefined || event.data.role === 'user'))
+  return {
+    path: path.resolve(file),
+    relativePath: boundedText(relativePath, 300),
+    sessionId: boundedText(session.id, 160),
+    cwd,
+    workspace,
+    firstUserPrompt: boundedText(messageText(firstUser?.data?.content), 240),
+    modifiedAt: stats.mtime.toISOString(),
+    modifiedTimeMs: stats.mtimeMs,
+  }
+}
+
+/**
+ * Enumerate saved Harness sessions strictly beneath the configured sessions root.
+ *
+ * The caller supplies search text only; the filesystem boundary always comes
+ * from plugin configuration.
+ */
+export function listPersistedSessions(sessionsRoot, options = {}) {
+  const query = normalizedQuery(options?.query)
+  const limit = effectiveSessionLimit(options?.limit)
+  const root = sessionsRoot === undefined || sessionsRoot === null || sessionsRoot === ''
+    ? ''
+    : path.resolve(sessionsRoot)
+  const result = {
+    sessions: [],
+    scanned: 0,
+    skipped: 0,
+    query,
+    limit,
+    root,
+    available: false,
+    warnings: [],
+  }
+  const warn = text => {
+    if (result.warnings.length < 5) result.warnings.push(boundedText(text, 300))
+  }
+  if (root === '') {
+    warn('DSH persisted-session discovery is disabled because no sessions root is configured.')
+    return result
+  }
+  try {
+    const rootStats = lstatSync(root)
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
+      warn('The configured DSH sessions root is unavailable or is a symbolic link.')
+      return result
+    }
+  } catch {
+    warn('The configured DSH sessions root is unavailable or unreadable.')
+    return result
+  }
+  result.available = true
+
+  const candidates = []
+  const directories = [root]
+  while (directories.length > 0) {
+    const directory = directories.pop()
+    let entries
+    try {
+      entries = readdirSync(directory, { withFileTypes: true })
+    } catch {
+      result.skipped += 1
+      warn(`Skipped unreadable directory ${boundedText(path.relative(root, directory) || '.', 220)}.`)
+      continue
+    }
+
+    const entriesByName = new Map(entries.map(entry => [entry.name, entry]))
+    let selected
+    for (const name of SESSION_LOG_NAMES) {
+      const entry = entriesByName.get(name)
+      if (entry?.isFile() && !entry.isSymbolicLink()) {
+        selected = path.join(directory, name)
+        break
+      }
+    }
+    if (selected !== undefined) {
+      result.scanned += 1
+      try {
+        const confined = assertInsideRoots(selected, [root])
+        candidates.push(sessionCandidate(root, confined))
+      } catch {
+        result.skipped += 1
+        warn(`Skipped unreadable or malformed session ${boundedText(path.relative(root, selected), 220)}.`)
+      }
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue
+      const child = path.join(directory, entry.name)
+      try {
+        const stats = lstatSync(child)
+        if (!stats.isDirectory() || stats.isSymbolicLink()) continue
+        assertInsideRoots(child, [root])
+        directories.push(child)
+      } catch {
+        result.skipped += 1
+        warn(`Skipped unreadable directory ${boundedText(path.relative(root, child), 220)}.`)
+      }
+    }
+  }
+
+  const ranked = candidates
+    .map(candidate => ({ candidate, score: sessionSearchScore(candidate, query) }))
+    .filter(item => query === '' || item.score !== undefined)
+  ranked.sort((left, right) => {
+    if (query !== '') {
+      if (left.score.matchedTokens !== right.score.matchedTokens) {
+        return right.score.matchedTokens - left.score.matchedTokens
+      }
+      if (left.score.fullQuery !== right.score.fullQuery) {
+        return right.score.fullQuery - left.score.fullQuery
+      }
+      if (left.score.matchedFields !== right.score.matchedFields) {
+        return right.score.matchedFields - left.score.matchedFields
+      }
+    }
+    if (left.candidate.modifiedTimeMs !== right.candidate.modifiedTimeMs) {
+      return right.candidate.modifiedTimeMs - left.candidate.modifiedTimeMs
+    }
+    return comparePath(left.candidate, right.candidate)
+  })
+  result.sessions = ranked.slice(0, limit).map(item => item.candidate)
+  return result
+}
+
+/**
+ * Translate AgentDebugX's OpenAI-shaped message list into a Harness request.
+ *
+ * Harness carries the system prompt beside the messages rather than as a role,
+ * so system turns are hoisted out and concatenated.
+ */
+export function toHostRequest(messages) {
+  const system = []
+  const history = []
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const text = messageText(message?.content)
+    if (message?.role === 'system') {
+      if (text !== '') system.push(text)
+      continue
+    }
+    const content = [{ type: 'text', text }]
+    history.push(
+      message?.role === 'assistant'
+        ? createAssistantMessage({ content })
+        : createUserMessage({ content, source: { kind: 'plugin', plugin: 'dsh-agentdebugx' } }),
+    )
+  }
+  return { system: system.join('\n\n'), messages: history }
+}
+
+/**
+ * Run one AgentDebugX completion on the model this session already uses.
+ *
+ * Harness exposes generation only as a stream, so the blocks are assembled here
+ * and returned as the single text answer the Python protocol expects.
+ */
+export async function completeWithHost(ctx, route, params, signal) {
+  const { system, messages } = toHostRequest(params.messages)
+  if (messages.length === 0) throw new Error('llm.complete received no messages')
+  // AgentDebugX asks for JSON mode on some prompts, which Harness generation
+  // options cannot express; state the constraint in the prompt instead. Its
+  // parsers already tolerate a model that answers in prose.
+  const wantsJson = params.responseFormat?.type === 'json_object'
+  const instruction = wantsJson
+    ? `${system}\n\nRespond with a single valid JSON object and no other text.`.trim()
+    : system
+
+  const timeoutMs = Number(params.timeoutMs) > 0 ? Number(params.timeoutMs) : 60_000
+  const signals = [AbortSignal.timeout(timeoutMs)]
+  if (signal !== undefined) signals.push(signal)
+
+  const assembler = new BlockAssembler()
+  for await (const chunk of ctx.llm.stream({
+    provider: route.provider,
+    model: route.model,
+    messages,
+    ...(instruction === '' ? {} : { system: instruction }),
+    maxTokens: Number(params.maxTokens) > 0 ? Number(params.maxTokens) : 2048,
+    temperature: Number(params.temperature) || 0,
+    ...(route.sessionId === undefined ? {} : { sessionId: route.sessionId }),
+    signal: AbortSignal.any(signals),
+  })) {
+    assembler.push(chunk)
+  }
+
+  const text = assembler.blocks()
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('')
+  const usage = assembler.usage ?? {}
+  return {
+    text,
+    finishReason: assembler.finish?.kind,
+    usage: {
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+    },
+  }
+}
+
+/**
+ * Pick the model an AgentDebugX LLM tier should run on.
+ *
+ * The session's own route is the default, so the feature costs no extra
+ * configuration; an explicit pair overrides it when a different model is wanted
+ * for cost, vision support, or an independent second opinion.
+ */
+export function resolveRoute(config, session) {
+  if (config.llmProvider !== undefined && config.llmModel !== undefined) {
+    return { provider: config.llmProvider, model: config.llmModel, sessionId: session?.id }
+  }
+  const logged = session?.requestHeader?.()?.config
+  if (logged?.provider === undefined || logged?.model === undefined) {
+    throw new Error(
+      'AgentDebugX deep mode needs a model route: no request has been logged in this session yet, '
+      + 'so configure llmProvider and llmModel together.',
+    )
+  }
+  return { provider: logged.provider, model: logged.model, sessionId: session?.id }
+}
+
 function traceUrl(dashboardUrl, traceId, eventId = undefined) {
   const base = `${dashboardUrl.replace(/\/+$/, '')}/trace/${encodeURIComponent(traceId)}`
   // The dashboard 404s an event id that is absent from the trajectory, so only
@@ -299,6 +674,149 @@ function openInBrowser(url) {
     windowsHide: true,
   })
   child.unref()
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+/**
+ * Lazily owns the AgentDebugX dashboard used by this plugin.
+ *
+ * A healthy server already bound to dashboardUrl is reused and never stopped.
+ * Otherwise the first diagnosis or explicit open command starts one process;
+ * concurrent callers share the same startup promise.
+ */
+export class DashboardProcess {
+  constructor({
+    python,
+    store,
+    dashboardUrl,
+    onStderr = () => {},
+    spawnProcess = spawn,
+    fetchFn = fetch,
+    startupTimeoutMs = 15_000,
+    pollIntervalMs = 100,
+  }) {
+    const url = new URL(dashboardUrl)
+    const loopback = new Set(['127.0.0.1', 'localhost', '[::1]'])
+    if (url.protocol !== 'http:' || !loopback.has(url.hostname)) {
+      throw new Error('AgentDebugX dashboardUrl must be an http loopback URL')
+    }
+    this.python = python
+    this.store = store
+    this.dashboardUrl = dashboardUrl.replace(/\/+$/, '')
+    this.host = url.hostname === '[::1]' ? '::1' : url.hostname
+    this.port = Number(url.port || 80)
+    this.onStderr = onStderr
+    this.spawnProcess = spawnProcess
+    this.fetchFn = fetchFn
+    this.startupTimeoutMs = startupTimeoutMs
+    this.pollIntervalMs = pollIntervalMs
+    this.process = undefined
+    this.starting = undefined
+  }
+
+  async reachable() {
+    try {
+      const response = await this.fetchFn(`${this.dashboardUrl}/healthz`, {
+        signal: AbortSignal.timeout(1500),
+      })
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  ensure() {
+    if (this.starting !== undefined) return this.starting
+    this.starting = this.start().finally(() => {
+      this.starting = undefined
+    })
+    return this.starting
+  }
+
+  async start() {
+    if (await this.reachable()) return false
+    if (this.process !== undefined) {
+      await this.waitUntilReady()
+      return true
+    }
+    const child = this.spawnProcess(
+      this.python,
+      [
+        '-m',
+        'agentdebug.cli',
+        'serve',
+        '--store-sqlite',
+        this.store,
+        '--host',
+        this.host,
+        '--port',
+        String(this.port),
+      ],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      },
+    )
+    this.process = child
+    this.stderr = ''
+    child.once('error', error => {
+      this.stderr = error instanceof Error ? error.message : String(error)
+      if (this.process === child) this.process = undefined
+    })
+    child.stderr?.on('data', chunk => {
+      const text = String(chunk).trimEnd()
+      this.stderr = `${this.stderr}\n${text}`.trim().slice(-4000)
+      if (text.length > 0) this.onStderr(text)
+    })
+    child.once('exit', () => {
+      if (this.process === child) this.process = undefined
+    })
+    try {
+      await this.waitUntilReady(child)
+      return true
+    } catch (error) {
+      await this.close()
+      const detail = this.stderr === '' ? '' : ` ${this.stderr}`
+      throw new Error(
+        `AgentDebugX dashboard failed to start. Install UI support with `
+        + `\`python -m pip install "agentdebugx[ui]"\`.`
+        + `${detail || ` ${error instanceof Error ? error.message : String(error)}`}`,
+      )
+    }
+  }
+
+  async waitUntilReady(child = this.process) {
+    const deadline = Date.now() + this.startupTimeoutMs
+    while (Date.now() < deadline) {
+      if (await this.reachable()) return
+      if (this.process !== child) {
+        throw new Error('dashboard process exited before becoming healthy')
+      }
+      await delay(this.pollIntervalMs)
+    }
+    throw new Error(`dashboard did not become healthy within ${this.startupTimeoutMs}ms`)
+  }
+
+  async close() {
+    const child = this.process
+    if (child === undefined) return
+    this.process = undefined
+    child.kill()
+    await new Promise(resolve => {
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        resolve()
+      }, 1000)
+      child.once('exit', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+  }
 }
 
 /** Viewer opener that skips a dead dashboard and never reopens the same page. */
@@ -362,6 +880,46 @@ export class PythonBridge {
     this.process = undefined
     this.pending = new Map()
     this.sequence = 0
+    // Reverse-call routes, keyed by the token handed to the bridge with a
+    // request. Keeping the route here means the Python side never has to know
+    // which model it is talking to.
+    this.routes = new Map()
+    this.handlers = new Map()
+  }
+
+  /** Register the host capability the bridge may call back into. */
+  serve(method, handler) {
+    this.handlers.set(method, handler)
+  }
+
+  /** Lend a route to the bridge for the lifetime of one request. */
+  lend(route) {
+    const token = `route-${++this.sequence}`
+    this.routes.set(token, route)
+    return { token, release: () => this.routes.delete(token) }
+  }
+
+  async dispatch(request) {
+    const handler = this.handlers.get(request.method)
+    if (handler === undefined) {
+      return { id: request.id, error: { type: 'UnknownMethod', message: `no host handler for ${request.method}` } }
+    }
+    try {
+      const params = request.params ?? {}
+      const route = this.routes.get(params.token)
+      if (route === undefined) {
+        throw new Error('host call used an expired or unknown route token')
+      }
+      return { id: request.id, result: await handler(route, params) }
+    } catch (error) {
+      return {
+        id: request.id,
+        error: {
+          type: error instanceof Error ? error.name : 'HostError',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }
+    }
   }
 
   start() {
@@ -386,7 +944,7 @@ export class PythonBridge {
     })
   }
 
-  request(method, params = {}, signal) {
+  request(method, params = {}, signal, { timeoutMs = this.timeoutMs } = {}) {
     this.start()
     if (signal?.aborted) return Promise.reject(abortError(signal))
     const id = `agentdebugx-${++this.sequence}`
@@ -397,8 +955,8 @@ export class PythonBridge {
       }
       const timer = setTimeout(() => {
         this.finish(id)
-        reject(new Error(`AgentDebugX ${method} timed out after ${this.timeoutMs}ms`))
-      }, this.timeoutMs)
+        reject(new Error(`AgentDebugX ${method} timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
       this.pending.set(id, { resolve, reject, timer, signal, onAbort })
       signal?.addEventListener('abort', onAbort, { once: true })
       const payload = `${JSON.stringify({ id, method, params })}\n`
@@ -416,6 +974,12 @@ export class PythonBridge {
       response = JSON.parse(line)
     } catch {
       this.onStderr(`AgentDebugX bridge emitted invalid JSON: ${line}`)
+      return
+    }
+    if (response.method !== undefined && response.method !== null) {
+      void this.dispatch(response).then(reply => {
+        this.process?.stdin.write(`${JSON.stringify(reply)}\n`)
+      })
       return
     }
     const pending = this.pending.get(response.id)
@@ -519,20 +1083,49 @@ function renderSummary(value) {
   const outcome = value.recordedOutcome === undefined
     ? ''
     : ` Recorded outcome: ${JSON.stringify(value.recordedOutcome)}.`
+  const tier = value.mode === 'deep'
+    ? value.deepError === undefined
+      ? ' Mode: deep (DeepDebug).'
+      : ` Mode: deep (DeepDebug), degraded: ${value.deepError}.`
+    : value.deepError === undefined
+      ? ''
+      : ` Deep mode failed (${value.deepError}); this is the heuristic result.`
   // Heuristic detection reasons over events, so a trace the benchmark scored as
   // a failure can still produce zero findings; say so instead of letting the
   // caller read silence as success.
-  const gap = value.findingCount === 0 && value.recordedOutcome?.status === 'failure'
-    ? ' Heuristic detection found no event-level failure although the trace is recorded as failed; deeper root-cause modes are not exposed through this bridge.'
+  const gap = value.findingCount === 0
+    && value.recordedOutcome?.status === 'failure'
+    && value.mode !== 'deep'
+    ? ' Heuristic detection found no event-level failure although the trace is recorded as failed; rerun with mode deep to escalate to DeepDebug.'
     : ''
-  return `${value.summary}${root}${outcome}${gap}${dashboard}`
+  return `${value.summary}${tier}${root}${outcome}${gap}${dashboard}`
 }
 
 function appendAnalysisEvent(session, type, data) {
   session.append(type, data)
 }
 
-async function diagnoseSession(bridge, config, session, signal) {
+/**
+ * Lend the session's model route to the bridge for one LLM-backed request.
+ *
+ * The token is revoked as soon as the run ends, so a stale bridge call cannot
+ * spend tokens after the fact.
+ */
+async function withMode(bridge, config, session, mode, run) {
+  if (mode !== 'deep') return run({ mode: 'heuristic' }, config.timeoutMs)
+  const route = resolveRoute(config, session)
+  const lease = bridge.lend(route)
+  try {
+    return await run(
+      { mode: 'deep', llm: { token: lease.token, model: route.model } },
+      config.deepTimeoutMs,
+    )
+  } finally {
+    lease.release()
+  }
+}
+
+async function diagnoseSession(bridge, config, session, signal, mode = 'heuristic') {
   const stable = requireStableSnapshot(session)
   const analysisId = `analysis-${randomUUID()}`
   const boundary = stable.events.at(-1)
@@ -541,20 +1134,23 @@ async function diagnoseSession(bridge, config, session, signal) {
     turn: boundary?.data?.turn ?? 0,
     step: boundary?.data?.step ?? 0,
   }
-  appendAnalysisEvent(session, 'agentdebug/start', coordinates)
+  appendAnalysisEvent(session, 'agentdebug/start', { ...coordinates, mode })
   try {
-    const result = await bridge.request(
-      'diagnose',
-      {
-        session: stable,
-        store: config.store,
-        dashboardUrl: config.dashboardUrl,
-        mode: 'heuristic',
-      },
-      signal,
-    )
+    const result = await withMode(bridge, config, session, mode, (modeParams, timeoutMs) =>
+      bridge.request(
+        'diagnose',
+        {
+          session: stable,
+          store: config.store,
+          dashboardUrl: config.dashboardUrl,
+          ...modeParams,
+        },
+        signal,
+        { timeoutMs },
+      ))
     appendAnalysisEvent(session, 'agentdebug/result', {
       ...coordinates,
+      mode,
       traceId: result.summary.traceId,
       reportId: result.summary.reportId,
       summary: result.summary.summary,
@@ -563,13 +1159,15 @@ async function diagnoseSession(bridge, config, session, signal) {
   } catch (error) {
     appendAnalysisEvent(session, 'agentdebug/result', {
       ...coordinates,
+      mode,
       error: error instanceof Error ? error.message : String(error),
     })
     throw error
   }
 }
 
-async function diagnosePath(bridge, config, roots, args, signal) {
+async function diagnosePath(bridge, config, roots, args, signal, session = undefined) {
+  const mode = args.mode === 'deep' ? 'deep' : 'heuristic'
   const format = args.format ?? 'auto'
   // A persisted Harness session is read here rather than in Python: the log is
   // a concatenated-Zstandard container Node decodes natively, and routing it
@@ -577,30 +1175,34 @@ async function diagnosePath(bridge, config, roots, args, signal) {
   // that generic trace detection would flatten.
   if (format === 'dsh_session' || (format === 'auto' && isSessionLogPath(args.path))) {
     assertInsideRoots(args.path, roots)
-    const result = await bridge.request(
-      'diagnose',
-      {
-        session: readSessionLog(args.path),
-        store: config.store,
-        dashboardUrl: config.dashboardUrl,
-        mode: 'heuristic',
-      },
-      signal,
-    )
+    const result = await withMode(bridge, config, session, mode, (modeParams, timeoutMs) =>
+      bridge.request(
+        'diagnose',
+        {
+          session: readSessionLog(args.path),
+          store: config.store,
+          dashboardUrl: config.dashboardUrl,
+          ...modeParams,
+        },
+        signal,
+        { timeoutMs },
+      ))
     return result.summary
   }
-  const result = await bridge.request(
-    'diagnose_path',
-    {
-      path: args.path,
-      format,
-      traceRoots: roots,
-      store: config.store,
-      dashboardUrl: config.dashboardUrl,
-      mode: 'heuristic',
-    },
-    signal,
-  )
+  const result = await withMode(bridge, config, session, mode, (modeParams, timeoutMs) =>
+    bridge.request(
+      'diagnose_path',
+      {
+        path: args.path,
+        format,
+        traceRoots: roots,
+        store: config.store,
+        dashboardUrl: config.dashboardUrl,
+        ...modeParams,
+      },
+      signal,
+      { timeoutMs },
+    ))
   return result.summary
 }
 
@@ -626,16 +1228,28 @@ export function apply(ctx, config) {
     },
   })
 
+  // AgentDebugX's LLM tiers run on the model this session already uses, so the
+  // bridge calls back through here instead of needing its own API credentials.
+  bridge.serve('llm.complete', (route, params) => completeWithHost(ctx, route, params))
+
   const viewer = new TraceViewer({
     dashboardUrl: config.dashboardUrl,
     mode: config.autoOpen,
     onWarn: text => ctx.logger.warn(`[agentdebugx] ${text}`),
   })
 
+  const dashboard = new DashboardProcess({
+    python: config.python,
+    store: config.store,
+    dashboardUrl: config.dashboardUrl,
+    onStderr: text => {
+      if (text.length > 0) ctx.logger.warn(`[agentdebugx dashboard] ${text}`)
+    },
+  })
+
   ctx.effect(() => {
-    bridge.start()
-    return () => bridge.close()
-  }, 'agentdebugx: python bridge')
+    return () => Promise.all([bridge.close(), dashboard.close()])
+  }, 'agentdebugx: lazy runtime cleanup')
 
   if (config.autoCapture) {
     ctx.on('session/event', (session, event) => {
@@ -643,7 +1257,11 @@ export function apply(ctx, config) {
       void bridge.request('ingest_snapshot', {
         session: snapshot(session, event.seq),
         store: config.store,
-      }).then(result => viewer.open(String(session.id), result.traceId, result.lastEventId))
+      }).then(async result => {
+        if (config.autoOpen === 'off') return false
+        await dashboard.ensure()
+        return viewer.open(String(session.id), result.traceId, result.lastEventId)
+      })
         .catch(error => {
           ctx.logger.warn(
             `[agentdebugx] automatic capture failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -660,41 +1278,79 @@ export function apply(ctx, config) {
     : config.autoOpen === 'session'
       ? 'The AgentDebugX viewer opens once per session on the first completed turn.'
       : 'The AgentDebugX viewer opens automatically after every completed turn, showing that turn in the captured trace.'
+  const capturePolicy = config.autoCapture
+    ? 'Every completed turn is captured into the AgentDebugX trace store automatically.'
+    : 'AgentDebugX stays stopped until an AgentDebugX tool or /agentdebug command is explicitly used.'
 
   ctx.systemPrompt.section({
     name: 'tool:agentdebugx',
     order: 117,
-    text:
-      'AgentDebugX is an installed Cordis plugin (dsh-agentdebugx), not a skill. Every completed turn of this '
-      + `session is captured into the AgentDebugX trace store automatically. ${openPolicy} `
-      + 'Use agentdebug_diagnose for this session through its latest completed turn. Use agentdebug_analyze_trace '
-      + 'for a saved trace, which covers two sources you are expected to debug: your own past DeepSeek Harness '
-      + `sessions, persisted as session.jsonl.zstd under ${sessionsRootHint}, and trace or trajectory files inside `
-      + 'the open workspace, including OSWorld trajectory directories. Both must sit inside a configured trace root. '
-      + 'This bridge runs only '
-      + 'the deterministic heuristic Detect-Attribute-Recover pipeline, so zero findings on a trace whose '
-      + 'recordedOutcome is a failure means the heuristics found nothing, not that the run succeeded. AgentDebugX '
-      + 'itself also offers LLM judge, DeepDebug, OSWorld GUI root-cause analysis, LLM attribution, rerun, batch '
-      + 'processing, and Error Hub sharing through its agentdebug CLI against the same store; recommend the CLI '
-      + 'command for those rather than claiming the capability is missing. Call agentdebug_capabilities for the '
-      + 'exact installed surface, supported formats, and limits.',
+    text: renderSystemPrompt(SYSTEM_PROMPT_TEMPLATE, {
+      capturePolicy,
+      openPolicy,
+      sessionsRootHint,
+    }),
   })
+
+  ctx.tools.register(defineTool({
+    name: 'agentdebug_list_sessions',
+    description:
+      'List and deterministically search persisted DSH sessions under the configured sessions root without starting Python or the dashboard. Use this first for an unidentified past or external DSH conversation, present the candidates, and ask the user to choose or confirm one before passing its path to agentdebug_analyze_trace.',
+    parameters: {
+      query: {
+        type: 'string',
+        description: 'Optional remembered text from a session id, path, cwd/workspace, or first user prompt.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum candidates to return; defaults to 10 and is clamped to an integer from 1 through 25.',
+      },
+    },
+    output: {
+      schema: SESSION_LIST_SCHEMA,
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.sessions.length === 0
+          ? `No persisted DSH sessions matched "${value.query}". Scanned ${value.scanned}; skipped ${value.skipped}.`
+          : [
+              `Persisted DSH sessions (${value.sessions.length}; scanned ${value.scanned}; skipped ${value.skipped}):`,
+              ...value.sessions.map(session =>
+                `${session.sessionId} | ${session.workspace || session.cwd || 'unknown workspace'} | ${session.modifiedAt} | ${session.firstUserPrompt || '(no user prompt)'} | ${session.path}`),
+            ].join('\n'),
+      }],
+    },
+    execute(args) {
+      return listPersistedSessions(sessionsRoot, args)
+    },
+    presentCall: () => ({
+      card: 'generic',
+      title: 'List persisted DSH sessions',
+      kind: 'search',
+    }),
+  }))
 
   ctx.tools.register(defineTool({
     name: 'agentdebug_diagnose',
     description:
-      'Run AgentDebugX deterministic Detect-Attribute-Recover diagnosis on this DSH session through its latest completed turn. For an existing trajectory file or OSWorld directory, use agentdebug_analyze_trace instead.',
-    parameters: {},
+      'Run AgentDebugX Detect-Attribute-Recover diagnosis on this current DSH session through its latest completed turn. Use it only when the user clearly means the current, latest, or just-now conversation. For an unidentified past or external session, call agentdebug_list_sessions and ask the user to choose instead. Mode heuristic is deterministic and free; mode deep runs the DeepDebug profile on this session\'s own model (roughly six extra model calls, no separate API key). For a confirmed saved trace, use agentdebug_analyze_trace.',
+    parameters: {
+      mode: {
+        type: 'string',
+        enum: DIAGNOSE_MODES,
+        description: 'heuristic (default, no model calls) or deep (DeepDebug, escalate when the heuristic tier finds nothing or the root cause is semantic).',
+      },
+    },
     output: {
       schema: SUMMARY_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: renderSummary(value) }],
     },
-    async execute(_args, exec) {
+    async execute(args, exec) {
       if (exec.agent === undefined) {
         throw new Error('agentdebug_diagnose requires a calling agent')
       }
+      await dashboard.ensure()
       const session = exec.agent.session
-      const summary = await diagnoseSession(bridge, config, session, exec.signal)
+      const summary = await diagnoseSession(bridge, config, session, exec.signal, args.mode)
       await viewer.open(String(session.id), summary.traceId, summary.rootCauseEventId)
       return summary
     },
@@ -708,7 +1364,7 @@ export function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: 'agentdebug_analyze_trace',
     description:
-      'Load and diagnose a saved agent trace with AgentDebugX. Two common sources: a past DeepSeek Harness session of this agent itself, persisted as session.jsonl.zstd under $DSH_HOME/sessions/<workspace>/session-<uuid>/, and trace or trajectory files inside the open workspace (including OSWorld trajectory directories). The path must be inside a configured traceRoots entry. Supports Harness session logs plus canonical AgentTrajectory, message/event exports, OpenAI Agents, CrewAI, LangGraph, Claude Code, OpenClaw, Hermes, GAIA ODR, WebShop, and OSWorld.',
+      'Load and diagnose an explicit or confirmed saved agent trace with AgentDebugX. For an unidentified past or external DSH conversation, first call agentdebug_list_sessions, present candidates, and ask the user to confirm one. Two common sources: a past DeepSeek Harness session of this agent itself, persisted as session.jsonl.zstd under $DSH_HOME/sessions/<workspace>/session-<uuid>/, and trace or trajectory files inside the open workspace (including OSWorld trajectory directories). The path must be inside a configured traceRoots entry. Supports Harness session logs plus canonical AgentTrajectory, message/event exports, OpenAI Agents, CrewAI, LangGraph, Claude Code, OpenClaw, Hermes, GAIA ODR, WebShop, and OSWorld.',
     parameters: {
       path: {
         type: 'string',
@@ -720,13 +1376,21 @@ export function apply(ctx, config) {
         enum: TRACE_FORMATS,
         description: 'Input format; auto detects Harness session logs, common file formats, and OSWorld directories. Use dsh_session to force reading a Harness session log.',
       },
+      mode: {
+        type: 'string',
+        enum: DIAGNOSE_MODES,
+        description: 'heuristic (default, no model calls) or deep (DeepDebug on this session\'s own model).',
+      },
     },
     output: {
       schema: SUMMARY_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: renderSummary(value) }],
     },
     async execute(args, exec) {
-      const summary = await diagnosePath(bridge, config, traceRoots, args, exec.signal)
+      await dashboard.ensure()
+      const summary = await diagnosePath(
+        bridge, config, traceRoots, args, exec.signal, exec.agent?.session,
+      )
       await viewer.open(`trace:${summary.traceId}`, summary.traceId, summary.rootCauseEventId)
       return summary
     },
@@ -774,7 +1438,8 @@ export function apply(ctx, config) {
           openPolicy,
         ],
         diagnosisInThisSession:
-          'deterministic heuristic Detect-Attribute-Recover pipeline (HeuristicAnalyzer plus HeuristicAttributor), no LLM',
+          'two tiers: heuristic (HeuristicAnalyzer plus HeuristicAttributor, deterministic, no model calls, the default) '
+          + 'and deep (DeepDebug seeded with the heuristic findings, driven by this session\'s own model)',
         ingestFormats: [...(installed.ingestFormats ?? TRACE_FORMATS), 'dsh_session'],
         readableTraceRoots: traceRoots,
         diagnoseComponents: installed.diagnoseComponents ?? [],
@@ -797,7 +1462,7 @@ export function apply(ctx, config) {
   ctx.commands.register({
     name: 'agentdebug',
     description: 'inspect or diagnose this session with AgentDebugX',
-    input: { hint: 'status | capabilities | diagnose | open' },
+    input: { hint: 'status | capabilities | diagnose | deep | open' },
     // A slash command must never surface an unhandled rejection: a bad word or
     // an unavailable bridge is answered with text, not a thrown failure.
     handler: invocation => runCommand(invocation).catch(error => ({
@@ -812,10 +1477,11 @@ export function apply(ctx, config) {
       const status = await bridge.request('status', {}, invocation.signal)
       return {
         kind: 'success',
-        text: `AgentDebugX ${status.agentdebugxVersion}; store=${config.store}. Usage: /agentdebug status | capabilities | diagnose | open`,
+        text: `AgentDebugX ${status.agentdebugxVersion}; store=${config.store}. Usage: ${COMMAND_USAGE}`,
       }
     }
     if (command === 'open') {
+      await dashboard.ensure()
       const session = invocation.agent.session
       const result = await bridge.request(
         'ingest_snapshot',
@@ -823,12 +1489,6 @@ export function apply(ctx, config) {
         invocation.signal,
       )
       const url = traceUrl(config.dashboardUrl, result.traceId, result.lastEventId)
-      if (!await viewer.reachable()) {
-        return {
-          kind: 'error',
-          text: `AgentDebugX dashboard is not running at ${config.dashboardUrl}. Start it with: agentdebug serve --store-sqlite ${config.store}`,
-        }
-      }
       openInBrowser(url)
       return { kind: 'success', text: `Opened ${url}` }
     }
@@ -845,15 +1505,22 @@ export function apply(ctx, config) {
         ].join('\n'),
       }
     }
-    if (command === 'diagnose') {
+    if (command === 'diagnose' || command === 'deep') {
+      await dashboard.ensure()
       const session = invocation.agent.session
-      const result = await diagnoseSession(bridge, config, session, invocation.signal)
+      const result = await diagnoseSession(
+        bridge,
+        config,
+        session,
+        invocation.signal,
+        command === 'deep' ? 'deep' : 'heuristic',
+      )
       await viewer.open(String(session.id), result.traceId, result.rootCauseEventId)
       return { kind: 'success', text: renderSummary(result) }
     }
     return {
       kind: 'error',
-      text: `Unknown subcommand ${command}. Usage: /agentdebug status | capabilities | diagnose | open`,
+      text: `Unknown subcommand ${command}. Usage: ${COMMAND_USAGE}`,
     }
   }
 }

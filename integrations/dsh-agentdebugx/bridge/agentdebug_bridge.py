@@ -9,13 +9,15 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, get_args
+from typing import Any, Dict, Iterable, List, Optional, TextIO, get_args
 
 from agentdebug.diagnose.pipeline import DiagnosePipeline
 from agentdebug.ingest.adapters.importers import convert_directory, convert_file
+from agentdebug.runtime.llm import CompletionResult, TokenUsage
 from agentdebug.runtime.storage import SQLiteTraceStore
 from agentdebug.schema import (
     AgentEvent,
@@ -139,10 +141,6 @@ def session_to_trajectory(snapshot: JsonObject) -> AgentTrajectory:
         data = raw.get('data') if isinstance(raw.get('data'), dict) else {}
         turn = data.get('turn')
         step = data.get('step')
-        try:
-            step_index = int(step) if step is not None else None
-        except (TypeError, ValueError):
-            step_index = None
         metadata: JsonObject = {
             'source': 'deepseek-harness',
             'dsh_session_id': session_id,
@@ -156,7 +154,12 @@ def session_to_trajectory(snapshot: JsonObject) -> AgentTrajectory:
             'event_id': _event_id(trace_id, seq),
             'trace_id': trace_id,
             'agent_name': str(snapshot.get('agentId') or 'dsh-agent'),
-            'step_index': step_index,
+            # A Harness turn holds many events under one step number, so
+            # reusing that number leaves attribution unable to name a unique
+            # decision point. Number the mapped events instead, matching the
+            # convention of AgentDebugX's own importers; the Harness turn and
+            # step stay in metadata.
+            'step_index': len(normalized),
             'timestamp': _timestamp(raw.get('time')),
             'metadata': metadata,
         }
@@ -312,18 +315,83 @@ def _recorded_outcome(trajectory: AgentTrajectory) -> Optional[JsonObject]:
     return outcome or None
 
 
+def _diagnose_deep(trajectory: AgentTrajectory, llm: Any) -> Any:
+    """Run the DeepDebug profile, mirroring the CLI's ``--mode deep`` wiring.
+
+    Deterministic findings are computed first and handed to DeepDebug as prior
+    context, so the LLM tier refines the rule layer instead of replacing it.
+    """
+
+    from agentdebug.deep import DeepDebugAnalyzer
+    from agentdebug.diagnose.context import DiagnoseContext
+    from agentdebug.diagnose.detect.analyzers import HeuristicAnalyzer
+    from agentdebug.diagnose.recover import suggest_from_context
+    from agentdebug.recovery import DeepDebugRecovery
+
+    detect_report = HeuristicAnalyzer().analyze(trajectory)
+    # Memory retrieval stays off (the analyzer's default), which also keeps the
+    # bridge from creating a deep-memory SQLite file beside the trace store.
+    report = DeepDebugAnalyzer(
+        llm=llm,
+        prior_findings=detect_report.findings,
+    ).analyze(trajectory).report
+    report.metadata['upstream_detect'] = {
+        'analyzer': detect_report.metadata.get('analyzer'),
+        'summary': detect_report.summary,
+        'finding_count': len(detect_report.findings),
+    }
+    context = DiagnoseContext.build(trajectory, report, None)
+    proposals = suggest_from_context(DeepDebugRecovery(), context)
+    report.suggestions = [proposal.suggestion_text for proposal in proposals]
+    return report
+
+
 def _diagnose_trajectory(
     trajectory: AgentTrajectory,
     *,
     store_path: str,
     dashboard_url: Optional[str],
+    llm: Any = None,
 ) -> JsonObject:
-    pipeline = DiagnosePipeline.local_default()
-    report = pipeline.run(trajectory).report
+    deep_error: Optional[str] = None
+    deep_ran = False
+    if llm is None:
+        report = DiagnosePipeline.local_default().run(trajectory).report
+    else:
+        try:
+            report = _diagnose_deep(trajectory, llm)
+            deep_ran = True
+        except Exception as exc:
+            # DeepDebug refuses to answer when it cannot ground a root cause in
+            # a real event, and the host model can be unavailable. Neither is a
+            # reason to throw away the deterministic result the caller would
+            # otherwise have received.
+            host_error = getattr(llm, 'first_error', None)
+            deep_error = (
+                f'host model call failed: {host_error}' if host_error
+                else f'{type(exc).__name__}: {_safe_text(str(exc))}'
+            )
+        if getattr(llm, 'completed', 0) == 0:
+            # DeepDebug's tiers absorb failed calls and can still assemble a
+            # verdict from their fallbacks. A verdict no model ever saw must
+            # not be presented as a model-backed diagnosis.
+            deep_ran = False
+            deep_error = (
+                f'no host model call succeeded: {llm.first_error}'
+                if getattr(llm, 'first_error', None)
+                else 'no host model call succeeded'
+            )
+        elif deep_ran and getattr(llm, 'first_error', None):
+            deep_error = f'some host model calls failed: {llm.first_error}'
+        if not deep_ran:
+            report = DiagnosePipeline.local_default().run(trajectory).report
     store = _store(store_path)
     store.save_trajectory(trajectory)
     store.save_report(report)
     summary = _summary(report, dashboard_url)
+    summary['mode'] = 'deep' if deep_ran else 'heuristic'
+    if deep_error is not None:
+        summary['deepError'] = deep_error
     outcome = _recorded_outcome(trajectory)
     if outcome is not None:
         summary['recordedOutcome'] = outcome
@@ -382,7 +450,88 @@ def _capabilities() -> JsonObject:
     return payload
 
 
-def handle(method: str, params: JsonObject) -> Any:
+class HostLLMClient:
+    """``LLMClient`` that borrows the model the Harness host already runs.
+
+    AgentDebugX accepts any object satisfying the ``LLMClient`` protocol, so the
+    LLM tiers can be driven by the host's configured model instead of asking the
+    user to provision a second API key. Completions travel back over the same
+    JSON-lines pipe as a reverse request.
+    """
+
+    def __init__(self, protocol: '_Protocol', token: str, model: str) -> None:
+        self._protocol = protocol
+        self._token = token
+        self.model = model
+        #: First transport failure, kept because AgentDebugX's LLM tiers absorb
+        #: individual call errors and would otherwise report a lost model call
+        #: as an inconclusive diagnosis.
+        self.first_error: Optional[str] = None
+        #: Completed calls, so a run that never reached the model cannot be
+        #: presented as a model-backed diagnosis.
+        self.completed = 0
+
+    def complete(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        response_format: Optional[Dict[str, Any]] = None,
+        temperature: float = 0.0,
+        max_tokens: int = 2048,
+        timeout: float = 60.0,
+    ) -> CompletionResult:
+        try:
+            result = self._protocol.call(
+                'llm.complete',
+                {
+                    'token': self._token,
+                    'messages': _sanitize(messages),
+                    'responseFormat': response_format,
+                    'temperature': temperature,
+                    'maxTokens': max_tokens,
+                    'timeoutMs': int(timeout * 1000),
+                },
+            )
+        except Exception as exc:
+            if self.first_error is None:
+                self.first_error = _safe_text(str(exc))
+            raise
+        if not isinstance(result, dict):
+            if self.first_error is None:
+                self.first_error = 'host llm returned a malformed completion'
+            raise RuntimeError('host llm returned a malformed completion')
+        self.completed += 1
+        usage = result.get('usage') or {}
+        return CompletionResult(
+            text=str(result.get('text') or ''),
+            raw=result,
+            usage=TokenUsage(
+                prompt_tokens=int(usage.get('promptTokens') or 0),
+                completion_tokens=int(usage.get('completionTokens') or 0),
+                calls=1,
+            ),
+        )
+
+
+def _host_llm(protocol: Optional['_Protocol'], params: JsonObject) -> Any:
+    """Build the host-backed client the requested mode needs, if any."""
+
+    mode = str(params.get('mode') or 'heuristic')
+    if mode == 'heuristic':
+        return None
+    if mode != 'deep':
+        raise ValueError(
+            f'unsupported bridge mode {mode!r}; supported modes are heuristic and deep'
+        )
+    if protocol is None:
+        raise ValueError('deep mode requires the bidirectional bridge protocol')
+    llm = params.get('llm')
+    if not isinstance(llm, dict) or not llm.get('token'):
+        raise ValueError('deep mode requires an llm token issued by the host')
+    return HostLLMClient(protocol, str(llm['token']), str(llm.get('model') or 'host'))
+
+
+def handle(method: str, params: JsonObject, protocol: Optional['_Protocol'] = None) -> Any:
     if method == 'status':
         return {'ok': True, 'agentdebugxVersion': _installed_version()}
 
@@ -400,24 +549,17 @@ def handle(method: str, params: JsonObject) -> Any:
         }
 
     if method == 'diagnose':
-        mode = str(params.get('mode') or 'heuristic')
-        if mode != 'heuristic':
-            raise ValueError(
-                f'unsupported external bridge mode {mode!r}; first release supports heuristic'
-            )
+        llm = _host_llm(protocol, params)
         trajectory = session_to_trajectory(params['session'])
         return _diagnose_trajectory(
             trajectory,
             store_path=str(params['store']),
             dashboard_url=params.get('dashboardUrl'),
+            llm=llm,
         )
 
     if method == 'diagnose_path':
-        mode = str(params.get('mode') or 'heuristic')
-        if mode != 'heuristic':
-            raise ValueError(
-                f'unsupported external bridge mode {mode!r}; first release supports heuristic'
-            )
+        llm = _host_llm(protocol, params)
         path = _allowed_path(params['path'], params.get('traceRoots'))
         trace_format = str(params.get('format') or 'auto')
         trajectory = (
@@ -429,6 +571,7 @@ def handle(method: str, params: JsonObject) -> Any:
             trajectory,
             store_path=str(params['store']),
             dashboard_url=params.get('dashboardUrl'),
+            llm=llm,
         )
 
     if method == 'get_report':
@@ -462,34 +605,132 @@ def _encode_response(response: JsonObject) -> str:
         return json.dumps(fallback, ensure_ascii=True) + '\n'
 
 
-def serve(lines: Iterable[str] = sys.stdin) -> int:
-    for line in lines:
-        if not line.strip():
-            continue
-        request: JsonObject = {}
+class _MalformedLine(Exception):
+    """One unreadable input line, reported without ending the stream."""
+
+
+class _Protocol:
+    """Bidirectional JSON-lines channel over the plugin's stdio pipe.
+
+    The host drives the bridge, but LLM-backed diagnosis needs to call back into
+    the host mid-request, so messages travel both ways over the one pipe. A
+    message carrying ``method`` is a request; anything else answers a reverse
+    call this side is waiting on.
+    """
+
+    def __init__(self, lines: Iterable[str], out: TextIO) -> None:
+        self._lines = iter(lines)
+        self._out = out
+        self._deferred: 'deque[JsonObject]' = deque()
+        self._sequence = 0
+
+    def write(self, payload: JsonObject) -> None:
         try:
-            request = json.loads(line)
-            request_id = request.get('id')
-            method = str(request.get('method') or '')
-            params = request.get('params')
-            if not isinstance(params, dict):
-                params = {}
-            result = handle(method, params)
-            response = {'id': request_id, 'result': result}
-        except Exception as exc:  # protocol boundary: convert every failure
-            response = {
-                'id': request.get('id'),
-                'error': {'type': type(exc).__name__, 'message': _safe_text(str(exc))},
-            }
-        try:
-            sys.stdout.write(_encode_response(response))
-            sys.stdout.flush()
+            self._out.write(_encode_response(payload))
+            self._out.flush()
         except Exception:
             # stdout is the only channel back to the plugin; if even the
-            # degraded payload cannot be written, drop this response and keep
+            # degraded payload cannot be written, drop this message and keep
             # serving rather than killing the process.
+            pass
+
+    def _read(self) -> Optional[JsonObject]:
+        """Return the next parsed message, or None once input ends."""
+
+        for line in self._lines:
+            if not line.strip():
+                continue
+            try:
+                message = json.loads(line)
+            except Exception as exc:
+                raise _MalformedLine(str(exc)) from exc
+            if not isinstance(message, dict):
+                raise _MalformedLine('expected a JSON object')
+            return message
+        return None
+
+    def next_request(self) -> Optional[JsonObject]:
+        if self._deferred:
+            return self._deferred.popleft()
+        while True:
+            message = self._read()
+            if message is None:
+                return None
+            if message.get('method') is not None:
+                return message
+            # A reply with nobody waiting for it: no in-flight reverse call can
+            # own it, so drop it rather than stalling the loop.
+
+    def call(self, method: str, params: JsonObject, *, depth: int = 0) -> Any:
+        """Issue a reverse request and wait for its reply.
+
+        Host requests that arrive while waiting are served inline instead of
+        being queued, so a long LLM-backed run does not stall the automatic
+        per-turn capture behind it.
+        """
+
+        self._sequence += 1
+        call_id = f'llm-{self._sequence}'
+        self.write({'id': call_id, 'method': method, 'params': params})
+        while True:
+            try:
+                message = self._read()
+            except _MalformedLine as exc:
+                self.write({
+                    'id': None,
+                    'error': {'type': 'MalformedLine', 'message': _safe_text(str(exc))},
+                })
+                continue
+            if message is None:
+                raise RuntimeError(f'bridge input closed while awaiting {method}')
+            if message.get('method') is not None:
+                if depth >= 8:
+                    self._deferred.append(message)
+                else:
+                    self.write(_respond(self, message, depth=depth + 1))
+                continue
+            if message.get('id') != call_id:
+                continue
+            error = message.get('error')
+            if error:
+                raise RuntimeError(
+                    f"{error.get('type') or 'HostError'}: {error.get('message') or 'unknown error'}"
+                )
+            return message.get('result')
+
+
+def _respond(protocol: _Protocol, request: JsonObject, *, depth: int = 0) -> JsonObject:
+    try:
+        params = request.get('params')
+        if not isinstance(params, dict):
+            params = {}
+        result = handle(str(request.get('method') or ''), params, protocol)
+        return {'id': request.get('id'), 'result': result}
+    except Exception as exc:  # protocol boundary: convert every failure
+        return {
+            'id': request.get('id'),
+            'error': {'type': type(exc).__name__, 'message': _safe_text(str(exc))},
+        }
+
+
+def serve(
+    lines: Optional[Iterable[str]] = None,
+    out: Optional[TextIO] = None,
+) -> int:
+    # Resolved at call time so a caller can swap either stream.
+    protocol = _Protocol(sys.stdin if lines is None else lines, out or sys.stdout)
+    while True:
+        try:
+            request = protocol.next_request()
+        except _MalformedLine as exc:
+            protocol.write({
+                'id': None,
+                'error': {'type': 'MalformedLine', 'message': _safe_text(str(exc))},
+            })
             continue
-    return 0
+        if request is None:
+            return 0
+        protocol.write(_respond(protocol, request))
 
 
 if __name__ == '__main__':
