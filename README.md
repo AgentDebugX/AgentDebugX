@@ -620,6 +620,17 @@ test suite, quality checks, and pull request expectations.
 }
 ```
 
+```bibtex
+@misc{zhang2026cuadebugdiagnosingrepairingcomputeruse,
+      title={CUADebug: Diagnosing and Repairing Computer-Use Agent Failures}, 
+      author={Weijia Zhang and Kunlun Zhu and Zeyi Liu and Yinting Chen and Tianyi Ma and Jiateng Liu and Jiaxun Zhang and Bingxuan Li and Xiangru Tang and Heng Ji and Jiaxuan You},
+      year={2026},
+      eprint={2608.02643},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2608.02643}, 
+}
+```
 
 ## License
 
