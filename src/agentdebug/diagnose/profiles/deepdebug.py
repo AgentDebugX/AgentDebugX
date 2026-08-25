@@ -445,10 +445,16 @@ class DeepDebugAnalyzer:
                 f'Context:\n{doc}\n\n'
                 f'Write the diagnosis for step {root_step}.')
         try:
+            # Raised from 512: thinking models (Gemini, o-series) can spend
+            # the entire budget on hidden reasoning tokens before writing the
+            # summary/evidence/suggestion JSON, returning an empty completion
+            # (measured: a real Terminal-Bench trajectory against
+            # gemini-3.1-pro used reasoning_tokens=7866 on the analogous
+            # AllAtOnceAttributor call).
             text = self.llm.complete(
                 messages=[{'role': 'system', 'content': _REFINE_PROMPT},
                           {'role': 'user', 'content': user}],
-                max_tokens=512).text or ''
+                max_tokens=16000).text or ''
         except Exception as exc:  # pragma: no cover - defensive
             LOG.warning('deep refine failed: %s', exc)
             return {}

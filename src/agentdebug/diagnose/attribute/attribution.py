@@ -292,7 +292,12 @@ class AllAtOnceAttributor:
         *,
         fallback: Optional[Attributor] = None,
         max_findings: int = 20,
-        max_tokens: int = 4096,
+        # Raised from 4096: thinking models (Gemini, o-series) can spend the
+        # entire budget on hidden reasoning tokens before emitting any
+        # visible JSON, returning an empty completion. Measured against a
+        # real Terminal-Bench trajectory: gemini-3.1-pro used
+        # reasoning_tokens=7866 on this exact call and got truncated at 4096.
+        max_tokens: int = 16000,
         use_ground_truth_context: bool = False,
         save_full_generation: bool = False,
         extra_context: str = '',
@@ -631,7 +636,9 @@ class StepByStepAttributor:
         fallback: Optional[Attributor] = None,
         max_steps: Optional[int] = 30,
         context_window: int = 3,
-        max_tokens: int = 4096,
+        # See AllAtOnceAttributor above: thinking models can burn the whole
+        # budget on reasoning before emitting text.
+        max_tokens: int = 16000,
         use_ground_truth_context: bool = False,
         save_full_generation: bool = False,
         propose_corrected_action: bool = False,
@@ -876,7 +883,7 @@ class BinarySearchAttributor:
         llm: LLMClient,
         *,
         fallback: Optional[Attributor] = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 16000,
         context_window: Optional[int] = 6,
         always_include_steps: Optional[Sequence[int]] = None,
         use_ground_truth_context: bool = False,
@@ -885,6 +892,10 @@ class BinarySearchAttributor:
         # max_tokens default doubled in 0.2.4: thinking models (Gemini, o-series)
         # consume most of the budget on reasoning before any JSON is emitted, so
         # 1024 was empirically truncating bisect probes in the v0.2.3 E2E.
+        # Raised again (4096 -> 16000): a real Terminal-Bench trajectory measured
+        # reasoning_tokens=7866 for a single analogous attributor call against
+        # gemini-3.1-pro through the AGENTDEBUG_LLM_BASE_URL proxy, so 4096 still
+        # truncated mid-reasoning before any visible text was emitted.
         self.llm = llm
         self.fallback: Attributor = fallback or HeuristicAttributor()
         self.max_tokens = max_tokens
@@ -1523,7 +1534,9 @@ def _request_corrected_action(
     event: Optional[AgentEvent],
     *,
     source: str,
-    max_tokens: int = 4096,
+    # Raised 4096 -> 16000: a real Terminal-Bench trajectory measured
+    # reasoning_tokens=7866 for an analogous call, so 4096 still truncated.
+    max_tokens: int = 16000,
     extra_context: str = '',
 ) -> Tuple[Optional[CorrectedAction], str]:
     """One focused follow-up call for attributors whose own probes have no slot for it.
@@ -1677,7 +1690,9 @@ class CounterfactualAttributor:
         llm: LLMClient,
         *,
         max_candidates: int = 5,
-        max_tokens: int = 2048,
+        # See AllAtOnceAttributor above: thinking models can burn the whole
+        # budget on reasoning before emitting text.
+        max_tokens: int = 16000,
         fallback: Optional[Attributor] = None,
         propose_corrected_action: bool = False,
     ) -> None:
