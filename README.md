@@ -439,6 +439,24 @@ agentdebug ui ensure --run-id <run-id> --json
 agentdebug ui status --json
 ```
 
+For a multi-record AgentErrorBench JSONL collection, either select one record
+or run the same durable workflow for every independent record:
+
+```bash
+agentdebug run trajectories.jsonl --trajectory-id <trajectory-id> --json
+agentdebug run trajectories.jsonl --batch --profile standard --json
+```
+
+`--batch` also accepts directories and recursively discovers independent JSON
+files. Each item receives its own run, trajectory, and report identity.
+Failures are isolated; a partial batch exits with code 3. A directly supplied
+JSONL file is split by row, so use `--batch` only when each row is a complete
+trajectory, not when the file is one event stream.
+
+For GUI RCA batches, continue using `python -m agentdebug.gui`; its OSWorld
+classification, failure filtering, parallel workers, memory, and output layout
+are intentionally separate from the generic `run --batch` contract.
+
 The run manifest, normalized trajectory, selected report, inline JSON, and
 `/runs/<run-id>` page retain the same `run_id`, `trace_id`, and `report_id`.
 The `deep` and `gui` profiles are explicitly LLM-backed; `quick` and
@@ -449,7 +467,7 @@ separately and does not change a completed diagnosis into a failed run.
 
 | Command | Purpose |
 | --- | --- |
-| `agentdebug run` | Create one durable trajectory/report run from a supplied input |
+| `agentdebug run` | Create durable trajectory/report runs for one input or an explicit batch |
 | `agentdebug ui ensure` / `status` | Start, reuse, or inspect the readiness-checked local UI |
 | `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |

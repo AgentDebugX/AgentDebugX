@@ -7,7 +7,7 @@ Use `agentdebug ...` when installed. From a source checkout, use
 
 The integration flow is:
 
-1. `run`: resolve, normalize, diagnose, and persist one supplied trajectory.
+1. `run`: resolve, normalize, diagnose, and persist one supplied trajectory or explicit batch.
 2. `ui ensure`: start or reuse the local UI and return a run-scoped link.
 3. `ingest` and `diagnose`: expert composable interfaces.
 4. `rerun`: separately authorized second-stage execution.
@@ -17,6 +17,25 @@ The primary skill command is:
 ```bash
 agentdebug run INPUT --profile standard --ui --json
 ```
+
+`run` processes one trajectory. When `INPUT` is a multi-record
+AgentErrorBench JSONL collection, select one record or process every independent
+record:
+
+```bash
+agentdebug run INPUT.jsonl --trajectory-id TRAJECTORY_ID --profile standard --ui --json
+agentdebug run INPUT.jsonl --batch --profile standard --ui --json
+```
+
+Batch `run` returns a summary whose `items` contain the normal per-trajectory
+run results. It accepts independent rows from one directly supplied JSONL file,
+or recursively discovers JSON files beneath a directory. A partial failure
+exits with code 3.
+
+GUI RCA collection processing remains under `python -m agentdebug.gui` because
+it has separate OSWorld classification, failure filtering, parallel execution,
+memory, and output semantics. Use unified `run` with `--profile gui --format
+osworld` only for one OSWorld trajectory directory.
 
 Profiles are `quick` (deterministic diagnosis), `standard` (deterministic
 diagnosis plus local attribution/guidance), `deep` (LLM-backed DeepDebug), and
@@ -204,6 +223,8 @@ Process every JSON file in a directory recursively, or every non-empty JSON
 record in a JSONL file:
 
 ```bash
+agentdebug run <directory-or-jsonl> --batch --profile standard --json
+
 agentdebug batch ingest <directory-or-jsonl> --out-dir <trajectories>
 
 agentdebug batch diagnose <directory-or-jsonl> \
@@ -213,7 +234,9 @@ agentdebug batch diagnose <directory-or-jsonl> \
   --out-dir <run-directory>
 ```
 
-`batch diagnose` writes normalized trajectories and reports separately, plus a
+`run --batch` gives every successful item a durable run manifest and persists
+it through the selected SQLite or JSONL store. `batch diagnose` is the lower-
+level alternative that writes normalized trajectories and reports separately, plus a
 `batch-summary.json` containing per-record status and errors. A partial failure
 returns exit code `3` without deleting successful outputs.
 

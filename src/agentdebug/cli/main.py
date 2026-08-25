@@ -71,8 +71,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     legacy._add_ingest_args(p_ingest)
     p_ingest.set_defaults(handler=ingest.run)
 
-    p_run = sub.add_parser('run', help='Run one durable, unified debug workflow')
+    p_run = sub.add_parser('run', help='Run durable, unified debug workflows')
     p_run.add_argument('input', help='Trajectory/export path or stored trace ID')
+    run_input_group = p_run.add_mutually_exclusive_group()
+    run_input_group.add_argument(
+        '--trajectory-id',
+        help='Select one trajectory from a multi-record dataset JSONL input',
+    )
+    run_input_group.add_argument(
+        '--batch', action='store_true',
+        help='Process independent JSONL rows or recursively discovered JSON files',
+    )
     p_run.add_argument('--profile', choices=('quick', 'standard', 'deep', 'gui'), default='standard')
     p_run.add_argument('--format', dest='format_override', default=None)
     p_run.add_argument('--diagnoser')

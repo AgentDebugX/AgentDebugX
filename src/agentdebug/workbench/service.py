@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
+from agentdebug.batch.workflow import BatchRecord, expand_batch_input
 from agentdebug.cli.legacy import _build_llm, _load_trajectory_file, _run_diagnose_pipeline
-from agentdebug.ingest.adapters.importers import convert_file
+from agentdebug.ingest.adapters.importers import (
+    convert_directory, convert_file, convert_payload,
+)
 from agentdebug.runtime import JsonlTraceStore, SQLiteTraceStore
+from agentdebug.runtime.storage import trajectory_from_jsonl_record
 from agentdebug.schema import AgentTrajectory
 
 from .models import (
-    DebugRun, RunAction, RunArtifactRefs, RunError, RunInput, RunRequest,
-    ResolvedPipeline, RunResult, RunStatus, RunWarning,
+    BatchRunItem, BatchRunResult, DebugRun, RunAction, RunArtifactRefs,
+    RunError, RunInput, RunRequest, ResolvedPipeline, RunResult, RunStatus,
+    RunWarning,
 )
 from .profiles import resolve_pipeline
 from .registry import RunRegistry
@@ -33,7 +39,10 @@ def _initial_run(request: RunRequest, *, status: RunStatus) -> DebugRun:
     pipeline = _pipeline(request)
     return DebugRun(
         status=status,
-        input=RunInput(reference=request.input_reference),
+        input=RunInput(
+            reference=request.input_reference,
+            trajectory_id=request.input_trajectory_id,
+        ),
         requested_profile=request.profile,
         resolved_pipeline=pipeline,
         artifacts=RunArtifactRefs(
@@ -50,7 +59,9 @@ def plan_run(request: RunRequest) -> RunResult:
     return RunResult.from_run(run)
 
 
-def execute_run(request: RunRequest) -> RunResult:
+def execute_run(
+    request: RunRequest, *, trajectory: Optional[AgentTrajectory] = None,
+) -> RunResult:
     if request.plan_only:
         return plan_run(request)
     registry = RunRegistry(request.run_root)
@@ -61,7 +72,7 @@ def execute_run(request: RunRequest) -> RunResult:
         else JsonlTraceStore(run.artifacts.store_path)
     )
     try:
-        trajectory = _load_input(request, store)
+        trajectory = trajectory or _load_input(request, store)
         run.input.detected_format = str(trajectory.metadata.get('source_format') or trajectory.framework or 'agenttrajectory')
         store.save_trajectory(trajectory)
         run.artifacts.trace_id = trajectory.trace_id
@@ -140,9 +151,114 @@ def execute_run(request: RunRequest) -> RunResult:
     return RunResult.from_run(run)
 
 
+def execute_batch_run(request: RunRequest) -> BatchRunResult:
+    """Run one durable workbench workflow per independent input record."""
+
+    if request.input_trajectory_id:
+        raise ValueError('--batch and --trajectory-id cannot be used together')
+    records = expand_batch_input(request.input_reference)
+    items: list[BatchRunItem] = []
+    succeeded = 0
+    for record in records:
+        try:
+            item_request = _copy_request_for_record(request, record)
+            if request.plan_only:
+                result = plan_run(item_request)
+            else:
+                trajectory = _convert_batch_record(record, request)
+                result = execute_run(item_request, trajectory=trajectory)
+            item = BatchRunItem(
+                record_id=record.record_id,
+                source=record.source,
+                line_number=record.line_number,
+                status=result.status,
+                result=result,
+            )
+            if result.status in {'completed', 'planned'}:
+                succeeded += 1
+            else:
+                item.errors = list(result.errors)
+        except Exception as exc:
+            item = BatchRunItem(
+                record_id=record.record_id,
+                source=record.source,
+                line_number=record.line_number,
+                status='failed',
+                errors=[RunError(
+                    code='invalid_input', phase='ingest', message=str(exc),
+                )],
+            )
+        items.append(item)
+    failed = len(items) - succeeded
+    if request.plan_only and not failed:
+        status: RunStatus = 'planned'
+    elif not failed:
+        status = 'completed'
+    elif not succeeded:
+        status = 'failed'
+    else:
+        status = 'partial'
+    return BatchRunResult(
+        status=status,
+        input=request.input_reference,
+        total=len(items),
+        succeeded=succeeded,
+        failed=failed,
+        items=items,
+    )
+
+
+def _convert_batch_record(
+    record: BatchRecord, request: RunRequest,
+) -> AgentTrajectory:
+    if record.parse_error:
+        raise ValueError(record.parse_error)
+    payload = record.payload
+    if isinstance(payload, dict) and isinstance(payload.get('full_trajectory'), str):
+        trajectory = trajectory_from_jsonl_record(
+            json.dumps(payload), max((record.line_number or 1) - 1, 0),
+        )
+    else:
+        trajectory = convert_payload(
+            payload, format=request.format_override or 'auto',
+        )
+    trajectory.metadata.update({
+        'batch_record_id': record.record_id,
+        'batch_source': record.source,
+        'batch_line_number': record.line_number,
+    })
+    return trajectory
+
+
+def _copy_request_for_record(
+    request: RunRequest, record: BatchRecord,
+) -> RunRequest:
+    trajectory_id = None
+    if isinstance(record.payload, dict):
+        trajectory_id = next((
+            str(record.payload[key])
+            for key in ('trajectory_id', 'task_id', 'trace_id', 'id')
+            if record.payload.get(key) is not None
+        ), None)
+    changes = {
+        'input_reference': record.source,
+        'input_trajectory_id': trajectory_id or record.record_id,
+    }
+    copier = getattr(request, 'model_copy', None)
+    return copier(update=changes) if callable(copier) else request.copy(update=changes)
+
+
 def _load_input(request: RunRequest, store: Any) -> AgentTrajectory:
     path = Path(request.input_reference).expanduser()
     if path.exists():
+        if path.is_dir():
+            return convert_directory(
+                path, format=request.format_override or 'auto',
+            )
+        if path.suffix.lower() == '.jsonl':
+            selected = _load_dataset_trajectory(path, request.input_trajectory_id)
+            if selected is not None:
+                return selected
         if request.format_override and request.format_override != 'auto':
             return convert_file(path, format=request.format_override)
         return _load_trajectory_file(path)
@@ -150,6 +266,60 @@ def _load_input(request: RunRequest, store: Any) -> AgentTrajectory:
     if trajectory is None:
         raise ValueError(f'input is neither an existing path nor a stored trace_id: {request.input_reference}')
     return trajectory
+
+
+def _load_dataset_trajectory(
+    path: Path, trajectory_id: Optional[str],
+) -> Optional[AgentTrajectory]:
+    """Select one AgentErrorBench record without turning ``run`` into batch."""
+
+    candidates: list[str] = []
+    selected: Optional[AgentTrajectory] = None
+    is_dataset = False
+    with path.open('r', encoding='utf-8') as handle:
+        for index, line in enumerate(handle):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                return None
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get('full_trajectory'), str
+            ):
+                return None
+            is_dataset = True
+            source_id = str(
+                payload.get('trajectory_id')
+                or payload.get('task_id')
+                or payload.get('trace_id')
+                or payload.get('id')
+                or f'row-{index + 1}'
+            )
+            candidates.append(source_id)
+            if trajectory_id is None:
+                if selected is None:
+                    selected = trajectory_from_jsonl_record(line, index)
+                continue
+            if source_id == trajectory_id:
+                return trajectory_from_jsonl_record(line, index)
+            if trajectory_id.startswith('aeb_'):
+                candidate = trajectory_from_jsonl_record(line, index)
+                if candidate.trace_id == trajectory_id:
+                    return candidate
+    if not is_dataset:
+        return None
+    if trajectory_id is not None:
+        raise ValueError(
+            f'trajectory_id {trajectory_id!r} was not found in {path}; '
+            f'available: {", ".join(candidates)}'
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            f'{path} contains {len(candidates)} trajectories; select one with '
+            f'--trajectory-id. Available: {", ".join(candidates)}'
+        )
+    return selected
 
 
 def _diagnose_namespace() -> argparse.Namespace:

@@ -28,6 +28,7 @@ class ResolvedPipeline(BaseModel):
 
 class RunInput(BaseModel):
     reference: str
+    trajectory_id: Optional[str] = None
     detected_format: Optional[str] = None
 
 
@@ -78,6 +79,7 @@ class DebugRun(BaseModel):
 
 class RunRequest(BaseModel):
     input_reference: str
+    input_trajectory_id: Optional[str] = None
     profile: str = 'standard'
     format_override: Optional[str] = None
     diagnoser_override: Optional[str] = None
@@ -114,3 +116,22 @@ class RunResult(BaseModel):
             actions=[item.action for item in run.actions], ui_url=run.ui_url,
             warnings=run.warnings, errors=run.errors,
         )
+
+
+class BatchRunItem(BaseModel):
+    record_id: str
+    source: str
+    line_number: Optional[int] = None
+    status: str
+    result: Optional[RunResult] = None
+    errors: List[RunError] = Field(default_factory=list)
+
+
+class BatchRunResult(BaseModel):
+    schema_version: int = 1
+    status: RunStatus
+    input: str
+    total: int
+    succeeded: int
+    failed: int
+    items: List[BatchRunItem] = Field(default_factory=list)

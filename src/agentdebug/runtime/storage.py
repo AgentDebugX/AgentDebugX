@@ -63,7 +63,7 @@ class JsonlTraceStore:
             for idx, line in enumerate(handle):
                 if not line.strip():
                     continue
-                candidate = _trajectory_from_jsonl_line(line, idx)
+                candidate = trajectory_from_jsonl_record(line, idx)
                 if candidate.trace_id == trace_id:
                     match = candidate
         return match
@@ -76,7 +76,7 @@ class JsonlTraceStore:
             for idx, line in enumerate(handle):
                 if not line.strip():
                     continue
-                trace_ids.append(_trajectory_from_jsonl_line(line, idx).trace_id)
+                trace_ids.append(trajectory_from_jsonl_record(line, idx).trace_id)
         return trace_ids
 
     def save_report(self, report: DiagnosticReport) -> None:
@@ -106,7 +106,7 @@ class JsonlTraceStore:
         )
 
 
-def _trajectory_from_jsonl_line(line: str, index: int) -> AgentTrajectory:
+def trajectory_from_jsonl_record(line: str, index: int) -> AgentTrajectory:
     """Read either native AgentTrajectory JSONL or supported raw dataset rows."""
 
     payload = json.loads(line)
