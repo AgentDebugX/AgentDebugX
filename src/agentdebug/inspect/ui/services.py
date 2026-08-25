@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 from urllib.parse import quote
 
-from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.runtime import TraceStore
 from agentdebug.schema import (
     AgentTrajectory,
@@ -210,19 +209,27 @@ def _resolve_trace_analysis(
     """Return one selected report plus the reports available for this trace."""
 
     stored_reports: List[DiagnosticReport] = []
+    report_error: Optional[str] = None
     list_reports = getattr(store, 'list_reports', None)
     if callable(list_reports):
         try:
-            stored_reports = [
+            loaded_reports = list(list_reports(trajectory.trace_id))
+            invalid_reports = [
                 report
-                for report in list_reports(trajectory.trace_id)
-                if isinstance(report, DiagnosticReport)
-                and report.trace_id == trajectory.trace_id
+                for report in loaded_reports
+                if not isinstance(report, DiagnosticReport)
+                or report.trace_id != trajectory.trace_id
             ]
-        except (OSError, ValueError):
+            if invalid_reports:
+                raise ValueError('stored diagnostic report has an invalid shape or trace_id')
+            stored_reports = loaded_reports
+        except (OSError, ValueError) as exc:
             stored_reports = []
+            report_error = f'{exc.__class__.__name__}: {exc}'
 
-    if report_id:
+    if report_error is not None:
+        selected = None
+    elif report_id:
         selected = next(
             (report for report in stored_reports if report.report_id == report_id),
             None,
@@ -234,17 +241,20 @@ def _resolve_trace_analysis(
     elif stored_reports:
         selected = stored_reports[0]
     else:
-        selected = HeuristicAnalyzer().analyze(trajectory)
+        selected = None
 
-    source = 'stored' if selected in stored_reports else 'generated_heuristic'
+    source = (
+        'parse_error'
+        if report_error is not None
+        else ('stored' if selected is not None else 'not_run')
+    )
     reports = [
         _report_descriptor(report, source='stored') for report in stored_reports
     ]
-    if not stored_reports:
-        reports.append(_report_descriptor(selected, source=source))
     return {
         'report': selected,
         'report_source': source,
+        'report_error': report_error,
         'reports': reports,
     }
 
@@ -724,7 +734,6 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is None:
             continue
-        analyzed_trace_count += 1
         framework = trajectory.framework or 'unknown'
         framework_counts[framework] = framework_counts.get(framework, 0) + 1
         source_dataset = str(trajectory.metadata.get('source_dataset') or 'local/generated')
@@ -738,17 +747,23 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
         event_count = len(trajectory.events)
         event_counts.append(event_count)
         total_events += event_count
-        report = _resolve_trace_analysis(store, trajectory)['report']
-        finding_count = len(report.findings)
-        finding_counts.append(finding_count)
-        total_findings += finding_count
-        if report.findings:
+        analysis = _resolve_trace_analysis(store, trajectory)
+        report = analysis['report']
+        findings = report.findings if report is not None else []
+        if report is not None:
+            analyzed_trace_count += 1
+        finding_count = len(findings)
+        if report is not None:
+            finding_counts.append(finding_count)
+            total_findings += finding_count
+        if findings:
             error_trace_count += 1
-        error_event_ids = {finding.event_id for finding in report.findings if finding.event_id}
+        error_event_ids = {finding.event_id for finding in findings if finding.event_id}
         error_event_count = len(error_event_ids)
-        error_event_counts.append(error_event_count)
+        if report is not None:
+            error_event_counts.append(error_event_count)
         candidate_steps = [
-            finding.step_index for finding in report.findings
+            finding.step_index for finding in findings
             if finding.step_index is not None
         ]
         if candidate_steps:
@@ -772,10 +787,12 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
                 first_error_step_buckets['16-30'] += 1
             else:
                 first_error_step_buckets['31+'] += 1
-        else:
+        elif report is not None:
             first_error_step = None
             stage_counts['none'] += 1
-        for finding in report.findings:
+        else:
+            first_error_step = None
+        for finding in findings:
             mode_id = finding.failure_mode.mode_id
             family = finding.failure_mode.family
             error_type_counts[mode_id] = error_type_counts.get(mode_id, 0) + 1
@@ -788,7 +805,7 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
             'finding_count': finding_count,
             'first_error_step': first_error_step,
         })
-        if finding_count:
+        if finding_count and report is not None:
             priority_score = (
                 finding_count * 10
                 + max(0, 20 - (first_error_step or event_count))
@@ -804,12 +821,13 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
                 'summary': report.summary,
                 'score': priority_score,
             })
-        scatter_points.append({
-            'trace_id': trace_id,
-            'framework': framework,
-            'event_count': event_count,
-            'finding_count': finding_count,
-        })
+        if report is not None:
+            scatter_points.append({
+                'trace_id': trace_id,
+                'framework': framework,
+                'event_count': event_count,
+                'finding_count': finding_count,
+            })
         model_name = str(
             trajectory.metadata.get('llm_model')
             or trajectory.metadata.get('model')
@@ -828,10 +846,10 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
             if idx % stride != 0 and idx != event_count - 1:
                 continue
             event_id = getattr(event, 'event_id', None)
-            state = 'ok'
-            if event_id == report.root_cause_event_id:
+            state = 'ok' if report is not None else 'unknown'
+            if report is not None and event_id == report.root_cause_event_id:
                 state = 'root'
-            elif event_id in error_event_ids or getattr(event, 'error', None):
+            elif report is not None and event_id in error_event_ids:
                 state = 'error'
             mini_timeline.append({
                 'event_id': event_id,
@@ -849,15 +867,27 @@ def build_overview(store: TraceStore) -> Dict[str, Any]:
             'event_count': event_count,
             'finding_count': finding_count,
             'error_count': error_event_count,
-            'status': 'failed' if finding_count else 'passed',
+            'status': (
+                'parse_error'
+                if analysis['report_source'] == 'parse_error'
+                else (
+                    'failed'
+                    if finding_count
+                    else ('passed' if report is not None else 'not_run')
+                )
+            ),
             'first_error_step': first_error_step,
-            'root_cause_step_index': report.root_cause_step_index,
-            'root_cause_found': bool(report.root_cause_event_id),
+            'root_cause_step_index': report.root_cause_step_index if report is not None else None,
+            'root_cause_found': bool(report and report.root_cause_event_id),
             'duration_ms': total_duration_ms,
-            'summary': report.summary,
+            'summary': (
+                report.summary
+                if report is not None
+                else (analysis['report_error'] or '')
+            ),
             'mini_timeline': mini_timeline,
-            'top_family': report.findings[0].failure_mode.family if report.findings else '',
-            'top_error_type': report.findings[0].failure_mode.mode_id if report.findings else '',
+            'top_family': findings[0].failure_mode.family if findings else '',
+            'top_error_type': findings[0].failure_mode.mode_id if findings else '',
         })
 
     top_error_types = sorted(

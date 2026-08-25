@@ -102,7 +102,7 @@ def import_upload_text(
     store: Any,
     text: str,
     *,
-    allow_llm: bool = True,
+    allow_llm: bool = False,
     base_url: str = '',
     api_key: str = '',
     model: str = '',

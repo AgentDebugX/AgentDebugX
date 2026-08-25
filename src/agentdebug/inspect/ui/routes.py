@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import time
@@ -48,7 +49,121 @@ from agentdebug.inspect.ui.views import render_page, render_space_page
 from agentdebug.inspect.ui.llm_convert import schema_payload
 from agentdebug.inspect.ui.upload import MAX_UPLOAD_BYTES, import_upload_text
 from agentdebug.runtime import TraceStore
-from agentdebug.schema import SEED_FAILURE_MODES, model_to_json
+from agentdebug.schema import (
+    SEED_FAILURE_MODES,
+    model_to_json,
+    report_from_json,
+    trajectory_from_json,
+)
+
+
+def _configured_import_dir() -> Path:
+    configured = str(os.environ.get('AGENTDEBUG_IMPORT_DIR') or '').strip()
+    path = Path(configured).expanduser() if configured else Path('.agentdebug/imports')
+    return path.resolve()
+
+
+def _sync_imports(store: TraceStore, import_dir: Path) -> Dict[str, Any]:
+    import_dir.mkdir(parents=True, exist_ok=True)
+    files = sorted(path for path in import_dir.rglob('*.json') if path.is_file())
+    trajectories = []
+    reports = []
+    skipped = 0
+    errors: List[Dict[str, str]] = []
+
+    for path in files:
+        try:
+            resolved = path.resolve()
+            resolved.relative_to(import_dir)
+            if resolved.stat().st_size > MAX_UPLOAD_BYTES:
+                raise ValueError('file is too large (>25 MB)')
+            payload = json.loads(resolved.read_text(encoding='utf-8'))
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(',', ':'),
+                ).encode('utf-8')
+            ).hexdigest()
+            if isinstance(payload, dict) and {'trace_id', 'events'} <= payload.keys():
+                trajectory = trajectory_from_json(json.dumps(payload))
+                trajectory.metadata = dict(trajectory.metadata or {})
+                trajectory.metadata['import_sync_sha256'] = fingerprint
+                trajectories.append((resolved, trajectory, fingerprint))
+            elif isinstance(payload, dict) and {
+                'report_id', 'trace_id', 'findings'
+            } <= payload.keys():
+                report = report_from_json(json.dumps(payload))
+                report.metadata = dict(report.metadata or {})
+                report.metadata['import_sync_sha256'] = fingerprint
+                reports.append((resolved, report, fingerprint))
+            else:
+                skipped += 1
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            errors.append({'file': str(path), 'error': str(exc)})
+
+    imported = 0
+    updated = 0
+    for _path, trajectory, fingerprint in trajectories:
+        existing = store.load_trajectory(trajectory.trace_id)
+        existing_fingerprint = str(
+            (existing.metadata or {}).get('import_sync_sha256')
+        ) if existing is not None else ''
+        if existing_fingerprint == fingerprint:
+            skipped += 1
+            continue
+        store.save_trajectory(trajectory)
+        if existing is None:
+            imported += 1
+        else:
+            updated += 1
+
+    save_report = getattr(store, 'save_report', None)
+    list_reports = getattr(store, 'list_reports', None)
+    for path, report, fingerprint in reports:
+        if not callable(save_report) or not callable(list_reports):
+            errors.append({
+                'file': str(path),
+                'error': 'the configured trace store does not support reports',
+            })
+            continue
+        if store.load_trajectory(report.trace_id) is None:
+            errors.append({
+                'file': str(path),
+                'error': f'unknown trace_id: {report.trace_id}',
+            })
+            continue
+        existing = next(
+            (
+                candidate
+                for candidate in list_reports(report.trace_id)
+                if candidate.report_id == report.report_id
+            ),
+            None,
+        )
+        existing_fingerprint = str(
+            (existing.metadata or {}).get('import_sync_sha256')
+        ) if existing is not None else ''
+        if existing_fingerprint == fingerprint:
+            skipped += 1
+            continue
+        save_report(report)
+        if existing is None:
+            imported += 1
+        else:
+            updated += 1
+
+    return {
+        'ok': not errors,
+        'import_dir': str(import_dir),
+        'scanned': len(files),
+        'imported': imported,
+        'updated': updated,
+        'skipped': skipped,
+        'failed': len(errors),
+        'errors': errors,
+    }
 
 
 def build_app(
@@ -75,13 +190,21 @@ def build_app(
         version='0.1.0',
     )
 
+    def require_debugger_report(report: Any) -> Any:
+        if report is None:
+            raise HTTPException(
+                status_code=409,
+                detail='Debugger has not been run for this trace. Run Diagnose Pipeline first.',
+            )
+        return report
+
     def discussion_session_payload(session: Any) -> Dict[str, Any]:
         trajectory = store.load_trajectory(session.trace_id)
         stale_report = False
         if trajectory is not None:
             try:
                 current = _resolve_trace_analysis(store, trajectory)['report']
-                stale_report = (
+                stale_report = current is None or (
                     DiscussionService(trajectory, current).report_digest
                     != session.report_digest
                 )
@@ -212,6 +335,10 @@ def build_app(
     def list_traces() -> Dict[str, List[str]]:
         return {'traces': store.list_traces()}
 
+    @app.post('/api/v1/imports/sync')
+    def sync_imports() -> Dict[str, Any]:
+        return _sync_imports(store, _configured_import_dir())
+
     @app.get('/api/v1/schema')
     def get_upload_schema() -> Dict[str, Any]:
         return schema_payload()
@@ -240,7 +367,7 @@ def build_app(
             return import_upload_text(
                 store,
                 text,
-                allow_llm=bool(options.get('allow_llm', True)),
+                allow_llm=bool(options.get('allow_llm', False)),
                 base_url=str(options.get('base_url') or ''),
                 api_key=str(options.get('api_key') or ''),
                 model=str(options.get('model') or ''),
@@ -282,6 +409,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         trajectory_payload = _to_dict(trajectory)
         report_payload = _to_dict(report)
         primary = report_payload.get('findings', [{}])[0] if report_payload.get('findings') else {}
@@ -415,8 +543,9 @@ def build_app(
         report = analysis['report']
         return {
             'trajectory': _to_dict(trajectory),
-            'report': _to_dict(report),
+            'report': _to_dict(report) if report is not None else None,
             'report_source': analysis['report_source'],
+            'report_error': analysis['report_error'],
             'reports': analysis['reports'],
             'visual_capability': build_visual_capability(trajectory),
         }
@@ -474,6 +603,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         model = str(
             payload.get('model')
             or os.environ.get('AGENTDEBUG_LLM_MODEL')
@@ -753,6 +883,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         try:
             return _build_debug_continuation_context(
                 trajectory,
@@ -874,6 +1005,7 @@ def build_app(
             )['report']
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        report = require_debugger_report(report)
         report.suggestions = [prompt_text]
         default_checkpoint_policy = str(
             os.environ.get('AGENTDEBUG_UI_RERUN_POLICY') or 'from_start'

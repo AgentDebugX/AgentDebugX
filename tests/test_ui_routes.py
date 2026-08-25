@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from agentdebug.inspect.ui import routes
+from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.inspect.ui.branch_store import (
     _append_case_record,
     _append_debug_branch_record,
@@ -25,6 +26,7 @@ from agentdebug.schema import (
     DiagnosticReport,
     EventType,
     Modality,
+    model_to_json,
 )
 from agentdebug.workbench.models import DebugRun, RunArtifactRefs, RunInput
 from agentdebug.workbench.profiles import resolve_pipeline
@@ -36,11 +38,21 @@ pytest.importorskip('uvicorn')
 TestClient = pytest.importorskip('fastapi.testclient').TestClient
 
 
+def _save_completed_test_report(
+    store: SQLiteTraceStore,
+    trajectory: AgentTrajectory,
+) -> None:
+    report = HeuristicAnalyzer().analyze(trajectory)
+    report.metadata['source'] = 'explicit_test_run'
+    store.save_report(report)
+
+
 @pytest.fixture
 def ui_client(tmp_path, monkeypatch, failed_trajectory: AgentTrajectory):
     monkeypatch.chdir(tmp_path)
     store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
     store.save_trajectory(failed_trajectory)
+    _save_completed_test_report(store, failed_trajectory)
     return TestClient(routes.build_app(store))
 
 
@@ -80,6 +92,68 @@ def test_run_route_resolves_exact_stored_report(tmp_path, failed_trajectory) -> 
     with store._connect() as conn:
         conn.execute('DELETE FROM diagnostic_reports WHERE report_id = ?', ('selected',))
     assert client.get(f'/runs/{run.run_id}').status_code == 409
+
+
+def test_trace_without_stored_report_is_explicitly_not_diagnosed(
+    tmp_path,
+    monkeypatch,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    store = SQLiteTraceStore(str(tmp_path / 'not-run.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    client = TestClient(routes.build_app(store))
+
+    selected = client.get('/api/v1/traces/trace_failed')
+    assert selected.status_code == 200
+    assert selected.json()['report'] is None
+    assert selected.json()['report_source'] == 'not_run'
+    assert selected.json()['reports'] == []
+
+    overview = client.get('/api/v1/overview').json()
+    assert overview['analyzed_trace_count'] == 0
+    assert overview['error_trace_count'] == 0
+    assert overview['clean_trace_count'] == 0
+    assert overview['trace_catalog'][0]['status'] == 'not_run'
+    assert all(
+        item['state'] == 'unknown'
+        for item in overview['trace_catalog'][0]['mini_timeline']
+    )
+
+    page = client.get('/trace/trace_failed')
+    assert page.status_code == 200
+    assert 'The debugger has not been run for this trace.' in page.text
+    assert 'heuristic fallback' not in page.text
+
+
+def test_unparseable_stored_report_is_not_treated_as_not_run(
+    tmp_path,
+    monkeypatch,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    store = SQLiteTraceStore(str(tmp_path / 'parse-error.sqlite'))
+    store.save_trajectory(failed_trajectory)
+
+    def broken_reports(_trace_id):
+        raise ValueError('invalid stored report JSON')
+
+    monkeypatch.setattr(store, 'list_reports', broken_reports)
+    client = TestClient(routes.build_app(store))
+
+    selected = client.get('/api/v1/traces/trace_failed')
+    assert selected.status_code == 200
+    assert selected.json()['report'] is None
+    assert selected.json()['report_source'] == 'parse_error'
+    assert selected.json()['report_error'] == 'ValueError: invalid stored report JSON'
+
+    overview = client.get('/api/v1/overview').json()
+    assert overview['trace_catalog'][0]['status'] == 'parse_error'
+    assert overview['analyzed_trace_count'] == 0
+
+    page = client.get('/trace/trace_failed')
+    assert page.status_code == 200
+    assert 'A stored debugger report exists but could not be parsed.' in page.text
 
 
 def _visual_ui_client(tmp_path):
@@ -235,6 +309,7 @@ def test_discussion_api_persists_generic_trace_session_and_draft(
 ) -> None:
     store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
     store.save_trajectory(failed_trajectory)
+    _save_completed_test_report(store, failed_trajectory)
     discussion_path = tmp_path / 'discussions.sqlite'
     discussion_store = SQLiteDiscussionStore(str(discussion_path))
     cited_event_id = failed_trajectory.events[0].event_id
@@ -331,6 +406,7 @@ def test_discussion_api_sanitizes_provider_failures(
 ) -> None:
     store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
     store.save_trajectory(failed_trajectory)
+    _save_completed_test_report(store, failed_trajectory)
 
     def failing_llm(_messages, _tools):
         raise RuntimeError('provider leaked sk-secret-value')
@@ -403,6 +479,106 @@ def test_upload_converts_message_log_without_llm(ui_client: TestClient) -> None:
     trace_id = uploaded.json()['imported'][0]
     assert uploaded.json()['converters'][trace_id] == 'adapter'
     assert len(ui_client.get(f'/api/v1/traces/{trace_id}').json()['trajectory']['events']) == 2
+
+
+def test_upload_does_not_enable_llm_conversion_by_default(
+    ui_client: TestClient,
+    monkeypatch,
+) -> None:
+    captured = {}
+
+    def fake_import(_store, _text, **options):
+        captured.update(options)
+        return {'imported': [], 'count': 0, 'errors': [], 'converters': {}}
+
+    monkeypatch.setattr(routes, 'import_upload_text', fake_import)
+    response = ui_client.post(
+        '/api/v1/traces/upload',
+        json={'content': json.dumps({'unknown': 'shape'})},
+    )
+
+    assert response.status_code == 200
+    assert captured['allow_llm'] is False
+
+
+def test_sync_imports_adds_native_trajectory_and_report(
+    ui_client: TestClient,
+    tmp_path,
+) -> None:
+    import_dir = tmp_path / '.agentdebug' / 'imports'
+    import_dir.mkdir(parents=True)
+    trajectory = AgentTrajectory(
+        trace_id='trace_synced',
+        task_id='sync-task',
+        events=[AgentEvent(
+            trace_id='trace_synced',
+            event_id='sync-event',
+            event_type=EventType.ERROR,
+            step_index=1,
+            error='failed',
+        )],
+    )
+    report = DiagnosticReport(
+        report_id='report_synced',
+        trace_id='trace_synced',
+        task_id='sync-task',
+        root_cause_event_id='sync-event',
+        root_cause_step_index=1,
+        summary='Imported report',
+        metadata={'analyzer': 'DeepDebugAnalyzer'},
+    )
+    trajectory_payload = json.loads(model_to_json(trajectory))
+    trajectory_payload.pop('started_at')
+    trajectory_payload['events'][0].pop('timestamp')
+    (import_dir / 'case.trajectory.json').write_text(
+        json.dumps(trajectory_payload),
+        encoding='utf-8',
+    )
+    (import_dir / 'case.report.json').write_text(
+        model_to_json(report),
+        encoding='utf-8',
+    )
+
+    first = ui_client.post('/api/v1/imports/sync')
+    assert first.status_code == 200
+    assert first.json() == {
+        'ok': True,
+        'import_dir': str(import_dir.resolve()),
+        'scanned': 2,
+        'imported': 2,
+        'updated': 0,
+        'skipped': 0,
+        'failed': 0,
+        'errors': [],
+    }
+    selected = ui_client.get('/api/v1/traces/trace_synced')
+    assert selected.status_code == 200
+    assert selected.json()['report']['report_id'] == 'report_synced'
+
+    second = ui_client.post('/api/v1/imports/sync')
+    assert second.status_code == 200
+    assert second.json()['imported'] == 0
+    assert second.json()['updated'] == 0
+    assert second.json()['skipped'] == 2
+
+
+def test_space_page_exposes_sync_imports_control(ui_client: TestClient) -> None:
+    page = ui_client.get('/space')
+    assert page.status_code == 200
+    assert 'id="sync-imports-btn"' in page.text
+    assert "fetch('/api/v1/imports/sync', { method: 'POST' })" in page.text
+
+
+def test_trace_ui_never_promotes_raw_event_payload_to_diagnosis(
+    ui_client: TestClient,
+) -> None:
+    page = ui_client.get('/trace/trace_failed')
+
+    assert page.status_code == 200
+    assert 'The event payload itself carries the signal' not in page.text
+    assert 'Failure signal detected' not in page.text
+    assert 'Raw error-like text is preserved in Details' in page.text
+    assert 'id="upload-allow-llm" checked' not in page.text
 
 
 def test_heuristic_diagnose_pipeline_stores_report(ui_client: TestClient) -> None:

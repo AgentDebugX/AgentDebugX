@@ -33,6 +33,24 @@ runners, and local agent development workflows. AgentDebugX is local-first by
 default: traces stay on your machine, sharing is opt-in, and recovery proposals
 carry explicit policy and approval metadata into the Rerun boundary.
 
+## 📰 News
+
+- 🔌 **2026-08-25** — Released
+  [`dsh-agentdebugx` v0.1.0](https://www.npmjs.com/package/dsh-agentdebugx),
+  the AgentDebugX plugin for DeepSeek Harness.
+- 📄 **2026-07-31** — Released
+  [CUADebug](https://arxiv.org/abs/2608.02643), our framework for diagnosing
+  and repairing computer-use agent failures.
+- 📄 **2026-07-21** — Released the
+  [AgentDebugX paper](https://arxiv.org/abs/2607.18754), presenting our
+  open-source toolkit for failure observability, attribution, recovery, and
+  rerun in LLM agents.
+- 📦 **2026-05-16** — Released AgentDebugX on
+  [PyPI](https://pypi.org/project/agentdebugx/).
+- 📄 **2025-09-29** — Released
+  [Where LLM Agents Fail and How They Can Learn From Failures](https://arxiv.org/abs/2509.25370),
+  introducing AgentErrorTaxonomy, AgentErrorBench, and AgentDebug.
+
 ## System Overview
 
 <p align="center">
@@ -80,7 +98,8 @@ agentic skill.
 - **Rerun**: three explicit modes for plan/export only, labeled simulation, or
   observed execution in an application-owned process or persistent HTTP runner.
 - **Local inspection UI**: no-build FastAPI dashboard for traces, reports,
-  CUA screenshots, saved cases, debug branches, and rerun-from-event workflows.
+  before/after CUA visuals, debugger discussions, saved cases, debug branches,
+  and rerun-from-event workflows.
 - **Error Hub**: scrubbed, shareable failure bundles for regression tests,
   benchmark corpora, and team debugging memory.
 - **Agent integrations**: generate host-runtime assets such as debugging skills
@@ -116,6 +135,21 @@ The package is installed as `agentdebugx` and imported as `agentdebug`:
 ```python
 import agentdebug
 ```
+
+## DeepSeek Harness Plugin
+
+AgentDebugX is also available as the
+[`dsh-agentdebugx`](https://www.npmjs.com/package/dsh-agentdebugx) plugin for
+DeepSeek Harness. It diagnoses current and saved Harness trajectories and
+starts the Python bridge and local dashboard only when they are needed.
+
+```bash
+pip install "agentdebugx[ui]>=0.3.1,<0.4"
+dsh plugin --profile web add dsh-agentdebugx
+```
+
+See the [plugin documentation](integrations/dsh-agentdebugx/README.md) for
+configuration, commands, saved-session discovery, and deep diagnosis.
 
 ## Quick Start: Python API
 
@@ -512,6 +546,10 @@ Open [http://127.0.0.1:7777](http://127.0.0.1:7777) in a browser. For a JSONL
 store, replace `--store-sqlite` with
 `--store-jsonl .agentdebug/traces.jsonl`. Keep the default loopback host unless
 the UI is deployed behind appropriate authentication and transport security.
+Place native trajectory and diagnostic-report JSON files under
+`.agentdebug/imports/`, then use **Sync imports** in the workspace to import
+new or changed files. Set `AGENTDEBUG_IMPORT_DIR` to use another server-owned
+directory.
 
 ![AgentDebugX local inspection UI](docs/assets/UI.png)
 
@@ -620,6 +658,18 @@ test suite, quality checks, and pull request expectations.
       archivePrefix={arXiv},
       primaryClass={cs.AI},
       url={https://arxiv.org/abs/2607.18754}, 
+}
+```
+
+```bibtex
+@misc{zhang2026cuadebugdiagnosingrepairingcomputeruse,
+      title={CUADebug: Diagnosing and Repairing Computer-Use Agent Failures},
+      author={Weijia Zhang and Kunlun Zhu and Zeyi Liu and Yinting Chen and Tianyi Ma and Jiateng Liu and Jiaxun Zhang and Bingxuan Li and Xiangru Tang and Heng Ji and Jiaxuan You},
+      year={2026},
+      eprint={2608.02643},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2608.02643},
 }
 ```
 

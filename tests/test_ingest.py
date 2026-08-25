@@ -49,6 +49,21 @@ def test_convert_common_formats(
     assert all(event.trace_id == trajectory.trace_id for event in trajectory.events)
 
 
+def test_conversation_observation_does_not_infer_error_from_text() -> None:
+    trajectory = convert_payload(
+        {
+            'conversations': [
+                {'from': 'human', 'value': 'Nothing happens.'},
+            ],
+        },
+        format='conversations',
+        trace_id='trace-observation',
+    )
+
+    assert trajectory.events[0].output == 'Nothing happens.'
+    assert trajectory.events[0].error is None
+
+
 def test_convert_claude_code_tool_pair() -> None:
     payload = [
         {
