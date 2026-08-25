@@ -33,6 +33,24 @@ runners, and local agent development workflows. AgentDebugX is local-first by
 default: traces stay on your machine, sharing is opt-in, and recovery proposals
 carry explicit policy and approval metadata into the Rerun boundary.
 
+## News
+
+- **2026-08-25** — Released
+  [`dsh-agentdebugx` v0.1.0](https://www.npmjs.com/package/dsh-agentdebugx),
+  the AgentDebugX plugin for DeepSeek Harness.
+- **2026-07-31** — Released
+  [CUADebug](https://arxiv.org/abs/2608.02643), our framework for diagnosing
+  and repairing computer-use agent failures.
+- **2026-07-21** — Released the
+  [AgentDebugX paper](https://arxiv.org/abs/2607.18754), presenting our
+  open-source toolkit for failure observability, attribution, recovery, and
+  rerun in LLM agents.
+- **2026-05-16** — Released AgentDebugX on
+  [PyPI](https://pypi.org/project/agentdebugx/).
+- **2025-09-29** — Released
+  [Where LLM Agents Fail and How They Can Learn From Failures](https://arxiv.org/abs/2509.25370),
+  introducing AgentErrorTaxonomy, AgentErrorBench, and AgentDebug.
+
 ## System Overview
 
 <p align="center">
@@ -622,15 +640,16 @@ test suite, quality checks, and pull request expectations.
 
 ```bibtex
 @misc{zhang2026cuadebugdiagnosingrepairingcomputeruse,
-      title={CUADebug: Diagnosing and Repairing Computer-Use Agent Failures}, 
+      title={CUADebug: Diagnosing and Repairing Computer-Use Agent Failures},
       author={Weijia Zhang and Kunlun Zhu and Zeyi Liu and Yinting Chen and Tianyi Ma and Jiateng Liu and Jiaxun Zhang and Bingxuan Li and Xiangru Tang and Heng Ji and Jiaxuan You},
       year={2026},
       eprint={2608.02643},
       archivePrefix={arXiv},
       primaryClass={cs.SE},
-      url={https://arxiv.org/abs/2608.02643}, 
+      url={https://arxiv.org/abs/2608.02643},
 }
 ```
+
 
 ## License
 
