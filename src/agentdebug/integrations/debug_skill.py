@@ -168,7 +168,7 @@ metadata:
 def _codex_openai_yaml(name: str) -> str:
     return f"""\
 interface:
-  display_name: AgentDebugX
+  display_name: {name}
   short_description: Debug supplied trajectories or collections
   default_prompt: Use ${name} to diagnose the supplied trajectory or collection with AgentDebugX.
 """

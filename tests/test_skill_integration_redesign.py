@@ -41,4 +41,7 @@ def test_codex_packaging_edge_uses_canonical_bundle() -> None:
     bundle = build_codex_skill_bundle()
     assert bundle.platform == 'codex'
     assert 'agentdebug run <input> --profile standard --json' in bundle.files['SKILL.md']
-    assert 'supplied trajectory or collection' in bundle.files['agents/openai.yaml']
+    metadata = bundle.files['agents/openai.yaml']
+    assert 'display_name: agentdebug' in metadata
+    assert 'Use $agentdebug ' in metadata
+    assert 'supplied trajectory or collection' in metadata
