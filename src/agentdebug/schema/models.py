@@ -128,6 +128,35 @@ class FailureMode(BaseModel):
     source: Optional[str] = None
 
 
+class ConflictAxis(str, Enum):
+    """What a finding's claim contradicts.
+
+    Orthogonal to :class:`FailureMode`, which says what *kind* of error a step
+    made. This says what the step is *in conflict with*, and therefore where a
+    reader must look to check the claim:
+
+    * ``TASK`` -- the goal, or a binding constraint stated in a system message.
+      Binding means "must" / "shall" / "required" / "never" / "forbidden"; a
+      plain role description ("You are a helpful agent") is not a constraint,
+      and treating it as one collapses every finding into this bucket.
+    * ``CONTEXT`` -- a prior observation, tool result, or error event.
+    * ``SELF`` -- the same event, or the agent's own earlier plan or reflection.
+    * ``ENV`` -- the environment or tooling is at fault, not the agent.
+
+    The value is what makes :attr:`FailureFinding.reference_quote` verifiable:
+    it names which events the quote is allowed to have come from, turning a
+    prompt instruction into a mechanical check.
+
+    Adapted from the conflict categories in TrajDebug (THU-KEG/TrajDebug, MIT),
+    where they are spelled cat-1 / cat-2 / cat-3 / env.
+    """
+
+    TASK = 'task'
+    CONTEXT = 'context'
+    SELF = 'self'
+    ENV = 'env'
+
+
 class FailureFinding(BaseModel):
     """A localized failure diagnosis for one event or trajectory region."""
 
@@ -140,6 +169,32 @@ class FailureFinding(BaseModel):
     evidence: List[str] = Field(default_factory=list)
     suggestion: Optional[str] = None
     metadata: JsonDict = Field(default_factory=dict)
+
+    # -- Evidence grounding ------------------------------------------------
+    #
+    # `evidence` above is prose: a rule contributes a fixed description of
+    # itself, and an LLM detector contributes a paraphrase. Neither can be
+    # checked, so a reader cannot tell a finding that saw something from one
+    # that sounds like it did. The three fields below make that difference
+    # legible, and they are Optional precisely so the deterministic rule packs
+    # -- which have no "claim" to quote -- keep working untouched.
+    #: Verbatim span of the blamed step, copied from the trajectory.
+    wrong_content_quote: Optional[str] = None
+    #: Verbatim span of whatever the blamed step contradicts. Where it is
+    #: allowed to come from is determined by :attr:`conflict_with`.
+    reference_quote: Optional[str] = None
+    #: What the blamed step conflicts with; scopes the reference quote.
+    conflict_with: Optional[ConflictAxis] = None
+    #: Did both quotes resolve against the source trajectory?
+    #:
+    #: Three distinguishable states, and the distinction is the point:
+    #: ``True`` -- checked and both quotes were found.
+    #: ``False`` -- checked and at least one quote does not appear in the
+    #: trajectory, i.e. the detector produced text nothing supports.
+    #: ``None`` -- never checked, which is the honest default for a finding
+    #: that carries no quotes at all. A consumer filtering for trustworthy
+    #: findings must not read None as True.
+    quote_verified: Optional[bool] = None
 
 
 class DiagnosticAuditEntry(BaseModel):
