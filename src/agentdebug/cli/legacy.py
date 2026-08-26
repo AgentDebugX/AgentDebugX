@@ -67,6 +67,7 @@ _TRACE_FORMAT_CHOICES = [
     'langgraph_callbacks',
     'openclaw',
     'claude_code',
+    'codex',
     'hermes',
     'osworld',
 ]
@@ -471,6 +472,19 @@ def _add_integrations_subcommands(parser: argparse.ArgumentParser) -> None:
         item.add_argument('--json', action='store_true')
         if command == 'install':
             item.add_argument('--force', action='store_true')
+
+    p_capture = int_sub.add_parser(
+        'capture', help='Manage passive automatic trajectory capture'
+    )
+    capture_sub = p_capture.add_subparsers(
+        dest='capture_command', required=True
+    )
+    for command in ('enable', 'disable', 'status', 'reconcile', 'dispatch'):
+        item = capture_sub.add_parser(command)
+        item.add_argument('--platform', choices=('claude', 'codex'), required=True)
+        item.add_argument('--project', required=True)
+        if command in {'enable', 'disable', 'status', 'reconcile'}:
+            item.add_argument('--json', action='store_true')
 
     p_mc = int_sub.add_parser(
         'openhands-microagent',
@@ -1274,6 +1288,10 @@ def _cmd_integrations(args: argparse.Namespace) -> int:
         write_debug_skill_bundle,
     )
 
+    if args.int_command == 'capture':
+        from agentdebug.cli.commands.capture import run as run_capture
+
+        return run_capture(args)
     if args.int_command == 'skill':
         from agentdebug.integrations.management import DEFAULT_ROOTS
         bundle = build_debug_skill_bundle(platform=args.platform, name=args.name)

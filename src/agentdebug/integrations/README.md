@@ -11,6 +11,7 @@ tool, agent runtime, or assistant environment.
 Current integration families include:
 
 - managed Claude Code and Codex skills
+- opt-in Claude Code and Codex automatic-capture hooks
 - generated Hermes and OpenClaw skills using the same canonical run contract
 - OpenHands integration assets
 - shared reference documents and generic debug skill templates
@@ -19,7 +20,7 @@ Current integration families include:
 
 1. Select the target integration.
 2. Render the canonical `agentdebug run` contract with host-edge metadata.
-3. Install managed Claude/Codex assets or generate Hermes/OpenClaw assets.
+3. Install managed assets, generate assets, or enable host capture hooks.
 4. Validate ownership, contract version, CLI availability, UI extras, and the
    writable run root with `agentdebug integrations status`.
 

@@ -203,7 +203,7 @@ agentdebug ingest raw_trace.json --format auto --out trace.json
 
 Use `--format` when the source is known, for example `messages`,
 `openai_agents_spans`, `crewai_events`, `langgraph_callbacks`, `claude_code`,
-or `osworld`.
+`codex`, or `osworld`.
 
 Process a directory of independent JSON files or every non-empty line in a
 JSONL dataset:

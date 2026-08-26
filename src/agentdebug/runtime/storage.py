@@ -224,26 +224,8 @@ class SQLiteTraceStore:
         self._init_db()
 
     def save_trajectory(self, trajectory: AgentTrajectory) -> None:
-        payload = model_to_json(trajectory)
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO trajectories(trace_id, task_id, framework, updated_at, payload_json)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(trace_id) DO UPDATE SET
-                    task_id=excluded.task_id,
-                    framework=excluded.framework,
-                    updated_at=excluded.updated_at,
-                    payload_json=excluded.payload_json
-                """,
-                (
-                    trajectory.trace_id,
-                    trajectory.task_id,
-                    trajectory.framework,
-                    utc_now().isoformat(),
-                    payload,
-                ),
-            )
+            _upsert_trajectory(conn, trajectory)
 
     def load_trajectory(self, trace_id: str) -> Optional[AgentTrajectory]:
         with self._connect() as conn:
@@ -327,3 +309,31 @@ class SQLiteTraceStore:
                 )
                 """
             )
+
+
+def _upsert_trajectory(
+    conn: sqlite3.Connection,
+    trajectory: AgentTrajectory,
+    *,
+    updated_at: Optional[str] = None,
+) -> None:
+    """Upsert a trajectory using a caller-owned transaction."""
+
+    conn.execute(
+        """
+        INSERT INTO trajectories(trace_id, task_id, framework, updated_at, payload_json)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(trace_id) DO UPDATE SET
+            task_id=excluded.task_id,
+            framework=excluded.framework,
+            updated_at=excluded.updated_at,
+            payload_json=excluded.payload_json
+        """,
+        (
+            trajectory.trace_id,
+            trajectory.task_id,
+            trajectory.framework,
+            updated_at or utc_now().isoformat(),
+            model_to_json(trajectory),
+        ),
+    )

@@ -44,6 +44,7 @@ register_ingest_plugin(
         'langgraph_callbacks',
         'openclaw',
         'claude_code',
+        'codex',
         'hermes',
         'osworld',
         'gaia_odr',

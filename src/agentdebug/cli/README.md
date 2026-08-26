@@ -19,7 +19,7 @@ Primary commands:
 - `agentdebug runner serve` exposes an application-owned Agent callback through
   the persistent live Rerun HTTP protocol.
 - `agentdebug hub` manages Error Hub bundles.
-- `agentdebug integrations` generates integration assets.
+- `agentdebug integrations` generates assets and manages opt-in host capture.
 - `agentdebug serve` starts the inspection API or UI.
 - `agentdebug doctor` checks local configuration.
 

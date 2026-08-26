@@ -27,6 +27,7 @@ from agentdebug.schema import (
     model_to_json,
     new_id,
     trajectory_from_json,
+    utc_now,
 )
 
 FormatName = Literal[
@@ -42,6 +43,7 @@ FormatName = Literal[
     'langgraph_callbacks',
     'openclaw',
     'claude_code',
+    'codex',
     'hermes',
     'osworld',
     'gaia_odr',
@@ -225,6 +227,15 @@ def convert_payload(
             goal=goal,
             framework=framework,
         )
+    if fmt == 'codex':
+        records = payload if isinstance(payload, list) else [payload]
+        return _convert_codex_records(
+            cast(Sequence[Dict[str, Any]], records),
+            trace_id=trace_id,
+            task_id=task_id,
+            goal=goal,
+            framework=framework,
+        )
     if fmt == 'hermes':
         if isinstance(payload, list) and len(payload) == 1 and isinstance(payload[0], dict):
             payload = payload[0]
@@ -353,6 +364,7 @@ def _normalize_format_name(fmt: str) -> FormatName:
         'langgraph_callbacks',
         'openclaw',
         'claude_code',
+        'codex',
         'hermes',
         'osworld',
         'gaia_odr',
@@ -1395,6 +1407,256 @@ def _parse_openclaw_ts(value: Any) -> Optional[datetime]:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _convert_codex_records(
+    records: Sequence[Dict[str, Any]],
+    *,
+    trace_id: Optional[str],
+    task_id: Optional[str],
+    goal: Optional[str],
+    framework: Optional[str],
+) -> AgentTrajectory:
+    """Convert supported Codex rollout JSONL records."""
+
+    session_id: Optional[str] = None
+    session_metadata: Dict[str, Any] = {'source_format': 'codex'}
+    for record in records:
+        item = _codex_rollout_item(record)
+        if item.get('type') != 'session_meta':
+            continue
+        payload = item.get('payload')
+        if isinstance(payload, dict):
+            session_id = _opt_str(payload.get('id'))
+            for key in ('cwd', 'cli_version', 'source', 'model_provider'):
+                if payload.get(key) is not None:
+                    session_metadata[f'codex_{key}'] = payload[key]
+        break
+    trajectory = _base_trajectory(
+        trace_id=trace_id or session_id,
+        task_id=task_id,
+        goal=goal,
+        framework=framework,
+        fallback_framework='codex',
+        metadata=session_metadata,
+    )
+    ignored: Dict[str, int] = {}
+    tool_events: Dict[str, str] = {}
+    last_event_id: Optional[str] = None
+    first_user_text: Optional[str] = None
+
+    def ignore(name: str) -> None:
+        ignored[name] = ignored.get(name, 0) + 1
+
+    def emit(
+        *,
+        line_no: int,
+        record: Dict[str, Any],
+        payload: Dict[str, Any],
+        event_type: EventType,
+        agent_name: str,
+        module: str,
+        parent_event_id: Optional[str] = None,
+        input: Any = None,
+        output: Any = None,
+        error: Optional[str] = None,
+    ) -> AgentEvent:
+        nonlocal last_event_id
+        metadata = {
+            'source_format': 'codex',
+            'codex_line': line_no,
+            'codex_ordinal': record.get('ordinal'),
+            'codex_record_type': _codex_rollout_item(record).get('type'),
+            'codex_payload_type': payload.get('type'),
+        }
+        for key in ('id', 'call_id', 'turn_id', 'agent_id', 'agent_type'):
+            if payload.get(key) is not None:
+                metadata[f'codex_{key}'] = payload[key]
+        event = trajectory.add_event(
+            AgentEvent(
+                trace_id=trajectory.trace_id,
+                agent_name=agent_name,
+                event_type=event_type,
+                module=module,
+                step_index=len(trajectory.events),
+                parent_event_id=parent_event_id,
+                timestamp=_parse_openclaw_ts(record.get('timestamp')) or utc_now(),
+                input=input,
+                output=output,
+                error=error,
+                metadata=metadata,
+            )
+        )
+        last_event_id = event.event_id
+        return event
+
+    for line_no, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            continue
+        item = _codex_rollout_item(record)
+        record_type = _opt_str(item.get('type')) or '<missing>'
+        payload = item.get('payload')
+        if record_type in {'session_meta', 'turn_context', 'compacted'}:
+            ignore(record_type)
+            continue
+        if not isinstance(payload, dict):
+            ignore(record_type)
+            continue
+        payload_type = _opt_str(payload.get('type')) or '<missing>'
+
+        if record_type == 'response_item':
+            if payload_type == 'message':
+                role = _opt_str(payload.get('role')) or ''
+                if role not in {'user', 'assistant'}:
+                    ignore(f'message.{role or "missing"}')
+                    continue
+                text = _codex_content_text(payload.get('content'))
+                if not text:
+                    ignore(f'message.{role}.empty')
+                    continue
+                if role == 'user':
+                    if first_user_text is None:
+                        first_user_text = text
+                    emit(
+                        line_no=line_no,
+                        record=record,
+                        payload=payload,
+                        event_type=EventType.OBSERVATION,
+                        agent_name='user',
+                        module='conversation',
+                        parent_event_id=last_event_id,
+                        output=text,
+                    )
+                else:
+                    emit(
+                        line_no=line_no,
+                        record=record,
+                        payload=payload,
+                        event_type=EventType.LLM_RESPONSE,
+                        agent_name='codex',
+                        module='conversation',
+                        parent_event_id=last_event_id,
+                        output=text,
+                    )
+                continue
+            if payload_type in {'reasoning', 'reasoning_summary'}:
+                ignore(payload_type)
+                continue
+            if payload_type in {'function_call', 'custom_tool_call', 'local_shell_call'}:
+                call_id = _opt_str(payload.get('call_id') or payload.get('id'))
+                name = _opt_str(payload.get('name')) or payload_type
+                arguments = payload.get('arguments', payload.get('input'))
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        pass
+                event = emit(
+                    line_no=line_no,
+                    record=record,
+                    payload=payload,
+                    event_type=EventType.TOOL_CALL,
+                    agent_name=name,
+                    module='tool',
+                    parent_event_id=last_event_id,
+                    input=arguments,
+                )
+                if call_id:
+                    tool_events[call_id] = event.event_id
+                continue
+            if payload_type in {'function_call_output', 'custom_tool_call_output'}:
+                call_id = _opt_str(payload.get('call_id'))
+                emit(
+                    line_no=line_no,
+                    record=record,
+                    payload=payload,
+                    event_type=EventType.TOOL_RESULT,
+                    agent_name='tool',
+                    module='tool',
+                    parent_event_id=tool_events.get(call_id or '', last_event_id),
+                    output=payload.get('output'),
+                )
+                continue
+            ignore(f'response_item.{payload_type}')
+            continue
+
+        if record_type == 'event_msg':
+            if payload_type in {
+                'agent_reasoning',
+                'agent_reasoning_raw_content',
+                'token_count',
+                'user_message',
+                'agent_message',
+                'item_started',
+                'item_completed',
+            }:
+                ignore(f'event_msg.{payload_type}')
+                continue
+            if payload_type == 'error':
+                text = _opt_str(payload.get('message')) or str(payload)
+                emit(
+                    line_no=line_no,
+                    record=record,
+                    payload=payload,
+                    event_type=EventType.ERROR,
+                    agent_name='codex',
+                    module='runtime',
+                    parent_event_id=last_event_id,
+                    error=text,
+                )
+                continue
+            if payload_type == 'exec_command_end':
+                call_id = _opt_str(payload.get('call_id'))
+                error = None
+                if payload.get('exit_code') not in (None, 0):
+                    error = _opt_str(payload.get('formatted_output')) or 'command failed'
+                emit(
+                    line_no=line_no,
+                    record=record,
+                    payload=payload,
+                    event_type=EventType.TOOL_RESULT,
+                    agent_name='exec_command',
+                    module='tool',
+                    parent_event_id=tool_events.get(call_id or '', last_event_id),
+                    output=None if error else payload.get('aggregated_output'),
+                    error=error,
+                )
+                continue
+            ignore(f'event_msg.{payload_type}')
+            continue
+        ignore(record_type)
+
+    if goal is None and first_user_text:
+        trajectory.goal = first_user_text[:512]
+    if trajectory.events:
+        trajectory.started_at = min(event.timestamp for event in trajectory.events)
+        trajectory.ended_at = max(event.timestamp for event in trajectory.events)
+    trajectory.metadata['codex_session_id'] = session_id
+    trajectory.metadata['codex_ignored_record_counts'] = ignored
+    trajectory.metadata['codex_event_count'] = len(trajectory.events)
+    return trajectory
+
+
+def _codex_rollout_item(record: Dict[str, Any]) -> Dict[str, Any]:
+    item = record.get('item')
+    return item if isinstance(item, dict) else record
+
+
+def _codex_content_text(content: Any) -> Optional[str]:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    parts = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get('type') not in {'input_text', 'output_text', 'text'}:
+            continue
+        text = item.get('text')
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return '\n'.join(parts) if parts else None
 
 
 def _convert_claude_code_records(
