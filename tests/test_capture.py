@@ -23,6 +23,7 @@ from agentdebug.integrations.capture_management import (
 from agentdebug.capture.filtering import prepare_for_capture
 from agentdebug.capture.hosts.claude_code import ClaudeCodeCaptureAdapter
 from agentdebug.capture.hosts.codex import CodexCaptureAdapter
+from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.runtime import SQLiteTraceStore
 from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
 
@@ -679,9 +680,17 @@ def test_codex_audited_rollout_normalizes_stably_without_private_records() -> No
         'llm.response',
     ]
     assert first.events[2].parent_event_id == first.events[1].event_id
+    assert first.goal == 'inspect the project'
+    assert 'AGENTS.md instructions' not in str(first)
+    assert 'repeated loops' not in str(first)
     assert 'private harness instructions' not in str(first)
     assert 'private reasoning' not in str(first)
     assert 'total_tokens' not in str(first)
+    report = HeuristicAnalyzer(rule_packs='core').analyze(first)
+    assert all(
+        finding.rule_id != 'core.planning.inefficient_plan'
+        for finding in report.findings
+    )
 
 
 def test_codex_supported_hook_set_captures_a_rollout_end_to_end(

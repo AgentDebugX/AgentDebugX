@@ -1515,6 +1515,9 @@ def _convert_codex_records(
                     ignore(f'message.{role}.empty')
                     continue
                 if role == 'user':
+                    if _is_codex_injected_instruction(text):
+                        ignore('message.user.injected_instructions')
+                        continue
                     if first_user_text is None:
                         first_user_text = text
                     emit(
@@ -1657,6 +1660,16 @@ def _codex_content_text(content: Any) -> Optional[str]:
         if isinstance(text, str) and text:
             parts.append(text)
     return '\n'.join(parts) if parts else None
+
+
+def _is_codex_injected_instruction(text: str) -> bool:
+    """Recognize Codex's user-role project-instruction envelope."""
+    stripped = text.lstrip()
+    return (
+        stripped.startswith('# AGENTS.md instructions for ')
+        and '<INSTRUCTIONS>' in stripped
+        and '</INSTRUCTIONS>' in stripped
+    )
 
 
 def _convert_claude_code_records(
