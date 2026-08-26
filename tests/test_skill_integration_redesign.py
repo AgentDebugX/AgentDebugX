@@ -18,9 +18,12 @@ def test_all_host_skills_share_unified_run_contract(platform: str) -> None:
     assert '--trajectory-id <id>' in skill
     assert 'item.result' in skill
     assert 'agentdebug diagnose <trajectory.json>' not in skill
+    assert 'only when the user explicitly asks' in skill
+    assert 'generic request to debug' in skill
     assert CONTRACT_VERSION in skill
     if platform == 'codex':
         assert 'agents/openai.yaml' in bundle.files
+        assert 'allow_implicit_invocation: false' in bundle.files['agents/openai.yaml']
 
 
 def test_managed_install_refuses_unmanaged_and_preserves_unrelated_files(tmp_path) -> None:
@@ -42,6 +45,6 @@ def test_codex_packaging_edge_uses_canonical_bundle() -> None:
     assert bundle.platform == 'codex'
     assert 'agentdebug run <input> --profile standard --json' in bundle.files['SKILL.md']
     metadata = bundle.files['agents/openai.yaml']
-    assert 'display_name: agentdebug' in metadata
+    assert 'display_name: "agentdebug"' in metadata
     assert 'Use $agentdebug ' in metadata
     assert 'supplied trajectory or collection' in metadata

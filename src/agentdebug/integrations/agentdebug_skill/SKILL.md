@@ -1,6 +1,6 @@
 ---
 name: agentdebug
-description: Debug failed or unclear LLM agent trajectories with AgentDebugX. Use for root-cause analysis, trajectory diagnosis, tool failures, repeated loops, wrong final answers, or cross-agent debugging.
+description: Use AgentDebugX for trajectory diagnosis only when the user explicitly asks to use AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging, diagnosis, inspection, or trajectory-review requests.
 ---
 
 # AgentDebugX Debug Skill
@@ -23,16 +23,11 @@ Read references as needed:
 
 ## When To Use
 
-Use AgentDebugX when the user asks to debug, diagnose, inspect, explain, or
-find the root cause of an LLM agent trajectory or failed agent run.
-
-Common triggers:
-
-- failed agent run
-- unclear or wrong final answer
-- tool failure, timeout, missing file, permission denial, or bad tool args
-- repeated loop or repeated failed tool call
-- self-debugging or cross-agent debugging
+Use this skill only when the user explicitly asks to use AgentDebug,
+AgentDebugX, or the `$agentdebug` skill. A generic request to debug, diagnose,
+inspect, explain, or review a trajectory is not sufficient. Without an
+explicit AgentDebug request, handle the task normally without loading or
+running this skill.
 
 ## Inputs
 

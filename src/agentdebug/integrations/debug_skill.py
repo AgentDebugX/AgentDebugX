@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 SkillPlatform = Literal['claude', 'codex', 'hermes', 'openclaw']
-CONTRACT_VERSION = '2.1.0'
+CONTRACT_VERSION = '2.2.0'
 
 
 def _read_skill_file(rel_path: str) -> str:
@@ -141,7 +141,7 @@ def _claude_skill_md(name: str) -> str:
     return f"""\
 ---
 name: "{name}"
-description: "Debug failed or unclear LLM agent trajectories with AgentDebugX. Use for root-cause analysis, trajectory diagnosis, tool failures, repeated loops, or cross-agent debugging."
+description: "Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review."
 argument-hint: "debug this agent run, why did this agent fail, diagnose this trajectory, debug this Hermes/OpenClaw/OpenHands trace"
 allowed-tools: Bash(agentdebug *)
 metadata:
@@ -156,7 +156,7 @@ def _codex_skill_md(name: str) -> str:
     return f"""\
 ---
 name: {name}
-description: Debug supplied agent trajectories or collections with durable AgentDebugX runs.
+description: Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review.
 metadata:
   agentdebug-contract-version: "{CONTRACT_VERSION}"
 ---
@@ -168,9 +168,11 @@ metadata:
 def _codex_openai_yaml(name: str) -> str:
     return f"""\
 interface:
-  display_name: {name}
-  short_description: Debug supplied trajectories or collections
-  default_prompt: Use ${name} to diagnose the supplied trajectory or collection with AgentDebugX.
+  display_name: "{name}"
+  short_description: "Explicit AgentDebug trajectory diagnosis"
+  default_prompt: "Use ${name} to diagnose the supplied trajectory or collection with AgentDebugX."
+policy:
+  allow_implicit_invocation: false
 """
 
 
@@ -178,7 +180,7 @@ def _hermes_skill_md(name: str) -> str:
     return f"""\
 ---
 name: {name}
-description: Debug failed or unclear LLM agent trajectories with AgentDebugX.
+description: Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review.
 version: {CONTRACT_VERSION}
 metadata:
   agentdebug-contract-version: "{CONTRACT_VERSION}"
@@ -196,7 +198,7 @@ def _openclaw_skill_md(name: str) -> str:
     return f"""\
 ---
 name: {name}
-description: Debug failed or unclear LLM agent trajectories with AgentDebugX.
+description: Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review.
 version: {CONTRACT_VERSION}
 metadata:
   agentdebug-contract-version: "{CONTRACT_VERSION}"
