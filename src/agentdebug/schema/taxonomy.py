@@ -260,6 +260,67 @@ SEED_FAILURE_MODES: Dict[str, FailureMode] = {
         ],
         'AgentDebugX proposed extension',
     ),
+    # -- observation ------------------------------------------------------
+    #
+    # Reading environment and tool feedback wrongly had no home in this
+    # taxonomy. The nearest existing modes are not it: `memory.retrieval_failure`
+    # is failing to *retrieve* prior state, not retrieving it and misreading it;
+    # `multimodal.perception_error` is images, UI and audio only. An agent that
+    # reads `max_backoff_ms: 500` and reasons about 500 seconds is doing
+    # something none of the other seven families name.
+    #
+    # Adapted from TrajDebug's `obs` module (THU-KEG/TrajDebug, MIT).
+    'observation.misread': _mode(
+        'observation.misread',
+        'Observation misread',
+        'observation',
+        'The agent reads the environment or tool response but takes the wrong value or meaning '
+        'from it: a misparsed field, a unit confused, an error message read as success.',
+        ['misparsed field', 'wrong unit', 'error read as success', 'value mismatch'],
+        [
+            'Echo the parsed value back alongside the raw response before acting on it.',
+            'Assert units and types at the parse boundary rather than downstream.',
+        ],
+        'TrajDebug (obs.MisreadOutput)',
+    ),
+    'observation.ignored': _mode(
+        'observation.ignored',
+        'Observation ignored',
+        'observation',
+        'Information needed for the next decision is present in the current or a visible prior '
+        'observation, and the agent proceeds without using it.',
+        ['available output unused', 'ignored error diagnostic', 'answer already present'],
+        [
+            'Require the next step to reference the most recent observation explicitly.',
+            'Surface unconsumed error diagnostics into the planning context.',
+        ],
+        'TrajDebug (obs.IgnoreOutput)',
+    ),
+    'observation.grounding_fail': _mode(
+        'observation.grounding_fail',
+        'Observation grounding failure',
+        'observation',
+        'The agent reads a value correctly but binds it to the wrong entity, element, or field, '
+        'so later reasoning is built on the wrong object.',
+        ['wrong entity', 'ambiguous name', 'wrong page section', 'field mapping error'],
+        [
+            'Carry entity identifiers rather than display names across steps.',
+            'Confirm the resolved target before extracting from it.',
+        ],
+        'TrajDebug (obs.GroundingFail)',
+    ),
+    'observation.timing': _mode(
+        'observation.timing',
+        'Observation timing error',
+        'observation',
+        'The agent treats a partial, pending, or not-yet-ready response as final and acts on it.',
+        ['pending treated as final', 'partial output', 'not loaded', 'async not settled'],
+        [
+            'Check readiness or status fields before consuming a response.',
+            'Distinguish empty results from unfinished ones in the tool contract.',
+        ],
+        'TrajDebug (obs.TimingIssue)',
+    ),
 }
 
 

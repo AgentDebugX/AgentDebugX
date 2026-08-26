@@ -1,7 +1,7 @@
 """LLM-based judge analyzer.
 
 Walks an ``AgentTrajectory`` and asks an LLM to label step-level failures
-against the 19 seed modes shipped in :mod:`agentdebug.taxonomy`. The judge is
+against the seed modes shipped in :mod:`agentdebug.taxonomy`. The judge is
 intentionally schemed to the existing taxonomy so the rest of the pipeline
 (``DiagnosticReport``, recovery, attribution) doesn't need a parallel label
 space.
@@ -57,7 +57,12 @@ Schema (compact — fields in this order):
 
 
 class LLMJudgeAnalyzer:
-    """LLM-as-judge analyzer schemed to the 19 seed failure modes."""
+    """LLM-as-judge analyzer schemed to the seed failure taxonomy.
+
+    The allowed mode list is enumerated from ``SEED_FAILURE_MODES`` at prompt
+    time, so adding a family to the taxonomy makes it available here without
+    touching this class.
+    """
 
     def __init__(
         self,
