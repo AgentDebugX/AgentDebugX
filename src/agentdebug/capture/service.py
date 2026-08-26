@@ -208,6 +208,35 @@ class CaptureService:
             trajectory.metadata['capture_project_id'] = project_id
             prepared = prepare_for_capture(trajectory)
             trajectory = prepared.trajectory
+            if not trajectory.events:
+                warnings = ['no meaningful events']
+                repository.commit_no_op(
+                    receipt_id,
+                    snapshot,
+                    {
+                        'boundary_id': boundary_id,
+                        'warnings': warnings,
+                        'duration_ms': _elapsed_ms(started),
+                    },
+                )
+                repository.reconcile_prior_receipts(
+                    project_id,
+                    notification.host,
+                    notification.session_id,
+                    current_receipt_id=receipt_id,
+                )
+                current = repository.load_session(
+                    notification.host, notification.session_id
+                )
+                return CaptureResult(
+                    status='no_op',
+                    trace_id=trace_id,
+                    event_count=0 if current is None else current.event_count,
+                    last_event_id=None if current is None else current.last_event_id,
+                    boundary_id=boundary_id,
+                    warnings=warnings,
+                    elapsed_ms=_elapsed_ms(started),
+                )
             if reconciliation and not _has_durable_assistant_boundary(trajectory):
                 repository.commit_no_op(
                     receipt_id,

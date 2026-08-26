@@ -641,6 +641,133 @@ def test_codex_supported_hook_set_captures_a_rollout_end_to_end(
     assert report['trace_id'] == captured.trace_id
 
 
+def test_codex_resume_keeps_one_trajectory_and_ignores_empty_launcher(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
+    write_capture_config(
+        CaptureConfig(
+            platform='codex',
+            project_root=tmp_path,
+            store_path=store_path,
+            installed_hooks=['SessionStart', 'Stop', 'SessionEnd'],
+        )
+    )
+    resumed_path = tmp_path / 'resumed.jsonl'
+    records = [
+        {
+            'type': 'session_meta',
+            'payload': {'id': 'resumed-session', 'cwd': str(tmp_path)},
+        },
+        {
+            'type': 'response_item',
+            'payload': {
+                'type': 'message', 'role': 'user',
+                'content': [{'type': 'input_text', 'text': 'create hello.txt'}],
+            },
+        },
+        {
+            'type': 'response_item',
+            'payload': {
+                'type': 'message', 'role': 'assistant',
+                'content': [{'type': 'output_text', 'text': 'created'}],
+            },
+        },
+    ]
+
+    def write_records(path: Path, values: list[dict[str, object]]) -> None:
+        path.write_text(
+            ''.join(json.dumps(value) + '\n' for value in values),
+            encoding='utf-8',
+        )
+
+    def notice(event: str, session_id: str, path: Path) -> HookNotification:
+        return HookNotification(
+            host='codex',
+            event_name=event,
+            session_id=session_id,
+            transcript_path=path,
+            cwd=tmp_path,
+            observed_at=datetime.now(timezone.utc),
+        )
+
+    write_records(resumed_path, records)
+    service = CaptureService(tmp_path, CodexCaptureAdapter(transcript_root=tmp_path))
+    first = service.handle(notice('Stop', 'resumed-session', resumed_path))
+    assert first.status == 'captured'
+    assert service.handle(
+        notice('SessionEnd', 'resumed-session', resumed_path)
+    ).status == 'no_op'
+
+    records.append({'type': 'turn_context', 'payload': {'cwd': str(tmp_path)}})
+    write_records(resumed_path, records)
+    assert service.handle(
+        notice('SessionStart', 'resumed-session', resumed_path)
+    ).status == 'captured'
+    active = CaptureRepository(store_path).load_session('codex', 'resumed-session')
+    assert active is not None and active.status == 'active'
+    assert active.ended_at is None
+
+    records.extend(
+        [
+            {
+                'type': 'response_item',
+                'payload': {
+                    'type': 'message', 'role': 'user',
+                    'content': [
+                        {'type': 'input_text', 'text': 'update hello_V2.txt'}
+                    ],
+                },
+            },
+            {
+                'type': 'response_item',
+                'payload': {
+                    'type': 'message', 'role': 'assistant',
+                    'content': [{'type': 'output_text', 'text': 'updated'}],
+                },
+            },
+        ]
+    )
+    write_records(resumed_path, records)
+    assert service.handle(
+        notice('Stop', 'resumed-session', resumed_path)
+    ).status == 'captured'
+    assert service.handle(
+        notice('SessionEnd', 'resumed-session', resumed_path)
+    ).status == 'no_op'
+
+    launcher_path = tmp_path / 'launcher.jsonl'
+    write_records(
+        launcher_path,
+        [{'type': 'session_meta', 'payload': {
+            'id': 'launcher-session', 'cwd': str(tmp_path)
+        }}],
+    )
+    launcher_notice = notice('SessionEnd', 'launcher-session', launcher_path)
+    launcher_end = service.handle(launcher_notice)
+
+    store = SQLiteTraceStore(str(store_path))
+    trajectory = store.load_trajectory(first.trace_id or '')
+    assert trajectory is not None
+    assert [event.output for event in trajectory.events] == [
+        'create hello.txt', 'created', 'update hello_V2.txt', 'updated'
+    ]
+    assert launcher_end.status == 'no_op'
+    assert launcher_end.event_count == 0
+    assert store.load_trajectory(launcher_end.trace_id or '') is None
+    stat = launcher_path.stat()
+    source_version = (
+        f'{launcher_path.resolve()}\0{stat.st_size}\0{stat.st_mtime_ns}'
+    )
+    launcher_receipt = CaptureRepository(store_path).load_receipt(
+        receipt_id_for(launcher_notice, source_version)
+    )
+    assert launcher_receipt is not None
+    assert launcher_receipt.status == 'no_op'
+
+
 def test_failed_snapshot_does_not_advance_state_and_next_boundary_reconciles(
     tmp_path: Path,
 ) -> None:

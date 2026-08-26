@@ -139,7 +139,7 @@ class CaptureRepository:
                     status=excluded.status,
                     adapter_version=excluded.adapter_version,
                     updated_at=excluded.updated_at,
-                    ended_at=COALESCE(excluded.ended_at, capture_sessions.ended_at)
+                    ended_at=excluded.ended_at
                 """,
                 (
                     receipt['host'],
