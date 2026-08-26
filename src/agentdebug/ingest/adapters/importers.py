@@ -1515,7 +1515,7 @@ def _convert_codex_records(
                     ignore(f'message.{role}.empty')
                     continue
                 if role == 'user':
-                    if _is_codex_injected_instruction(text):
+                    if _is_codex_injected_context(payload.get('content')):
                         ignore('message.user.injected_instructions')
                         continue
                     if first_user_text is None:
@@ -1646,11 +1646,16 @@ def _codex_rollout_item(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _codex_content_text(content: Any) -> Optional[str]:
+    parts = _codex_content_parts(content)
+    return '\n'.join(parts) if parts else None
+
+
+def _codex_content_parts(content: Any) -> List[str]:
     if isinstance(content, str):
-        return content
+        return [content]
     if not isinstance(content, list):
-        return None
-    parts = []
+        return []
+    parts: List[str] = []
     for item in content:
         if not isinstance(item, dict):
             continue
@@ -1659,7 +1664,27 @@ def _codex_content_text(content: Any) -> Optional[str]:
         text = item.get('text')
         if isinstance(text, str) and text:
             parts.append(text)
-    return '\n'.join(parts) if parts else None
+    return parts
+
+
+def _is_codex_injected_context(content: Any) -> bool:
+    parts = _codex_content_parts(content)
+    return bool(parts) and all(_is_codex_injected_part(part) for part in parts)
+
+
+def _is_codex_injected_part(text: str) -> bool:
+    stripped = text.strip()
+    return (
+        _is_codex_injected_instruction(stripped)
+        or (
+            stripped.startswith('<recommended_plugins>')
+            and stripped.endswith('</recommended_plugins>')
+        )
+        or (
+            stripped.startswith('<environment_context>')
+            and stripped.endswith('</environment_context>')
+        )
+    )
 
 
 def _is_codex_injected_instruction(text: str) -> bool:
