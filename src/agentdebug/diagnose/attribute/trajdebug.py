@@ -10,9 +10,23 @@ whether the agent recovered.
 This runs the three phases TrajDebug uses to answer that, in the same order:
 
 * **C1 -- cluster.** Group findings by the concrete thing they violate rather
-  than by taxonomy label. Twenty findings that all ignore the same observation
-  are one error, not twenty, and collapsing them stops a repeated symptom from
-  outvoting a single decisive cause. Deterministic; no model involved.
+  than by taxonomy label, so repeated symptoms of one error do not each count
+  as a separate candidate. Deterministic; no model involved.
+
+  This is a **weaker approximation of TrajDebug's C1 than it may look**, and the
+  gap is measured rather than assumed. Over 100 ALFWorld trajectories (2,960
+  triggers), their LLM-backed clustering compressed 29.6 triggers into 11.0
+  instances (2.7x); grouping on exact reference-quote text compresses to 22.7
+  (1.3x), and agrees with their instance count within +/-2 on only 5 of 100
+  trajectories. Containment and shingle-Jaccard variants were tried and did not
+  help (23.5 and 21.7 respectively).
+
+  The reason is that the detector quotes differently-worded spans for the same
+  underlying violated object, and their model merges those semantically. String
+  similarity does not reach it. So this rule reliably collapses *exact* repeats
+  and little else. Closing the gap means an LLM-backed clustering pass, which
+  would match their design; it is deliberately not done here, so that C1 stays
+  free and the no-LLM path keeps working.
 * **C2 -- state.** For each instance, decide whether the agent ever fixed it,
   whether it actually reaches the terminal failure, and how. Needs a model, and
   is skipped when none is supplied.

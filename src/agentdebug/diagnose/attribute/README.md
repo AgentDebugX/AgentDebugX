@@ -38,10 +38,16 @@ is not registered as a regular Attribute strategy.
 `attribute.trajdebug` runs cluster -> state -> select:
 
 1. **Cluster** findings by the concrete text they violate (`reference_quote`)
-   rather than by taxonomy label. Twenty findings repeating one error are one
-   error; collapsing them stops a repeated symptom outvoting its own cause.
-   Findings with no reference quote each become their own instance, because
-   wrongly merging two real errors hides one of them.
+   rather than by taxonomy label, so repeated symptoms do not each count as a
+   separate candidate. Findings with no reference quote each become their own
+   instance, because wrongly merging two real errors hides one of them.
+
+   Measured against TrajDebug's own LLM clustering on 100 ALFWorld
+   trajectories, this collapses 29.6 triggers to 22.7 instances where theirs
+   reaches 11.0 -- it catches exact repeats and little else, because the
+   detector quotes differently-worded spans for the same violated object.
+   Closing that gap needs an LLM-backed pass; keeping it deterministic is what
+   makes the no-LLM path work at all.
 2. **Classify** each instance: was it fixed, does it reach the terminal
    failure, and how. Needs an LLM; skipped when none is supplied.
 3. **Select** the earliest instance still in the causal chain.
