@@ -12,6 +12,7 @@ from typing import Any, Dict
 from agentdebug import __version__
 from agentdebug.capture.config import (
     CaptureConfig,
+    PlatformCaptureConfig,
     disable_capture,
     load_capture_config,
     write_capture_config,
@@ -78,16 +79,22 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
         ] + groups
     _atomic_json(settings_path, settings)
 
-    store_path = root / '.agentdebug' / 'agentdebug.sqlite'
-    write_capture_config(
-        CaptureConfig(
-            enabled=True,
-            platform=host,
+    config = load_capture_config(root)
+    store_path = (
+        root / '.agentdebug' / 'agentdebug.sqlite'
+        if config is None else config.store_path
+    )
+    if config is None:
+        config = CaptureConfig(
             project_root=root,
             store_path=store_path,
-            installed_hooks=CAPTURE_EVENTS[platform],
+            platforms={},
         )
+    config.platforms[host] = PlatformCaptureConfig(
+        enabled=True,
+        installed_hooks=CAPTURE_EVENTS[platform],
     )
+    write_capture_config(config)
     return {
         'status': 'enabled',
         'platform': platform,
@@ -104,7 +111,7 @@ def disable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
     root = project.expanduser().resolve()
     config = load_capture_config(root)
     if config is not None:
-        disable_capture(root)
+        disable_capture(root, _host_name(platform))
     settings_path = _settings_path(platform, root)
     settings = _read_settings(settings_path)
     hooks = settings.get('hooks')
@@ -135,6 +142,9 @@ def disable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
 def capture_integration_status(platform: str, project: Path) -> Dict[str, Any]:
     root = project.expanduser().resolve()
     config = load_capture_config(root)
+    platform_config = (
+        None if config is None else config.platforms.get(_host_name(platform))
+    )
     settings_path = _settings_path(platform, root)
     settings = _read_settings(settings_path)
     hooks = settings.get('hooks', {})
@@ -158,12 +168,14 @@ def capture_integration_status(platform: str, project: Path) -> Dict[str, Any]:
         'schema_version': 1,
         'platform': platform,
         'project_root': str(root),
-        'enabled': bool(config and config.enabled),
+        'enabled': bool(platform_config and platform_config.enabled),
         'store_path': str(config.store_path) if config else None,
         'settings_path': str(settings_path),
         'launcher_path': str(launcher_path),
         'launcher_ready': launcher_path.is_file() and os.access(launcher_path, os.X_OK),
-        'installed_hooks': [] if config is None else config.installed_hooks,
+        'installed_hooks': (
+            [] if platform_config is None else platform_config.installed_hooks
+        ),
         'detected_hooks': detected,
         'duplicate_hooks': duplicates,
     }

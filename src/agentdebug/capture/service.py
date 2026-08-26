@@ -47,7 +47,10 @@ class CaptureService:
     def handle(self, notification: HookNotification) -> CaptureResult:
         started = time.perf_counter()
         config = load_capture_config(self.project_root)
-        if config is None or not config.enabled:
+        platform_config = (
+            None if config is None else config.platforms.get(notification.host)
+        )
+        if platform_config is None or not platform_config.enabled:
             return CaptureResult(
                 status='disabled', elapsed_ms=_elapsed_ms(started)
             )
@@ -56,7 +59,7 @@ class CaptureService:
         try:
             if config.project_root.expanduser().resolve() != self.project_root:
                 raise ValueError('capture config project root does not match dispatch scope')
-            if config.platform != notification.host or self.adapter.host != notification.host:
+            if self.adapter.host != notification.host:
                 raise ValueError('capture platform does not match hook notification')
             cwd = notification.cwd.expanduser().resolve()
             try:

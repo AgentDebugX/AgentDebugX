@@ -15,6 +15,7 @@ from agentdebug.capture.identity import project_id_for
 from agentdebug.capture.repository import CaptureRepository
 from agentdebug.capture.service import CaptureService
 from agentdebug.integrations.capture_management import (
+    _host_name,
     capture_integration_status,
     disable_capture_integration,
     enable_capture_integration,
@@ -79,7 +80,9 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
         return payload
     repository = CaptureRepository(config.store_path, initialize=False)
     try:
-        status = repository.status(project_id_for(project))
+        status = repository.status(
+            project_id_for(project), host=_host_name(platform)
+        )
     except Exception:
         payload.update(
             {
@@ -103,7 +106,9 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
                 else session.dict()
                 for session in status.sessions
             ],
-            'last_error': _last_error(repository, project_id_for(project)),
+            'last_error': _last_error(
+                repository, project_id_for(project), _host_name(platform)
+            ),
         }
     )
     payload['status'] = 'enabled' if payload['enabled'] else 'disabled'
@@ -112,13 +117,15 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
 
 def _reconcile(platform: str, project: Path) -> Dict[str, Any]:
     config = load_capture_config(project)
-    if config is None or not config.enabled:
+    host = _host_name(platform)
+    platform_config = None if config is None else config.platforms.get(host)
+    if platform_config is None or not platform_config.enabled:
         return {'status': 'disabled', 'replayed': 0, 'failed': 0}
     if not config.store_path.exists():
         return {'status': 'reconciled', 'replayed': 0, 'failed': 0}
     adapter = _adapter(platform)
     repository = CaptureRepository(config.store_path)
-    receipts = repository.list_replayable(project_id_for(project))
+    receipts = repository.list_replayable(project_id_for(project), host=host)
     replayed = 0
     failed = 0
     for receipt in receipts:
@@ -157,7 +164,9 @@ def _adapter(platform: str) -> Any:
     raise ValueError(f'unsupported capture platform: {platform}')
 
 
-def _last_error(repository: CaptureRepository, project_id: str) -> Any:
-    replayable = repository.list_replayable(project_id)
+def _last_error(
+    repository: CaptureRepository, project_id: str, host: str
+) -> Any:
+    replayable = repository.list_replayable(project_id, host=host)
     failed = [receipt for receipt in replayable if receipt.status == 'failed']
     return failed[-1].error if failed else None

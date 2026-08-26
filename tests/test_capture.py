@@ -3,7 +3,11 @@ from pathlib import Path
 
 from agentdebug.capture.contracts import HookNotification
 from agentdebug.capture.contracts import CaptureRequest
-from agentdebug.capture.config import CaptureConfig, write_capture_config
+from agentdebug.capture.config import (
+    CaptureConfig,
+    PlatformCaptureConfig,
+    write_capture_config,
+)
 from agentdebug.capture.identity import (
     project_id_for,
     receipt_id_for,
@@ -302,10 +306,11 @@ def test_stop_capture_upserts_one_stable_trajectory_and_duplicate_is_no_op(
     store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
     write_capture_config(
         CaptureConfig(
-            platform='claude_code',
             project_root=tmp_path,
             store_path=store_path,
-            installed_hooks=['Stop'],
+            platforms={
+                'claude_code': PlatformCaptureConfig(installed_hooks=['Stop'])
+            },
         )
     )
     notification = HookNotification(
@@ -344,16 +349,19 @@ def test_claude_lifecycle_reconciles_prior_content_and_records_signals(
     store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
     write_capture_config(
         CaptureConfig(
-            platform='claude_code',
             project_root=tmp_path,
             store_path=store_path,
-            installed_hooks=[
-                'SessionStart',
-                'UserPromptSubmit',
-                'Stop',
-                'TaskCompleted',
-                'SessionEnd',
-            ],
+            platforms={
+                'claude_code': PlatformCaptureConfig(
+                    installed_hooks=[
+                        'SessionStart',
+                        'UserPromptSubmit',
+                        'Stop',
+                        'TaskCompleted',
+                        'SessionEnd',
+                    ]
+                )
+            },
         )
     )
     records = []
@@ -539,6 +547,107 @@ def test_capture_management_cli_enable_status_reconcile_disable(
     assert disabled['status'] == 'disabled'
 
 
+def test_capture_management_tracks_platforms_and_sessions_independently(
+    tmp_path: Path, capsys,
+) -> None:
+    import json
+
+    from agentdebug.cli.main import main
+
+    legacy_path = tmp_path / '.agentdebug' / 'capture.json'
+    legacy_path.parent.mkdir(parents=True)
+    store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
+    legacy_path.write_text(
+        json.dumps(
+            {
+                'schema_version': 1,
+                'enabled': True,
+                'platform': 'codex',
+                'project_root': str(tmp_path),
+                'store_path': str(store_path),
+                'installed_hooks': ['SessionStart', 'Stop', 'SessionEnd'],
+            }
+        ) + '\n',
+        encoding='utf-8',
+    )
+
+    claude_base = ['--platform', 'claude', '--project', str(tmp_path), '--json']
+    codex_base = ['--platform', 'codex', '--project', str(tmp_path), '--json']
+    assert main(['integrations', 'capture', 'enable', *claude_base]) == 0
+    capsys.readouterr()
+    persisted = json.loads(legacy_path.read_text(encoding='utf-8'))
+    assert persisted['schema_version'] == 2
+    assert set(persisted['platforms']) == {'claude_code', 'codex'}
+
+    repository = CaptureRepository(store_path)
+    snapshot_path = tmp_path / 'snapshot.jsonl'
+    snapshot_path.write_text('{}\n', encoding='utf-8')
+    snapshot = read_complete_jsonl(snapshot_path)
+    for host in ('claude_code', 'codex'):
+        notification = HookNotification(
+            host=host,
+            event_name='Stop',
+            session_id=f'{host}-session',
+            transcript_path=snapshot_path,
+            cwd=tmp_path,
+            observed_at=datetime.now(timezone.utc),
+        )
+        request = CaptureRequest(
+            notification=notification,
+            project_id=project_id_for(tmp_path),
+            trace_id=f'{host}-trace',
+            receipt_id=f'{host}-receipt',
+            logical_boundary_kind='turn_completed',
+            source_version=f'{host}-source',
+        )
+        trajectory = AgentTrajectory(
+            trace_id=request.trace_id,
+            events=[
+                AgentEvent(
+                    trace_id=request.trace_id,
+                    event_type=EventType.OBSERVATION,
+                    output=host,
+                )
+            ],
+        )
+        repository.begin_receipt(request)
+        repository.commit_capture(
+            request.receipt_id,
+            trajectory,
+            snapshot,
+            {
+                'project_id': request.project_id,
+                'boundary_id': f'{host}-boundary',
+                'duration_ms': 1.0,
+            },
+        )
+
+    assert main(['integrations', 'capture', 'status', *codex_base]) == 0
+    codex_status = json.loads(capsys.readouterr().out)
+    assert codex_status['enabled'] is True
+    assert codex_status['installed_hooks'] == [
+        'SessionStart', 'Stop', 'SessionEnd'
+    ]
+    assert [session['host'] for session in codex_status['sessions']] == ['codex']
+
+    assert main(['integrations', 'capture', 'status', *claude_base]) == 0
+    claude_status = json.loads(capsys.readouterr().out)
+    assert claude_status['enabled'] is True
+    assert claude_status['installed_hooks'] == [
+        'SessionStart', 'UserPromptSubmit', 'Stop', 'TaskCompleted', 'SessionEnd'
+    ]
+    assert [session['host'] for session in claude_status['sessions']] == [
+        'claude_code'
+    ]
+
+    assert main(['integrations', 'capture', 'disable', *claude_base]) == 0
+    capsys.readouterr()
+    assert main(['integrations', 'capture', 'status', *claude_base]) == 0
+    assert json.loads(capsys.readouterr().out)['enabled'] is False
+    assert main(['integrations', 'capture', 'status', *codex_base]) == 0
+    assert json.loads(capsys.readouterr().out)['enabled'] is True
+
+
 def test_codex_audited_rollout_normalizes_stably_without_private_records() -> None:
     fixture = Path(__file__).parent / 'fixtures' / 'codex' / 'rollout.jsonl'
     notification = HookNotification(
@@ -649,10 +758,13 @@ def test_codex_resume_keeps_one_trajectory_and_ignores_empty_launcher(
     store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
     write_capture_config(
         CaptureConfig(
-            platform='codex',
             project_root=tmp_path,
             store_path=store_path,
-            installed_hooks=['SessionStart', 'Stop', 'SessionEnd'],
+            platforms={
+                'codex': PlatformCaptureConfig(
+                    installed_hooks=['SessionStart', 'Stop', 'SessionEnd']
+                )
+            },
         )
     )
     resumed_path = tmp_path / 'resumed.jsonl'
@@ -795,10 +907,11 @@ def test_failed_snapshot_does_not_advance_state_and_next_boundary_reconciles(
     )
     write_capture_config(
         CaptureConfig(
-            platform='claude_code',
             project_root=tmp_path,
             store_path=store_path,
-            installed_hooks=['Stop'],
+            platforms={
+                'claude_code': PlatformCaptureConfig(installed_hooks=['Stop'])
+            },
         )
     )
     service = CaptureService(
@@ -891,10 +1004,11 @@ def test_concurrent_duplicate_delivery_commits_one_content_boundary(
     store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
     write_capture_config(
         CaptureConfig(
-            platform='claude_code',
             project_root=tmp_path,
             store_path=store_path,
-            installed_hooks=['Stop'],
+            platforms={
+                'claude_code': PlatformCaptureConfig(installed_hooks=['Stop'])
+            },
         )
     )
     notification = HookNotification(

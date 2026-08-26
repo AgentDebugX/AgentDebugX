@@ -235,16 +235,19 @@ class CaptureRepository:
                 (error, duration_ms, receipt_id),
             )
 
-    def list_replayable(self, project_id: str) -> List[CaptureReceipt]:
+    def list_replayable(
+        self, project_id: str, host: Optional[str] = None
+    ) -> List[CaptureReceipt]:
         with self._connect() as conn:
-            rows = conn.execute(
-                """
+            query = """
                 SELECT * FROM capture_receipts
                 WHERE status IN ('pending', 'failed') AND project_id = ?
-                ORDER BY observed_at
-                """,
-                (project_id,),
-            ).fetchall()
+            """
+            params: List[Any] = [project_id]
+            if host is not None:
+                query += ' AND host = ?'
+                params.append(host)
+            rows = conn.execute(query + ' ORDER BY observed_at', params).fetchall()
         return [self._receipt_from_row(row) for row in rows]
 
     def mark_reconciled(self, receipt_id: str) -> None:
@@ -279,22 +282,28 @@ class CaptureRepository:
                 (project_id, host, session_id, current_receipt_id),
             )
 
-    def status(self, project_id: str) -> CaptureRepositoryStatus:
+    def status(
+        self, project_id: str, host: Optional[str] = None
+    ) -> CaptureRepositoryStatus:
         with self._connect() as conn:
+            session_query = 'SELECT * FROM capture_sessions WHERE project_id = ?'
+            receipt_query = """
+                    SELECT status, COUNT(*) AS count
+                    FROM capture_receipts
+                    WHERE project_id = ?
+            """
+            params: List[Any] = [project_id]
+            if host is not None:
+                session_query += ' AND host = ?'
+                receipt_query += ' AND host = ?'
+                params.append(host)
             session_rows = conn.execute(
-                'SELECT * FROM capture_sessions WHERE project_id = ? ORDER BY updated_at DESC',
-                (project_id,),
+                session_query + ' ORDER BY updated_at DESC', params
             ).fetchall()
             counts = {
                 str(row['status']): int(row['count'])
                 for row in conn.execute(
-                    """
-                    SELECT status, COUNT(*) AS count
-                    FROM capture_receipts
-                    WHERE project_id = ?
-                    GROUP BY status
-                    """,
-                    (project_id,),
+                    receipt_query + ' GROUP BY status', params
                 ).fetchall()
             }
         return CaptureRepositoryStatus(

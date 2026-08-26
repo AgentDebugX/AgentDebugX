@@ -5,20 +5,23 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
 PlatformName = Literal['claude_code', 'codex']
 
 
-class CaptureConfig(BaseModel):
-    schema_version: int = 1
+class PlatformCaptureConfig(BaseModel):
     enabled: bool = True
-    platform: PlatformName
+    installed_hooks: List[str]
+
+
+class CaptureConfig(BaseModel):
+    schema_version: int = 2
     project_root: Path
     store_path: Path
-    installed_hooks: List[str]
+    platforms: Dict[PlatformName, PlatformCaptureConfig]
 
 
 def capture_config_path(project_root: Path) -> Path:
@@ -31,6 +34,19 @@ def load_capture_config(project_root: Path) -> Optional[CaptureConfig]:
         payload = json.loads(path.read_text(encoding='utf-8'))
     except FileNotFoundError:
         return None
+    if 'platforms' not in payload:
+        platform = payload.get('platform')
+        payload = {
+            'schema_version': 2,
+            'project_root': payload.get('project_root'),
+            'store_path': payload.get('store_path'),
+            'platforms': {
+                platform: {
+                    'enabled': payload.get('enabled', True),
+                    'installed_hooks': payload.get('installed_hooks', []),
+                }
+            },
+        }
     validator = getattr(CaptureConfig, 'model_validate', None)
     return validator(payload) if callable(validator) else CaptureConfig.parse_obj(payload)
 
@@ -40,12 +56,16 @@ def write_capture_config(config: CaptureConfig) -> Path:
     path = capture_config_path(project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        'schema_version': config.schema_version,
-        'enabled': config.enabled,
-        'platform': config.platform,
+        'schema_version': 2,
         'project_root': str(project_root),
         'store_path': str(config.store_path.expanduser().resolve()),
-        'installed_hooks': config.installed_hooks,
+        'platforms': {
+            platform: {
+                'enabled': settings.enabled,
+                'installed_hooks': settings.installed_hooks,
+            }
+            for platform, settings in config.platforms.items()
+        },
     }
     temp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
     temp.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
@@ -54,10 +74,14 @@ def write_capture_config(config: CaptureConfig) -> Path:
     return path
 
 
-def disable_capture(project_root: Path) -> CaptureConfig:
+def disable_capture(
+    project_root: Path, platform: PlatformName
+) -> CaptureConfig:
     config = load_capture_config(project_root)
     if config is None:
         raise ValueError(f'capture is not configured for {project_root}')
-    config.enabled = False
+    settings = config.platforms.get(platform)
+    if settings is not None:
+        settings.enabled = False
     write_capture_config(config)
     return config
