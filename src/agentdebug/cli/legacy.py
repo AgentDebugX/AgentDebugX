@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -842,13 +843,21 @@ def _cmd_config(args: argparse.Namespace) -> int:
         try:
             result = llm.complete(
                 messages=[{'role': 'user', 'content': 'Say PONG'}],
-                max_tokens=20,
+                max_tokens=256,
                 timeout=30.0,
             )
         except Exception as exc:
             print(f'LLM config check failed: {exc}', file=sys.stderr)
             return 5
         text = (getattr(result, 'text', '') or '').strip()
+        if re.search(r'\bPONG\b', text, flags=re.IGNORECASE) is None:
+            print(json.dumps({
+                'ok': False,
+                'model': llm.model,
+                'response': text,
+                'error': 'LLM response did not contain PONG',
+            }, indent=2))
+            return 5
         print(json.dumps({'ok': True, 'model': llm.model, 'response': text}, indent=2))
         return 0
 

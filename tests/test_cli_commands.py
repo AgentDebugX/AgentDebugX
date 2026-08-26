@@ -426,6 +426,62 @@ def test_config_masks_api_key(tmp_path, monkeypatch, capsys) -> None:
     assert 'sk-t...7890' in rendered
 
 
+def test_config_doctor_rejects_response_without_pong(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        OpenAICompatClient,
+        'complete',
+        lambda self, messages, **kwargs: CompletionResult(text='', raw={}),
+    )
+
+    result = main(
+        [
+            'config',
+            'doctor',
+            '--base-url',
+            'https://example.invalid/v1',
+            '--api-key',
+            'secret',
+            '--model',
+            'test-model',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 5
+    assert payload['ok'] is False
+
+
+def test_config_doctor_finds_pong_with_reasoning_safe_budget(
+    monkeypatch,
+    capsys,
+) -> None:
+    calls = []
+
+    def complete(self, messages, **kwargs):
+        calls.append({'messages': messages, **kwargs})
+        return CompletionResult(text='The endpoint says: pong!', raw={})
+
+    monkeypatch.setattr(OpenAICompatClient, 'complete', complete)
+
+    result = main(
+        [
+            'config',
+            'doctor',
+            '--base-url',
+            'https://example.invalid/v1',
+            '--api-key',
+            'secret',
+            '--model',
+            'test-model',
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert result == 0
+    assert payload['ok'] is True
+    assert calls[0]['max_tokens'] == 256
+
+
 def test_http_runner_config_lifecycle(tmp_path, monkeypatch, capsys) -> None:
     config_path = tmp_path / 'config.json'
     monkeypatch.setenv('AGENTDEBUG_CONFIG', str(config_path))
