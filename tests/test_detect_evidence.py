@@ -79,6 +79,39 @@ class TestGroundedFindingsPass:
         )
         assert verify_finding_quotes(finding, trajectory) is True
 
+    @pytest.mark.parametrize('marker', ['…', '...', '[truncated]'])
+    def test_a_trailing_truncation_marker_is_stripped(
+        self, trajectory: AgentTrajectory, marker: str
+    ) -> None:
+        """Caught on real data, and it was our bug rather than the model's.
+
+        The prompt renderer truncates long events and appends a marker. A model
+        copying a span that runs to the end of what it was shown copies the
+        marker too. Rejecting that would discard correct findings for a reason
+        the model could not have avoided -- and did, on the first live run.
+
+        Only a trailing marker is dropped; everything before it must still
+        match exactly, so an invented quote cannot be laundered by suffixing
+        an ellipsis.
+        """
+
+        finding = _finding(
+            wrong_content_quote='The desk has a desklamp' + marker,
+            reference_quote='you see a cd 3',
+            conflict_with=ConflictAxis.CONTEXT,
+        )
+        assert verify_finding_quotes(finding, trajectory) is True
+
+    def test_a_marker_does_not_launder_an_invented_quote(
+        self, trajectory: AgentTrajectory
+    ) -> None:
+        finding = _finding(
+            wrong_content_quote='I never said this…',
+            reference_quote='you see a cd 3',
+            conflict_with=ConflictAxis.CONTEXT,
+        )
+        assert verify_finding_quotes(finding, trajectory) is False
+
     def test_task_axis_may_cite_the_goal(self, trajectory: AgentTrajectory) -> None:
         finding = _finding(
             wrong_content_quote='The desk has a desklamp',

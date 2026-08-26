@@ -43,6 +43,14 @@ __all__ = [
 
 _WS = re.compile(r'\s+')
 
+#: Markers a renderer appends when it truncates an event for the prompt. A model
+#: copying a span that runs to the end of what it was shown will copy the marker
+#: too, and the marker is not in the source, so the quote would fail
+#: verification for a reason the model had no way to avoid. Only a *trailing*
+#: marker is stripped: everything before it must still match exactly, so this
+#: forgives the truncation artifact without forgiving an invented quote.
+_TRUNCATION_MARKERS = ('…', '...', '[truncated]', '[...]')
+
 #: Which event types each conflict axis may draw its reference quote from.
 #: TASK is handled separately, because the goal is not an event.
 _REFERENCE_SCOPE = {
@@ -73,6 +81,24 @@ _REFERENCE_SCOPE = {
 
 def _norm(text: str) -> str:
     return _WS.sub(' ', text).strip()
+
+
+def _norm_quote(text: str) -> str:
+    """Normalize a model-supplied quote before matching.
+
+    Beyond whitespace, drops a trailing truncation marker. See
+    :data:`_TRUNCATION_MARKERS` for why that is not a loophole.
+    """
+
+    normalized = _norm(text)
+    changed = True
+    while changed:
+        changed = False
+        for marker in _TRUNCATION_MARKERS:
+            if normalized.endswith(marker):
+                normalized = normalized[: -len(marker)].rstrip()
+                changed = True
+    return normalized
 
 
 def _event_text(event: AgentEvent) -> str:
@@ -158,7 +184,7 @@ def verify_finding_quotes(
     blamed = _blamed_event(finding, events)
 
     if wrong:
-        needle = _norm(wrong)
+        needle = _norm_quote(wrong)
         if not needle:
             return False
         # A quote of the blamed step must come from the blamed step. Falling
@@ -169,7 +195,7 @@ def verify_finding_quotes(
             return False
 
     if reference:
-        needle = _norm(reference)
+        needle = _norm_quote(reference)
         if not needle:
             return False
         candidates = _permitted_reference_events(finding, events, blamed)
