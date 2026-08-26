@@ -1,10 +1,11 @@
 # Recovery Guide
 
-Recovery is an expected AgentDebugX feature. In the CLI it is selected through
-`agentdebug diagnose --recovery ...`, not a separate command. Recovery output is
-suggest-only by default: it proposes next-run guidance, verifier ideas, manual
-rules, or rollback scaffolds. Do not apply fixes or rerun the original agent
-unless the user asks.
+Recovery is an expected AgentDebugX feature. The primary skill workflow selects
+it through `agentdebug run --recovery ...`; the expert composable interface uses
+`agentdebug diagnose --recovery ...`. It is not a separate command. Recovery
+output is suggest-only by default: it proposes next-run guidance, verifier
+ideas, manual rules, or rollback scaffolds. Do not apply fixes or rerun the
+original agent unless the user asks.
 
 ## Recovery Modes
 

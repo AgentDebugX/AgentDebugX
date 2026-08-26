@@ -9,8 +9,8 @@ from agentdebug.integrations.debug_skill import CANONICAL_SKILL_BODY, CLI_REFERE
 SKILL_TEMPLATE = """\
 ---
 name: "{name}"
-description: "Debug supplied agent trajectories with one durable AgentDebugX run."
-argument-hint: "debug this supplied agent trajectory"
+description: "Debug supplied agent trajectories or collections with durable AgentDebugX runs."
+argument-hint: "debug this supplied agent trajectory or collection"
 allowed-tools: {allowed_tools}
 ---
 

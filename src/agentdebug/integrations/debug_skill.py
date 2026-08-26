@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 SkillPlatform = Literal['claude', 'codex', 'hermes', 'openclaw']
-CONTRACT_VERSION = '2.0.0'
+CONTRACT_VERSION = '2.1.0'
 
 
 def _read_skill_file(rel_path: str) -> str:
@@ -156,7 +156,7 @@ def _codex_skill_md(name: str) -> str:
     return f"""\
 ---
 name: {name}
-description: Debug supplied agent trajectories with one durable AgentDebugX run.
+description: Debug supplied agent trajectories or collections with durable AgentDebugX runs.
 metadata:
   agentdebug-contract-version: "{CONTRACT_VERSION}"
 ---
@@ -169,8 +169,8 @@ def _codex_openai_yaml(name: str) -> str:
     return f"""\
 interface:
   display_name: AgentDebugX
-  short_description: Debug supplied agent trajectories
-  default_prompt: Use ${name} to diagnose the supplied trajectory with AgentDebugX.
+  short_description: Debug supplied trajectories or collections
+  default_prompt: Use ${name} to diagnose the supplied trajectory or collection with AgentDebugX.
 """
 
 

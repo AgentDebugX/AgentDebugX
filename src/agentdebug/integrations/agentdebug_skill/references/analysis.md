@@ -1,6 +1,7 @@
 # Analysis Heuristics
 
-Use these heuristics after `agentdebug diagnose` produces a report. They help
+Use these heuristics after `agentdebug run` or expert `agentdebug diagnose`
+produces a report. They help
 explain the result; they do not replace the CLI diagnosis.
 
 ## Failure Location

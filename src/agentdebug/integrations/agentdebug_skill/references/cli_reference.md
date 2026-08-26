@@ -15,22 +15,26 @@ The integration flow is:
 The primary skill command is:
 
 ```bash
-agentdebug run INPUT --profile standard --ui --json
+agentdebug run INPUT --profile standard --json
 ```
+
+Add `--ui` only when the user asks for an interactive inspection link.
 
 `run` processes one trajectory. When `INPUT` is a multi-record
 AgentErrorBench JSONL collection, select one record or process every independent
 record:
 
 ```bash
-agentdebug run INPUT.jsonl --trajectory-id TRAJECTORY_ID --profile standard --ui --json
-agentdebug run INPUT.jsonl --batch --profile standard --ui --json
+agentdebug run INPUT.jsonl --trajectory-id TRAJECTORY_ID --profile standard --json
+agentdebug run INPUT.jsonl --batch --profile standard --json
 ```
 
 Batch `run` returns a summary whose `items` contain the normal per-trajectory
 run results. It accepts independent rows from one directly supplied JSONL file,
 or recursively discovers JSON files beneath a directory. A partial failure
-exits with code 3.
+exits with code 3. Do not pass `--ui` to a batch; select a returned `run_id`
+and call `agentdebug ui ensure --run-id RUN_ID --json` when visual inspection
+is requested.
 
 GUI RCA collection processing remains under `python -m agentdebug.gui` because
 it has separate OSWorld classification, failure filtering, parallel execution,

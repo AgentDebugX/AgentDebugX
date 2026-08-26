@@ -13,7 +13,10 @@ from agentdebug.integrations.management import MARKER, install_skill, integratio
 def test_all_host_skills_share_unified_run_contract(platform: str) -> None:
     bundle = build_debug_skill_bundle(platform=platform)
     skill = bundle.files['SKILL.md']
-    assert 'agentdebug run <supplied-input>' in skill
+    assert 'agentdebug run <input> --profile standard --json' in skill
+    assert 'agentdebug run <input> --batch' in skill
+    assert '--trajectory-id <id>' in skill
+    assert 'item.result' in skill
     assert 'agentdebug diagnose <trajectory.json>' not in skill
     assert CONTRACT_VERSION in skill
     if platform == 'codex':
@@ -37,4 +40,5 @@ def test_managed_install_refuses_unmanaged_and_preserves_unrelated_files(tmp_pat
 def test_codex_packaging_edge_uses_canonical_bundle() -> None:
     bundle = build_codex_skill_bundle()
     assert bundle.platform == 'codex'
-    assert 'agentdebug run <supplied-input>' in bundle.files['SKILL.md']
+    assert 'agentdebug run <input> --profile standard --json' in bundle.files['SKILL.md']
+    assert 'supplied trajectory or collection' in bundle.files['agents/openai.yaml']

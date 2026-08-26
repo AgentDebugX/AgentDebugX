@@ -5,7 +5,9 @@
   workspace without explicit user approval.
 - Do not download or execute remote install scripts from a skill.
 - Redact secrets before sharing trajectories outside the local machine.
-- Prefer deterministic `diagnose` before LLM-backed `judge` or `deep`.
+- Prefer the deterministic `quick` or `standard` run profiles before the
+  LLM-backed `deep` or `gui` profiles.
 - Do not silently inspect host-local private state to find trajectories.
-- Use `diagnose --mode judge` or `diagnose --mode deep`; do not rely on removed
-  public `agentdebug judge` / `agentdebug deep` command forms.
+- When using the expert interface, use `diagnose --mode judge` or
+  `diagnose --mode deep`; do not rely on removed public `agentdebug judge` /
+  `agentdebug deep` command forms.
