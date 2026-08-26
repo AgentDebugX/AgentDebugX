@@ -36,6 +36,34 @@ The rule registry loads manifests first, then imports the configured entrypoint.
 This keeps rule packs plugin-like while preserving Python implementation
 quality.
 
+## Evidence grounding
+
+`detect.trajdebug` requires every finding to carry two verbatim spans and
+verifies them before the finding leaves the analyzer:
+
+- `wrong_content_quote` -- the wrong commitment, from the blamed event
+- `reference_quote` -- what it contradicts
+- `conflict_with` -- `task` / `context` / `self` / `env`, which scopes where the
+  reference quote may come from and is what makes the requirement checkable
+  rather than decorative
+- `quote_verified` -- `True` / `False` / `None`
+
+`None` means never checked and is the honest state for the deterministic rule
+packs, which have no claim to quote. A consumer filtering for trustworthy
+findings must not read `None` as `True`.
+
+`agentdebug.diagnose.detect.evidence` holds the verification and is reusable by
+any detector. `quote_verification_summary()` reports counts per report; the
+ratio of verified to (verified + unsupported) is a measurable grounding rate
+for a detector.
+
+Whitespace is normalized before matching, and a trailing truncation marker is
+stripped, because a model copying a span that runs to the end of what it was
+shown copies the marker too. Nothing else is normalized, so an invented quote
+still fails.
+
+Adapted from TrajDebug Stage B (THU-KEG/TrajDebug, MIT).
+
 ## Dependencies
 
 Core detection has no heavy dependencies. GUI and LLM detectors may require the

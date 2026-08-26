@@ -33,6 +33,40 @@ DeepDebug lives under `diagnose/profiles/` because it orchestrates multiple
 Diagnose stages. It may reuse attribution algorithms and memory services, but it
 is not registered as a regular Attribute strategy.
 
+## Error state
+
+`attribute.trajdebug` runs cluster -> state -> select:
+
+1. **Cluster** findings by the concrete text they violate (`reference_quote`)
+   rather than by taxonomy label. Twenty findings repeating one error are one
+   error; collapsing them stops a repeated symptom outvoting its own cause.
+   Findings with no reference quote each become their own instance, because
+   wrongly merging two real errors hides one of them.
+2. **Classify** each instance: was it fixed, does it reach the terminal
+   failure, and how. Needs an LLM; skipped when none is supplied.
+3. **Select** the earliest instance still in the causal chain.
+
+Clustering and selection are model-free, so with no LLM this degrades to
+clustering plus earliest-in-chain -- still more than ranking by step index
+alone, at no cost. A model that is unreachable or returns unparseable output
+degrades the same way rather than failing the attribution.
+
+`Blame` carries the result:
+
+- `fix_status` + `fix_evidence_quote` -- e.g. `"fixed_at_step_39"`, with the
+  text showing the agent correcting course. Without the quote, `fix_status` is
+  an assertion rather than a checkable claim.
+- `chain_membership` -- does this error actually reach the failure?
+- `terminal_connection` -- how, e.g. `"budget_debt"` for an error that never
+  broke correctness but consumed the run's budget
+- `wasted_steps`
+
+An instance with no state is treated as in-chain: absence of evidence must not
+silently exclude a candidate. Only an explicit `chain_membership: false`
+demotes one.
+
+Adapted from TrajDebug phase C (THU-KEG/TrajDebug, MIT).
+
 ## Corrected actions vs. recovery
 
 A `Blame` may carry a `CorrectedAction`: the one concrete action that should have replaced
