@@ -104,6 +104,31 @@ class Blame:
     #: change at all. See :class:`CorrectedAction` for what None does and does not mean.
     corrected_action: Optional['CorrectedAction'] = None
 
+    # -- Error state ------------------------------------------------------
+    #
+    # Blame previously answered only "which step", which forces the ranking to
+    # treat every candidate as equally live. It is not: an agent that errs at
+    # step 3, notices at step 39 and corrects should not have step 3 blamed for
+    # a failure at step 60. Nothing in this dataclass could express that, so
+    # `HeuristicAttributor` -- which sorts by step index and takes the first --
+    # blames the earliest candidate whether or not the agent recovered from it.
+    #
+    # These are Optional and default to None, meaning "this attributor does not
+    # model state", which is true of every attributor that predates them.
+    #: e.g. ``"fixed_at_step_39"``; None when unfixed or unassessed.
+    fix_status: Optional[str] = None
+    #: Verbatim text showing the agent correcting course. Without it,
+    #: ``fix_status`` is an assertion rather than a claim that can be checked.
+    fix_evidence_quote: Optional[str] = None
+    #: Does this error actually reach the terminal failure? False means the run
+    #: failed for some other reason and this candidate is a distraction.
+    chain_membership: Optional[bool] = None
+    #: How it reached the ending -- e.g. ``"budget_debt"`` for an error that
+    #: never broke correctness but consumed the step or token budget.
+    terminal_connection: Optional[str] = None
+    #: Step indices this error caused to produce no progress.
+    wasted_steps: List[int] = field(default_factory=list)
+
 
 @dataclass
 class AttributionResult:
