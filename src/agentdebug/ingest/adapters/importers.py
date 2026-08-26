@@ -1666,7 +1666,7 @@ def _is_codex_injected_instruction(text: str) -> bool:
     """Recognize Codex's user-role project-instruction envelope."""
     stripped = text.lstrip()
     return (
-        stripped.startswith('# AGENTS.md instructions for ')
+        stripped.startswith('# AGENTS.md instructions')
         and '<INSTRUCTIONS>' in stripped
         and '</INSTRUCTIONS>' in stripped
     )
