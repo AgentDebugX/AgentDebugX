@@ -45,6 +45,7 @@ FormatName = Literal[
     'hermes',
     'osworld',
     'gaia_odr',
+    'trajdebug_unified',
 ]
 
 
@@ -61,6 +62,11 @@ def detect_payload_format(payload: Any) -> FormatName:
     if isinstance(payload, dict):
         if _looks_hermes_export(payload):
             return 'hermes'
+        # Checked before the generic `messages` branch: a TrajDebug unified
+        # trajectory also has a top-level `messages` list, so ordering here is
+        # what keeps it from being read as a plain message export.
+        if _looks_trajdebug_unified(payload):
+            return 'trajdebug_unified'
         if isinstance(payload.get('messages'), list):
             return 'messages'
         if isinstance(payload.get('conversations'), list):
@@ -239,6 +245,18 @@ def convert_payload(
             goal=goal,
             framework=framework,
         )
+    if fmt == 'trajdebug_unified':
+        if not isinstance(payload, dict):
+            raise ConversionError('trajdebug_unified format expects a JSON object')
+        from agentdebug.ingest.adapters import trajdebug
+
+        return trajdebug.convert_trajdebug_unified_payload(
+            payload,
+            trace_id=trace_id,
+            task_id=task_id,
+            goal=goal,
+            framework=framework,
+        )
     if fmt == 'gaia_odr':
         if not isinstance(payload, dict):
             raise ConversionError('gaia_odr format expects a JSON object')
@@ -356,6 +374,7 @@ def _normalize_format_name(fmt: str) -> FormatName:
         'hermes',
         'osworld',
         'gaia_odr',
+        'trajdebug_unified',
     }
     if normalized not in allowed:
         raise ConversionError(f'unsupported format: {fmt}')
@@ -2260,6 +2279,12 @@ def _module_for_event_type(event_type: EventType) -> str:
     if event_type == EventType.HANDOFF:
         return 'multiagent'
     return 'runtime'
+
+
+def _looks_trajdebug_unified(payload: Any) -> bool:
+    from agentdebug.ingest.adapters.trajdebug import looks_trajdebug_unified
+
+    return looks_trajdebug_unified(payload)
 
 
 def _looks_webshop_page(payload: Any) -> bool:
