@@ -22,6 +22,7 @@ from agentdebug.diagnose.detect.detectors import (
     run_detectors,
 )
 from agentdebug.diagnose.detect.judge import LLMJudgeAnalyzer
+from agentdebug.diagnose.detect.perstep import DEFAULT_JUDGABLE_TYPES, PerStepAnalyzer
 from agentdebug.diagnose.detect.selection import (
     SELECTORS,
     RootSelector,
@@ -43,7 +44,9 @@ __all__ = [
     'FailureObservation',
     'GradedContextBuilder',
     'HeuristicAnalyzer',
+    'DEFAULT_JUDGABLE_TYPES',
     'LLMJudgeAnalyzer',
+    'PerStepAnalyzer',
     'RepeatedStateDetector',
     'RepeatedToolCallDetector',
     'RootSelector',
