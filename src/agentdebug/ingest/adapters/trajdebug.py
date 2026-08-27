@@ -184,6 +184,10 @@ def convert_trajdebug_unified_payload(
 
         traj.add_event(
             AgentEvent(
+                # Deterministic: the id is rendered into every judge prompt, so
+                # a fresh UUID per import makes two runs over the same file send
+                # different bytes -- unreproducible, and uncacheable.
+                event_id=f'{traj.trace_id}:step{step}',
                 trace_id=traj.trace_id,
                 # `name` carries the original speaker label, which is the only
                 # multi-agent signal the unified format preserves.

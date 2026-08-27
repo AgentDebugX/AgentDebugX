@@ -222,3 +222,17 @@ class TestMalformedInput:
         payload = {'messages': [{'step': 0, 'role': 'user', 'content': 'x'}]}
         with pytest.raises(ConversionError, match='metadata object'):
             convert_payload(payload, format='trajdebug_unified')
+
+
+class TestDeterministicEventIds:
+    def test_same_file_imports_to_the_same_ids(self) -> None:
+        """Event ids are rendered into judge prompts, so they must not be random.
+
+        A fresh UUID per import meant two runs over one file sent different
+        bytes to the model: unreproducible, and impossible to cache.
+        """
+        first = convert_payload(_unified(), format='auto')
+        second = convert_payload(_unified(), format='auto')
+        assert [e.event_id for e in first.events] == [e.event_id for e in second.events]
+        assert len({e.event_id for e in first.events}) == len(first.events)
+        assert first.events[1].event_id == f'{first.trace_id}:step1'
