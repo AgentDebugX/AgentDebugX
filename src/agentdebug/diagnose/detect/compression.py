@@ -203,6 +203,10 @@ exception types, numbers, URLs, command lines, and any quoted string.
 
 Never invent content that is not in the step. If the step is empty, say so.
 
+Write in the language of the step itself. Downstream diagnosis matches your
+output against the original text, so a summary translated into another language
+resolves against nothing.
+
 LENGTHS (characters, per tier, hard caps):
   th1 <= {th1_chars}   detailed: every distinct fact, constraint and outcome.
   th2 <= {th2_chars}   moderate: merge related points, drop elaborations, keep
@@ -213,7 +217,9 @@ LENGTHS (characters, per tier, hard caps):
 OUTPUT RULES:
 1. Output ONLY a JSON object. No prose before or after. No markdown fences.
 2. Exactly three keys: "th1", "th2", "th3". All three are strings.
-3. Emit the JSON object COMPLETE -- never stop mid-key or mid-string.
+3. Emit the JSON object COMPLETE -- never stop mid-key or mid-string. Running
+   past a tier's character cap risks exactly that, and a truncated object loses
+   all three tiers, not just the long one. Stay inside the caps.
 
 Schema:
 {{"th1":"...","th2":"...","th3":"..."}}
@@ -240,7 +246,7 @@ class StepCompressor:
         th1_chars: int = DEFAULT_TH1_CHARS,
         th2_chars: int = DEFAULT_TH2_CHARS,
         th3_chars: int = DEFAULT_TH3_CHARS,
-        max_tokens: int = 2048,
+        max_tokens: int = 4096,
         max_workers: int = 8,
         request_json: bool = True,
     ) -> None:

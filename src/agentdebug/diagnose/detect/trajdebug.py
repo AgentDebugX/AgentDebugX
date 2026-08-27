@@ -35,7 +35,7 @@ categories this calls ``conflict_with``.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from agentdebug.diagnose.detect.evidence import (
     annotate_quote_verification,
@@ -114,6 +114,7 @@ class TrajDebugAnalyzer:
         drop_unsupported: bool = True,
         context_builder: Optional[Any] = None,
         root_selector: Optional[RootSelector] = None,
+        request_json: bool = False,
     ) -> None:
         self.llm = llm
         self.max_events_per_call = max_events_per_call
@@ -136,6 +137,11 @@ class TrajDebugAnalyzer:
         # quote verbatim can only quote what its context actually contains.
         self.context_builder = context_builder
         self.root_selector: RootSelector = root_selector or earliest_finding
+        # Ask the provider to constrain the response to JSON. Off by default;
+        # see the note on LLMJudgeAnalyzer.request_json. A chunk that fails to
+        # parse yields no triggers, which downstream cannot tell apart from a
+        # chunk the model found nothing wrong with.
+        self.request_json = request_json
 
     # -- public API --------------------------------------------------------
     def analyze(self, trajectory: AgentTrajectory) -> DiagnosticReport:
@@ -206,7 +212,10 @@ class TrajDebugAnalyzer:
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': self._render_user_prompt(trajectory, chunk)},
         ]
-        result = self.llm.complete(messages=messages, max_tokens=self.max_tokens)
+        kwargs: Dict[str, Any] = {'max_tokens': self.max_tokens}
+        if self.request_json:
+            kwargs['response_format'] = {'type': 'json_object'}
+        result = self.llm.complete(messages=messages, **kwargs)
         parsed = extract_json_block(result.text)
         if not parsed:
             LOG.warning('trajdebug detector returned no JSON; raw=%r', result.text[:300])

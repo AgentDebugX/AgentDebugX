@@ -74,6 +74,7 @@ class LLMJudgeAnalyzer:
         max_findings_per_chunk: int = 6,
         context_builder: Optional[Any] = None,
         root_selector: Optional[RootSelector] = None,
+        request_json: bool = False,
     ) -> None:
         self.llm = llm
         self.max_events_per_call = max_events_per_call
@@ -84,6 +85,12 @@ class LLMJudgeAnalyzer:
         # see agentdebug.diagnose.detect.compression.GradedContextBuilder.
         self.context_builder = context_builder
         self.root_selector: RootSelector = root_selector or earliest_finding
+        # Ask the provider to constrain the response to JSON. Off by default
+        # because not every endpoint supports it and the prompt already asks
+        # for JSON in words -- but on long traces the words are not enough, and
+        # a chunk that fails to parse contributes no findings at all, which is
+        # indistinguishable downstream from a chunk with nothing wrong in it.
+        self.request_json = request_json
         # NOTE: thinking models (Gemini 2.x/3.x, o-series) spend a substantial
         # fraction of `max_tokens` on reasoning tokens before any text is
         # emitted. 8192 is the safe default after the v0.2.6 Who&When debate-
@@ -154,7 +161,10 @@ class LLMJudgeAnalyzer:
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user},
         ]
-        result = self.llm.complete(messages=messages, max_tokens=self.max_tokens)
+        kwargs: Dict[str, Any] = {'max_tokens': self.max_tokens}
+        if self.request_json:
+            kwargs['response_format'] = {'type': 'json_object'}
+        result = self.llm.complete(messages=messages, **kwargs)
         parsed = extract_json_block(result.text)
         if not parsed:
             LOG.warning('LLM judge returned no JSON; raw=%r', result.text[:300])

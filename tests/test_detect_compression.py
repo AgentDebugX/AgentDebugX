@@ -296,3 +296,35 @@ def test_event_text_labels_its_fields():
     assert 'input: ls -la' in text
     assert 'output: two files' in text
     assert 'error: none' in text
+
+
+def test_json_mode_is_requested_by_default_for_compression():
+    """Compression asks the provider to constrain the response.
+
+    The detectors default this off, because not every endpoint supports it.
+    Compression defaults it on because a truncated object loses all three tiers
+    at once and silently falls back to clipping -- which is the behaviour the
+    stage exists to replace.
+    """
+    llm = RecordingLLM('{"th1":"d","th2":"m","th3":"t"}')
+    traj = make_trajectory([make_event(0, 'prose ' * 200)])
+
+    StepCompressor(llm).compress(traj)
+
+    assert llm.calls[0]['kwargs']['response_format'] == {'type': 'json_object'}
+
+
+def test_compression_prompt_pins_the_output_language():
+    """SWE-Bench-Pro task prompts are in Chinese; ALFWorld's are in English.
+
+    A summary translated out of the source language resolves against nothing
+    when a detector tries to match its quotes back to the trajectory, so the
+    tier text has to stay in whatever language the step was written in.
+    """
+    llm = RecordingLLM('{"th1":"d","th2":"m","th3":"t"}')
+    traj = make_trajectory([make_event(0, 'prose ' * 200)])
+
+    StepCompressor(llm).compress(traj)
+
+    system = llm.calls[0]['messages'][0]['content']
+    assert 'language of the step itself' in system
