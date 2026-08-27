@@ -229,3 +229,70 @@ def test_llm_judge_uses_a_context_builder_when_given_one(
 
     assert 'GRADED-CONTEXT-MARKER' in prompts[0]
     assert 'event_id=' not in prompts[0]
+
+
+def test_the_original_pipeline_is_what_you_get_by_default(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    """Everything ported from TrajDebug is opt-in, and stays opt-in.
+
+    The port added four components across two stages. If any of them ever
+    becomes a default, existing users silently change behaviour and start
+    paying for LLM calls they did not ask for -- so the default set is asserted
+    by name rather than by intent.
+    """
+    from agentdebug.diagnose.registry import list_components
+
+    defaults = {
+        component.id
+        for component in list_components()
+        if component.enabled_by_default
+    }
+
+    assert defaults == {
+        'detect.heuristic',
+        'detect.rules.core',
+        'attribute.heuristic',
+        'recover.deepdebug',
+    }
+    for ported in (
+        'detect.stage_a',
+        'detect.perstep',
+        'detect.trajdebug',
+        'attribute.trajdebug',
+    ):
+        assert ported not in defaults
+
+
+def test_both_pipelines_run_on_the_same_trajectory(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    """The original and the ported pipeline are independently selectable.
+
+    Neither construction reaches into the other: the original needs no LLM at
+    all, and the ported one is assembled explicitly from named components.
+    """
+    from agentdebug.diagnose.pipeline import DiagnosePipeline
+    from agentdebug.diagnose.registry import load_component
+
+    original = DiagnosePipeline()          # no arguments: rule packs, no model
+    original_result = original.run(failed_trajectory)
+    assert original_result.report is not None
+
+    class FakeLLM:
+        model = 'fake'
+
+        def complete(self, messages, **kwargs):
+            return CompletionResult(text='{"triggers":[],"summary":"none"}', raw={})
+
+    Detector = load_component('detect.trajdebug')
+    Attributor = load_component('attribute.trajdebug')
+    ported = DiagnosePipeline(
+        detector=Detector(FakeLLM()),
+        attributor=Attributor(),
+    )
+    ported_result = ported.run(failed_trajectory)
+    assert ported_result.report is not None
+
+    # Same input, two independent pipelines, two independent reports.
+    assert original_result.report is not ported_result.report
