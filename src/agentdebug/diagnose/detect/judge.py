@@ -13,6 +13,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any, Dict, List, Optional
 
+from agentdebug.diagnose.detect.selection import RootSelector, earliest_finding
 from agentdebug.runtime import LLMClient, extract_json_block
 from agentdebug.schema import (
     SEED_FAILURE_MODES,
@@ -22,7 +23,6 @@ from agentdebug.schema import (
     EventType,
     FailureFinding,
     FailureMode,
-    confidence_or_default,
     new_id,
 )
 
@@ -72,10 +72,18 @@ class LLMJudgeAnalyzer:
         max_evidence_chars: int = 300,
         max_tokens: int = 8192,
         max_findings_per_chunk: int = 6,
+        context_builder: Optional[Any] = None,
+        root_selector: Optional[RootSelector] = None,
     ) -> None:
         self.llm = llm
         self.max_events_per_call = max_events_per_call
         self.max_evidence_chars = max_evidence_chars
+        # Both default to the historical behaviour, so an analyzer built the
+        # way it always was renders and selects exactly as it always did.
+        # `context_builder` is any object with `render_chunk(events, chunk)`;
+        # see agentdebug.diagnose.detect.compression.GradedContextBuilder.
+        self.context_builder = context_builder
+        self.root_selector: RootSelector = root_selector or earliest_finding
         # NOTE: thinking models (Gemini 2.x/3.x, o-series) spend a substantial
         # fraction of `max_tokens` on reasoning tokens before any text is
         # emitted. 8192 is the safe default after the v0.2.6 Who&When debate-
@@ -207,7 +215,13 @@ class LLMJudgeAnalyzer:
             f'- {mode_id}: {mode.description}'
             for mode_id, mode in SEED_FAILURE_MODES.items()
         )
-        events_doc = '\n'.join(self._render_event(evt) for evt in chunk)
+        if self.context_builder is not None:
+            # Graded rendering: the chunk under judgement arrives at full
+            # detail and the rest of the run as a gist, instead of every event
+            # everywhere clipped to the same few hundred characters.
+            events_doc = self.context_builder.render_chunk(trajectory.events, chunk)
+        else:
+            events_doc = '\n'.join(self._render_event(evt) for evt in chunk)
         return (
             f'GOAL: {trajectory.goal!r}\n'
             f'FRAMEWORK: {trajectory.framework!r}\n\n'
@@ -236,16 +250,7 @@ class LLMJudgeAnalyzer:
     def _select_root(
         self, findings: List[FailureFinding]
     ) -> Optional[FailureFinding]:
-        if not findings:
-            return None
-        return sorted(
-                findings,
-                key=lambda finding: (
-                    finding.step_index is None,
-                    finding.step_index if finding.step_index is not None else 10**9,
-                    -confidence_or_default(finding.confidence),
-                ),
-        )[0]
+        return self.root_selector(findings)
 
     def _collect_suggestions(self, findings: List[FailureFinding]) -> List[str]:
         seen = set()

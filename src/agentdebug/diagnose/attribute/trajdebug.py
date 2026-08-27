@@ -136,11 +136,20 @@ class TrajDebugAttributor:
         *,
         max_tokens: int = 4096,
         max_instances_scored: int = 12,
+        rank_policy: str = 'earliest',
     ) -> None:
         #: Optional. Without it, C2 is skipped and instances carry no state.
         self.llm = llm
         self.max_tokens = max_tokens
         self.max_instances_scored = max_instances_scored
+        #: How C3 breaks the tie between in-chain instances. ``'earliest'`` is
+        #: the original policy; ``'confident'`` ranks on the detector's own
+        #: confidence instead of on position. Defaults to the original.
+        if rank_policy not in ('earliest', 'confident'):
+            raise ValueError(
+                f'unknown rank_policy {rank_policy!r}; expected earliest or confident'
+            )
+        self.rank_policy = rank_policy
 
     # -- public API --------------------------------------------------------
     def attribute(
@@ -290,24 +299,30 @@ class TrajDebugAttributor:
     def _rank(
         self, instances: Sequence[_Instance], states: Dict[int, Dict[str, Any]]
     ) -> List[_Instance]:
-        """Earliest instance still in the chain, then the rest by origin step.
+        """Rank the instances, chain membership first, then ``rank_policy``.
 
         An instance the model explicitly ruled out of the chain sorts last
         however early it is -- that is the whole point of running C2. An
         instance with no state (no model, or the model skipped it) is treated
         as in-chain, so absence of evidence does not silently exclude it.
+
+        Within the chain, ``'earliest'`` takes the first instance by origin
+        step, the original policy. ``'confident'`` takes the instance the
+        detector was most sure of. The distinction only matters when several
+        instances survive C2 -- but that is the common case, so which tiebreak
+        runs is worth being able to vary and measure.
         """
+        prefer_confidence = self.rank_policy == 'confident'
 
         def key(inst: _Instance) -> tuple:
             state = states.get(inst.instance_id, {})
             out_of_chain = state.get('chain_membership') is False
             origin = inst.origin_step
-            return (
-                out_of_chain,
-                origin is None,
-                origin if origin is not None else 10**9,
-                -confidence_or_default(inst.origin.confidence),
-            )
+            position = (origin is None, origin if origin is not None else 10**9)
+            confidence = -confidence_or_default(inst.origin.confidence)
+            if prefer_confidence:
+                return (out_of_chain, confidence, *position)
+            return (out_of_chain, *position, confidence)
 
         return sorted(instances, key=key)
 

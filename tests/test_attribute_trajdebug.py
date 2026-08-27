@@ -248,3 +248,30 @@ class TestBlameShape:
         result = TrajDebugAttributor().attribute(trajectory, findings)
 
         assert '2 finding(s)' in result.hypotheses[0].rationale
+
+
+def test_rank_policy_defaults_to_earliest(trajectory: AgentTrajectory) -> None:
+    """The new knob must not move the existing answer when left alone."""
+    attributor = TrajDebugAttributor()
+    assert attributor.rank_policy == 'earliest'
+
+    findings = [_finding(1, 'alpha', confidence=0.2), _finding(4, 'beta', confidence=0.95)]
+    result = attributor.attribute(trajectory, findings)
+
+    assert result.hypotheses[0].step_index == 1
+
+
+def test_confident_rank_policy_prefers_the_detector_confidence(
+    trajectory: AgentTrajectory,
+) -> None:
+    attributor = TrajDebugAttributor(rank_policy='confident')
+
+    findings = [_finding(1, 'alpha', confidence=0.2), _finding(4, 'beta', confidence=0.95)]
+    result = attributor.attribute(trajectory, findings)
+
+    assert result.hypotheses[0].step_index == 4
+
+
+def test_unknown_rank_policy_is_rejected_at_construction() -> None:
+    with pytest.raises(ValueError):
+        TrajDebugAttributor(rank_policy='whatever')

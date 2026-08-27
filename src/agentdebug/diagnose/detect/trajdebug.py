@@ -41,6 +41,7 @@ from agentdebug.diagnose.detect.evidence import (
     annotate_quote_verification,
     quote_verification_summary,
 )
+from agentdebug.diagnose.detect.selection import RootSelector, earliest_finding
 from agentdebug.runtime import LLMClient, extract_json_block
 from agentdebug.schema import (
     SEED_FAILURE_MODES,
@@ -51,7 +52,6 @@ from agentdebug.schema import (
     EventType,
     FailureFinding,
     FailureMode,
-    confidence_or_default,
     new_id,
 )
 
@@ -112,6 +112,8 @@ class TrajDebugAnalyzer:
         max_tokens: int = 8192,
         max_findings_per_chunk: int = 8,
         drop_unsupported: bool = True,
+        context_builder: Optional[Any] = None,
+        root_selector: Optional[RootSelector] = None,
     ) -> None:
         self.llm = llm
         self.max_events_per_call = max_events_per_call
@@ -127,6 +129,13 @@ class TrajDebugAnalyzer:
         #: Drop findings whose quotes do not resolve. Counts are recorded on the
         #: report regardless, so turning this off measures rather than trusts.
         self.drop_unsupported = drop_unsupported
+        # Both default to the historical behaviour. `context_builder` is any
+        # object with `render_chunk(events, chunk)`; see
+        # agentdebug.diagnose.detect.compression.GradedContextBuilder. It
+        # matters more here than for the base judge: a detector required to
+        # quote verbatim can only quote what its context actually contains.
+        self.context_builder = context_builder
+        self.root_selector: RootSelector = root_selector or earliest_finding
 
     # -- public API --------------------------------------------------------
     def analyze(self, trajectory: AgentTrajectory) -> DiagnosticReport:
@@ -261,7 +270,10 @@ class TrajDebugAnalyzer:
             f'- {mode_id}: {mode.description}'
             for mode_id, mode in SEED_FAILURE_MODES.items()
         )
-        events_doc = '\n'.join(self._render_event(evt) for evt in chunk)
+        if self.context_builder is not None:
+            events_doc = self.context_builder.render_chunk(trajectory.events, chunk)
+        else:
+            events_doc = '\n'.join(self._render_event(evt) for evt in chunk)
 
         # A prose brief on what this trace format's roles mean, when the
         # importer supplied one. Without it the model must guess whether a
@@ -308,16 +320,7 @@ class TrajDebugAnalyzer:
     def _select_root(
         self, findings: List[FailureFinding]
     ) -> Optional[FailureFinding]:
-        if not findings:
-            return None
-        return sorted(
-            findings,
-            key=lambda finding: (
-                finding.step_index is None,
-                finding.step_index if finding.step_index is not None else 10**9,
-                -confidence_or_default(finding.confidence),
-            ),
-        )[0]
+        return self.root_selector(findings)
 
     def _collect_suggestions(self, findings: List[FailureFinding]) -> List[str]:
         seen = set()

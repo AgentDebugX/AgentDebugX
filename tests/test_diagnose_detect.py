@@ -170,3 +170,62 @@ def test_llm_judge_handles_non_json_response(
 
     assert report.findings == []
     assert report.summary == 'No failure was detected.'
+
+
+def test_llm_judge_defaults_are_unchanged_by_the_new_parameters(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    """Constructing the judge the old way must render and select the old way.
+
+    Both new parameters exist so an experiment can vary them; the moment they
+    change anything by default, every number this library has already produced
+    stops being comparable to the next one.
+    """
+    from agentdebug.diagnose.detect.judge import LLMJudgeAnalyzer
+    from agentdebug.diagnose.detect.selection import earliest_finding
+
+    prompts = []
+
+    class RecordingLLM:
+        model = 'fake-judge'
+
+        def complete(self, messages, **kwargs):
+            prompts.append(messages[-1]['content'])
+            return CompletionResult(text='not json', raw={})
+
+    analyzer = LLMJudgeAnalyzer(RecordingLLM())
+
+    assert analyzer.context_builder is None
+    assert analyzer.root_selector is earliest_finding
+
+    analyzer.analyze(failed_trajectory)
+
+    # The flat renderer's signature shape, not the graded one's.
+    assert 'event_id=' in prompts[0]
+    assert '--- step=' not in prompts[0]
+
+
+def test_llm_judge_uses_a_context_builder_when_given_one(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    from agentdebug.diagnose.detect.judge import LLMJudgeAnalyzer
+
+    prompts = []
+
+    class RecordingLLM:
+        model = 'fake-judge'
+
+        def complete(self, messages, **kwargs):
+            prompts.append(messages[-1]['content'])
+            return CompletionResult(text='not json', raw={})
+
+    class StubBuilder:
+        def render_chunk(self, events, chunk):
+            return 'GRADED-CONTEXT-MARKER'
+
+    LLMJudgeAnalyzer(RecordingLLM(), context_builder=StubBuilder()).analyze(
+        failed_trajectory
+    )
+
+    assert 'GRADED-CONTEXT-MARKER' in prompts[0]
+    assert 'event_id=' not in prompts[0]

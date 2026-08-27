@@ -64,6 +64,47 @@ still fails.
 
 Adapted from TrajDebug Stage B (THU-KEG/TrajDebug, MIT).
 
+## Context budget
+
+Both LLM detectors render the trajectory by clipping each event to a fixed
+budget -- 300 characters for `detect.llm_judge`, 3000 for `detect.trajdebug`.
+That budget is spent uniformly and from the front of each field, so a long tool
+result contributes its opening lines and loses the error at the end.
+
+`detect.stage_a` (`compression.py`) offers the alternative. `StepCompressor`
+summarises each step at three lengths (`th1` 1024 / `th2` 512 / `th3` 256
+characters), and `GradedContextBuilder` renders the run with the region under
+judgement at full detail and the rest as a gist, under one overall cap. When
+the cap binds, the farthest steps lose their detail first and are dropped last.
+
+Two short-circuits keep it affordable, and both are load-bearing rather than
+optimizations: a step already inside the smallest tier is passed through with
+no call, and a machine-generated step (diff, traceback, terminal output) is
+clipped head-and-tail by `clip_middle` instead of summarised. On a coding trace
+that is most of the volume. `StepCompressor.stats` reports how many calls each
+path took, so a run can state its own compression cost.
+
+Pass a builder as `context_builder=` to either detector. Omit it and the
+detector renders exactly as before.
+
+Adapted from TrajDebug Stage A (THU-KEG/TrajDebug, MIT).
+
+## Root selection
+
+A detector returns many findings; a report names one root cause. The policy
+that reduces the list lives in `selection.py` rather than inline in each
+analyzer:
+
+- `earliest_finding` -- the earliest flagged step. The default, unchanged.
+- `most_confident_finding` -- the finding the detector was most sure of,
+  falling back to earliest when confidences are flat.
+
+`earliest_finding` embeds a positional prior that holds while the detector
+fires rarely and stops holding when it fires on nearly every step -- at which
+point "earliest flagged" is just "earliest step". Naming the policy makes it
+swappable via `root_selector=`, and lets an experiment attribute an accuracy
+change to selection rather than to detection.
+
 ## Dependencies
 
 Core detection has no heavy dependencies. GUI and LLM detectors may require the
