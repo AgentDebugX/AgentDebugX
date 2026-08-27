@@ -166,13 +166,25 @@ def event_text(event: AgentEvent) -> str:
     return '\n'.join(parts)
 
 
-def event_header(event: AgentEvent, position: int) -> str:
-    """Header identifying a step, carrying the index the detector must report."""
+def event_header(event: AgentEvent, position: int, judgeable: bool = True) -> str:
+    """Header identifying a step, carrying the index the detector must report.
+
+    ``judgeable=False`` marks a step the model may read but must not blame.
+    Widening the context without that mark is actively harmful for a chunked
+    detector: every chunk can then re-nominate the same early steps, so early
+    candidates accumulate one vote per chunk while late ones get exactly one,
+    and any selection policy inherits the bias. Measured on SWE-Bench-Pro, the
+    second chunk cited steps 11, 59, 61 and 74 -- all of them chunk one's --
+    and the median prediction moved from step 38 to step 31 against a ground
+    truth median of 65.
+    """
     step = event.step_index if event.step_index is not None else position
     bits = [f'step={step}', f'type={getattr(event.event_type, "value", event.event_type)}']
     if event.agent_name:
         bits.append(f'agent={event.agent_name}')
     bits.append(f'event_id={event.event_id}')
+    if not judgeable:
+        bits.append('CONTEXT-ONLY')
     return '--- ' + ' '.join(bits) + ' ---'
 
 
@@ -385,6 +397,7 @@ def _assemble(
     caps: Dict[str, int],
     overall_cap_chars: int,
     focus_position: Optional[int],
+    judgeable: Optional[set] = None,
 ) -> str:
     """Render the chosen tiers, then shrink to ``overall_cap_chars``.
 
@@ -399,7 +412,8 @@ def _assemble(
         event = events[position]
         tier = tiers[position]
         body = _pool_text(pool, position, tier, event, caps.get(tier, DEFAULT_TH3_CHARS))
-        blocks[position] = f'{event_header(event, position)}\n{body}'
+        mark = judgeable is None or position in judgeable
+        blocks[position] = f'{event_header(event, position, mark)}\n{body}'
 
     def total() -> int:
         return sum(len(blocks[p]) for p in positions) + 2 * max(0, len(positions) - 1)
@@ -425,7 +439,8 @@ def _assemble(
             body = _pool_text(
                 pool, position, 'th3', event, caps.get('th3', DEFAULT_TH3_CHARS)
             )
-            blocks[position] = f'{event_header(event, position)}\n{body}'
+            mark = judgeable is None or position in judgeable
+            blocks[position] = f'{event_header(event, position, mark)}\n{body}'
         else:
             positions.remove(position)
             blocks.pop(position, None)
@@ -494,6 +509,7 @@ class GradedContextBuilder:
         caps: Optional[Dict[str, int]] = None,
         in_chunk_tier: str = 'th1',
         out_of_chunk_tier: str = 'th3',
+        scope_to_chunk: bool = True,
     ) -> None:
         self.pool = {int(k): v for k, v in (pool or {}).items()}
         self.overall_cap_chars = overall_cap_chars
@@ -504,11 +520,21 @@ class GradedContextBuilder:
         }
         self.in_chunk_tier = in_chunk_tier
         self.out_of_chunk_tier = out_of_chunk_tier
+        #: Restrict blame to the chunk under judgement. On by default: without
+        #: it the wider context is a liability rather than an asset.
+        self.scope_to_chunk = scope_to_chunk
 
     def render_chunk(
         self, events: Sequence[AgentEvent], chunk: Sequence[AgentEvent]
     ) -> str:
-        """Render all of ``events``, with those in ``chunk`` at full detail."""
+        """Render all of ``events``, with those in ``chunk`` at full detail.
+
+        Steps outside the chunk are marked ``CONTEXT-ONLY`` and a preamble says
+        which range may be blamed. Both are necessary: a chunked detector shown
+        the whole run will otherwise re-nominate steps that an earlier chunk has
+        already judged, so every early step collects one vote per chunk and the
+        selection policy sees a candidate pool stacked toward the front.
+        """
         by_id = {id(event): position for position, event in enumerate(events)}
         in_chunk = {by_id[id(event)] for event in chunk if id(event) in by_id}
         if not in_chunk:
@@ -518,9 +544,23 @@ class GradedContextBuilder:
             for position in range(len(events))
         }
         centre = (min(in_chunk) + max(in_chunk)) // 2
-        return _assemble(
-            events, tiers, self.pool, self.caps, self.overall_cap_chars, centre
+        body = _assemble(
+            events, tiers, self.pool, self.caps, self.overall_cap_chars, centre,
+            judgeable=in_chunk if self.scope_to_chunk else None,
         )
+        if not self.scope_to_chunk:
+            return body
+        first = events[min(in_chunk)]
+        last = events[max(in_chunk)]
+        low = first.step_index if first.step_index is not None else min(in_chunk)
+        high = last.step_index if last.step_index is not None else max(in_chunk)
+        preamble = (
+            f'You are judging steps {low} to {high} of this run. Steps outside that\n'
+            'range are marked CONTEXT-ONLY: read them to understand what led here\n'
+            'and what followed, but NEVER report one as the failing step. Another\n'
+            'pass judges those, and reporting them here double-counts them.\n\n'
+        )
+        return preamble + body
 
     def render_focus(self, events: Sequence[AgentEvent], focus_position: int, **kwargs: Any) -> str:
         return render_history_for_focus(
@@ -539,6 +579,7 @@ class GradedContextBuilder:
             'caps': dict(self.caps),
             'in_chunk_tier': self.in_chunk_tier,
             'out_of_chunk_tier': self.out_of_chunk_tier,
+            'scope_to_chunk': self.scope_to_chunk,
         }
 
     @classmethod
@@ -549,6 +590,7 @@ class GradedContextBuilder:
             caps=payload.get('caps'),
             in_chunk_tier=str(payload.get('in_chunk_tier', 'th1')),
             out_of_chunk_tier=str(payload.get('out_of_chunk_tier', 'th3')),
+            scope_to_chunk=bool(payload.get('scope_to_chunk', True)),
         )
 
 

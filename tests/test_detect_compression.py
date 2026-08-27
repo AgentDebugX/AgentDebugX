@@ -328,3 +328,49 @@ def test_compression_prompt_pins_the_output_language():
 
     system = llm.calls[0]['messages'][0]['content']
     assert 'language of the step itself' in system
+
+
+def test_out_of_chunk_steps_are_marked_context_only(graded_pool):
+    """The whole point of widening the context is that it stays read-only.
+
+    A chunked detector shown the entire run will otherwise re-nominate steps an
+    earlier chunk already judged, so every early step collects one vote per
+    chunk while late ones get exactly one. Measured on SWE-Bench-Pro before this
+    mark existed: chunk two cited steps 11, 59, 61 and 74 -- all chunk one's --
+    and the median prediction moved from step 38 to 31 against a ground-truth
+    median of 65.
+    """
+    events = [make_event(index, f'body {index}') for index in range(12)]
+    builder = GradedContextBuilder(graded_pool)
+
+    rendered = builder.render_chunk(events, events[4:8])
+
+    for line in rendered.splitlines():
+        if not line.startswith('--- step='):
+            continue
+        step = int(line.split('step=')[1].split()[0])
+        if 4 <= step <= 7:
+            assert 'CONTEXT-ONLY' not in line, line
+        else:
+            assert 'CONTEXT-ONLY' in line, line
+
+
+def test_the_judgeable_range_is_stated_in_words_too(graded_pool):
+    """A per-line mark is easy to miss; the instruction names the range."""
+    events = [make_event(index, f'body {index}') for index in range(12)]
+
+    rendered = GradedContextBuilder(graded_pool).render_chunk(events, events[4:8])
+
+    assert 'judging steps 4 to 7' in rendered
+    assert 'NEVER report one as the failing step' in rendered
+
+
+def test_scoping_can_be_turned_off_to_reproduce_the_leak(graded_pool):
+    events = [make_event(index, f'body {index}') for index in range(12)]
+
+    rendered = GradedContextBuilder(graded_pool, scope_to_chunk=False).render_chunk(
+        events, events[4:8]
+    )
+
+    assert 'CONTEXT-ONLY' not in rendered
+    assert 'judging steps' not in rendered
