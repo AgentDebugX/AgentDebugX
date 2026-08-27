@@ -100,8 +100,8 @@ class TestGroundedTriggersSurvive:
         report = analyzer.analyze(trajectory)
 
         assert report.metadata['quote_verification'] == {
-            'verified_via_shown': 0,
-            'verified_via_similarity': 0,
+            'verified': 1, 'unsupported': 0, 'unchecked': 0,
+            'verified_via_shown': 0, 'verified_via_similarity': 0,
         }
 
 
