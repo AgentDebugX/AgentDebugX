@@ -303,4 +303,7 @@ class TestAnnotationAndSummary:
             'verified': 1,
             'unsupported': 1,
             'unchecked': 1,
+            # These quotes are all in the source, so none needed the rendered
+            # text to resolve.
+            'verified_via_shown': 0,
         }

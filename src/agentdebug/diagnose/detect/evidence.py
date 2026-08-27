@@ -18,6 +18,19 @@ they are copying, and failing a finding because a newline became a space would
 report formatting as fabrication. Nothing else is normalized: case, wording and
 punctuation must match, so an invented quote still fails.
 
+A model can only quote what it was shown, which matters once a detector renders
+compressed history rather than raw events. Checking a summary-derived quote
+against the raw trajectory fails it for a reason the model had no way to avoid:
+measured on SWE-Bench-Pro, only 30.5% of compressed text appears verbatim in the
+source, and 83% of all quotes were being discarded -- taking the finding, and
+often the whole trajectory's answer, with them. Callers may therefore pass
+``shown``, the text actually rendered per event, as a second permitted haystack.
+
+That does not weaken the guarantee -- an invented quote is absent from the
+summary too -- but it does weaken the *evidence*, because a summary can itself
+be wrong. Findings record which haystack resolved them and the summary-only
+count is reported separately rather than folded into one rate.
+
 Adapted from the evidence-grounding requirement in TrajDebug
 (THU-KEG/TrajDebug, MIT), where Stage B requires a verbatim pair.
 """
@@ -25,7 +38,7 @@ Adapted from the evidence-grounding requirement in TrajDebug
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Optional, Sequence
+from typing import Iterable, List, Mapping, Optional, Sequence
 
 from agentdebug.schema import (
     AgentEvent,
@@ -166,13 +179,19 @@ def _permitted_reference_events(
 def verify_finding_quotes(
     finding: FailureFinding,
     trajectory: AgentTrajectory,
+    shown: Optional[Mapping[str, str]] = None,
 ) -> Optional[bool]:
     """Return the value :attr:`FailureFinding.quote_verified` should carry.
 
     ``None`` when the finding carries no quotes -- it was never checked, which
     is not the same as passing. ``True`` when both quotes resolve. ``False``
-    when at least one does not, meaning the detector produced text the
-    trajectory does not support.
+    when at least one does not, meaning the detector produced text that neither
+    the trajectory nor what it was shown supports.
+
+    ``shown`` maps ``event_id`` to the text the detector actually rendered for
+    that event. Omit it and the check is against the source alone, exactly as
+    before. Supplying it never widens *which* events may be cited -- only what
+    counts as that event's text.
     """
 
     wrong = finding.wrong_content_quote
@@ -182,6 +201,7 @@ def verify_finding_quotes(
 
     events = list(trajectory.events)
     blamed = _blamed_event(finding, events)
+    via_source = True
 
     if wrong:
         needle = _norm_quote(wrong)
@@ -190,9 +210,12 @@ def verify_finding_quotes(
         # A quote of the blamed step must come from the blamed step. Falling
         # back to the whole trajectory here would let a detector "support" a
         # claim about step 7 with text from step 40.
-        haystack = _event_text(blamed) if blamed is not None else ''
-        if needle not in haystack:
-            return False
+        source = _event_text(blamed) if blamed is not None else ''
+        if needle not in source:
+            rendered = (shown or {}).get(blamed.event_id) if blamed is not None else None
+            if not rendered or needle not in _norm(rendered):
+                return False
+            via_source = False
 
     if reference:
         needle = _norm_quote(reference)
@@ -203,20 +226,29 @@ def verify_finding_quotes(
         if finding.conflict_with in (None, ConflictAxis.TASK) and trajectory.goal:
             haystacks.append(_norm(trajectory.goal))
         if not any(needle in h for h in haystacks):
-            return False
+            widened = [
+                _norm(shown[e.event_id])
+                for e in candidates
+                if shown and e.event_id in shown and shown[e.event_id]
+            ]
+            if not any(needle in h for h in widened):
+                return False
+            via_source = False
 
+    finding.metadata['quote_verified_against'] = 'source' if via_source else 'shown'
     return True
 
 
 def annotate_quote_verification(
     findings: Iterable[FailureFinding],
     trajectory: AgentTrajectory,
+    shown: Optional[Mapping[str, str]] = None,
 ) -> List[FailureFinding]:
     """Set ``quote_verified`` on each finding in place, and return them."""
 
     annotated = list(findings)
     for finding in annotated:
-        finding.quote_verified = verify_finding_quotes(finding, trajectory)
+        finding.quote_verified = verify_finding_quotes(finding, trajectory, shown)
     return annotated
 
 
@@ -228,10 +260,15 @@ def quote_verification_summary(findings: Iterable[FailureFinding]) -> dict:
     previously produce about its own output.
     """
 
-    summary = {'verified': 0, 'unsupported': 0, 'unchecked': 0}
+    summary = {'verified': 0, 'unsupported': 0, 'unchecked': 0, 'verified_via_shown': 0}
     for finding in findings:
         if finding.quote_verified is True:
             summary['verified'] += 1
+            # Counted separately because a quote that resolves only against the
+            # rendered summary is weaker evidence than one found in the source:
+            # the summary itself is model output and can be wrong.
+            if finding.metadata.get('quote_verified_against') == 'shown':
+                summary['verified_via_shown'] += 1
         elif finding.quote_verified is False:
             summary['unsupported'] += 1
         else:

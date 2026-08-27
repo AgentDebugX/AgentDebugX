@@ -67,6 +67,22 @@ def trajectory() -> AgentTrajectory:
     return traj
 
 
+def make_event(
+    step: int, text: str, event_type: EventType = EventType.AGENT_STEP
+) -> AgentEvent:
+    return AgentEvent(
+        trace_id='t1', event_id=f'evt_{step}', agent_name='agent',
+        event_type=event_type, step_index=step, output=text,
+    )
+
+
+def make_trajectory(events: List[AgentEvent]) -> AgentTrajectory:
+    traj = AgentTrajectory(trace_id='t1', task_id='task1', goal=GOAL, framework='f')
+    for event in events:
+        traj.add_event(event)
+    return traj
+
+
 def trigger(**overrides: Any) -> Dict[str, Any]:
     payload = {
         'is_error': True,
@@ -249,3 +265,85 @@ def test_compressions_are_used_for_history_when_supplied(trajectory):
     assert report.metadata['used_compressions'] is True
     # The focus step itself is never pooled -- it is what the model must quote.
     assert LATER in llm.prompts[1]
+
+
+# -- quoting what you were shown ----------------------------------------
+
+SUMMARY = 'Agent edited upload.py; the file was reported missing beforehand.'
+
+
+def test_a_quote_from_the_summary_is_accepted_when_the_summary_was_shown():
+    """A model can only quote what it was given.
+
+    The detector renders compressed history, so a reference quote comes out of
+    a summary, not the raw event. Checking it against the source alone failed
+    83% of all quotes on SWE-Bench-Pro -- only 30.5% of compressed text appears
+    verbatim in the source -- which discarded the finding and usually the whole
+    trajectory's answer with it.
+    """
+    traj = make_trajectory([
+        make_event(0, RESULT, EventType.TOOL_RESULT),
+        make_event(1, LATER),
+    ])
+    pool = {0: {'th1': SUMMARY, 'th2': SUMMARY, 'th3': SUMMARY},
+            1: {'th1': LATER, 'th2': LATER, 'th3': LATER}}
+    llm = ScriptedLLM([trigger(wrong_content_quote=LATER,
+                               reference_quote='the file was reported missing')])
+
+    report = PerStepAnalyzer(llm, compressions=pool).analyze(traj)
+
+    assert len(report.findings) == 1
+    assert report.metadata['quote_verification']['verified'] == 1
+    # Recorded, not hidden: this one resolved against the summary, which is
+    # weaker evidence than a hit in the source.
+    assert report.metadata['quote_verification']['verified_via_shown'] == 1
+
+
+def test_an_invented_quote_still_fails_even_with_summaries_available():
+    """Widening the haystack must not weaken the guarantee.
+
+    The summary is a second place the quote may legitimately come from, not
+    permission to make one up.
+    """
+    traj = make_trajectory([
+        make_event(0, RESULT, EventType.TOOL_RESULT),
+        make_event(1, LATER),
+    ])
+    pool = {0: {'th1': SUMMARY, 'th2': SUMMARY, 'th3': SUMMARY},
+            1: {'th1': LATER, 'th2': LATER, 'th3': LATER}}
+    llm = ScriptedLLM([trigger(wrong_content_quote=LATER,
+                               reference_quote='the database was dropped')])
+
+    report = PerStepAnalyzer(llm, compressions=pool).analyze(traj)
+
+    assert report.findings == []
+    assert report.metadata['quote_verification']['unsupported'] == 1
+
+
+def test_source_quotes_are_still_marked_as_source():
+    traj = make_trajectory([
+        make_event(0, RESULT, EventType.TOOL_RESULT),
+        make_event(1, LATER),
+    ])
+    pool = {0: {'th1': SUMMARY, 'th2': SUMMARY, 'th3': SUMMARY},
+            1: {'th1': LATER, 'th2': LATER, 'th3': LATER}}
+    llm = ScriptedLLM([trigger(wrong_content_quote=LATER, reference_quote=RESULT)])
+
+    report = PerStepAnalyzer(llm, compressions=pool).analyze(traj)
+
+    assert report.metadata['quote_verification']['verified'] == 1
+    assert report.metadata['quote_verification']['verified_via_shown'] == 0
+
+
+def test_without_compressions_verification_is_source_only():
+    """No pool means no widening -- the original behaviour, unchanged."""
+    traj = make_trajectory([
+        make_event(0, RESULT, EventType.TOOL_RESULT),
+        make_event(1, LATER),
+    ])
+    llm = ScriptedLLM([trigger(wrong_content_quote=LATER,
+                               reference_quote='the file was reported missing')])
+
+    report = PerStepAnalyzer(llm).analyze(traj)
+
+    assert report.findings == []

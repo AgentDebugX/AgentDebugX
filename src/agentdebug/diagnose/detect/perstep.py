@@ -197,7 +197,7 @@ class PerStepAnalyzer:
             findings = [finding for finding in results if finding is not None]
         self.stats['fired'] += len(findings)
 
-        annotate_quote_verification(findings, trajectory)
+        annotate_quote_verification(findings, trajectory, self._shown_text(events))
         verification = quote_verification_summary(findings)
         kept = findings
         if self.drop_unsupported:
@@ -238,6 +238,27 @@ class PerStepAnalyzer:
         return report
 
     # -- internals ---------------------------------------------------------
+    def _shown_text(self, events: Sequence[AgentEvent]) -> Dict[str, str]:
+        """What the model could actually have quoted, per event.
+
+        Every tier is included rather than the one a particular call happened to
+        render: a step appears at th1 when it is the focus's neighbour and th3
+        twenty turns later, and a quote is legitimate if it came from any view
+        the model was given. Returns empty when there are no compressions, which
+        makes verification fall back to the source alone.
+        """
+        if not self.compressions:
+            return {}
+        shown: Dict[str, str] = {}
+        for position, event in enumerate(events):
+            tiers = self.compressions.get(position)
+            if not tiers:
+                continue
+            text = '\n'.join(t for t in tiers.values() if t)
+            if text:
+                shown[event.event_id] = text
+        return shown
+
     def _is_judgable(self, event: AgentEvent) -> bool:
         try:
             typed = EventType(getattr(event.event_type, 'value', event.event_type))
