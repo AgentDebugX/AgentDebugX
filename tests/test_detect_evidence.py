@@ -306,6 +306,7 @@ class TestAnnotationAndSummary:
             # These quotes are all in the source, so none needed the rendered
             # text to resolve.
             'verified_via_shown': 0,
+            'verified_via_similarity': 0,
         }
 
 
@@ -400,3 +401,58 @@ class TestTaskScopeReachesTheTaskStatement:
         )
 
         assert verify_finding_quotes(finding, traj) is True
+
+
+class TestSimilarityFallback:
+    """Opt-in fuzzy matching for quotes the model copied with small drift."""
+
+    def _finding(self, trajectory, quote):
+        from agentdebug.schema import ConflictAxis, FailureFinding, SEED_FAILURE_MODES
+        mode = next(iter(SEED_FAILURE_MODES.values()))
+        event = trajectory.events[0]
+        return FailureFinding(
+            event_id=event.event_id, step_index=event.step_index,
+            agent_name=event.agent_name, failure_mode=mode, confidence=0.8,
+            evidence=['x'], wrong_content_quote=quote, conflict_with=None,
+        )
+
+    def _trajectory(self):
+        from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
+        traj = AgentTrajectory(trace_id='sim', goal='fix the parser')
+        traj.add_event(AgentEvent(
+            event_id='e0', trace_id='sim', event_type=EventType.AGENT_STEP,
+            agent_name='agent', step_index=0,
+            output='I will now edit the tokenizer to handle unicode escapes correctly.',
+        ))
+        return traj
+
+    def test_default_is_still_exact(self) -> None:
+        from agentdebug.diagnose.detect.evidence import verify_finding_quotes
+        traj = self._trajectory()
+        f = self._finding(traj, 'I will now edit the tokeniser to handle unicode escapes correctly.')
+        assert verify_finding_quotes(f, traj) is False
+
+    def test_small_drift_passes_and_is_labelled(self) -> None:
+        from agentdebug.diagnose.detect.evidence import (
+            quote_verification_summary, verify_finding_quotes,
+        )
+        traj = self._trajectory()
+        f = self._finding(traj, 'I will now edit the tokeniser to handle unicode escapes correctly.')
+        assert verify_finding_quotes(f, traj, similarity_threshold=0.8) is True
+        assert f.metadata['quote_verified_against'] == 'similar'
+        assert 0.8 <= f.metadata['quote_similarity'] < 1.0
+        f.quote_verified = True
+        assert quote_verification_summary([f])['verified_via_similarity'] == 1
+
+    def test_invented_quote_still_fails(self) -> None:
+        from agentdebug.diagnose.detect.evidence import verify_finding_quotes
+        traj = self._trajectory()
+        f = self._finding(traj, 'The database migration has been rolled back successfully.')
+        assert verify_finding_quotes(f, traj, similarity_threshold=0.8) is False
+
+    def test_exact_match_is_not_labelled_similar(self) -> None:
+        from agentdebug.diagnose.detect.evidence import verify_finding_quotes
+        traj = self._trajectory()
+        f = self._finding(traj, 'edit the tokenizer to handle unicode')
+        assert verify_finding_quotes(f, traj, similarity_threshold=0.8) is True
+        assert f.metadata['quote_verified_against'] == 'source'

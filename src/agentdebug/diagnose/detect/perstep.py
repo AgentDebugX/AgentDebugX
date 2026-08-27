@@ -161,8 +161,11 @@ class PerStepAnalyzer:
         drop_unsupported: bool = True,
         request_json: bool = True,
         root_selector: Optional[RootSelector] = None,
+        quote_similarity: Optional[float] = None,
     ) -> None:
         self.llm = llm
+        #: Optional fuzzy floor for quote verification; None keeps it exact.
+        self.quote_similarity = quote_similarity
         self.compressions = {int(k): v for k, v in (compressions or {}).items()}
         self.th1_max_distance = th1_max_distance
         self.th2_max_distance = th2_max_distance
@@ -197,7 +200,9 @@ class PerStepAnalyzer:
             findings = [finding for finding in results if finding is not None]
         self.stats['fired'] += len(findings)
 
-        annotate_quote_verification(findings, trajectory, self._shown_text(events))
+        annotate_quote_verification(
+            findings, trajectory, self._shown_text(events), self.quote_similarity
+        )
         verification = quote_verification_summary(findings)
         kept = findings
         if self.drop_unsupported:

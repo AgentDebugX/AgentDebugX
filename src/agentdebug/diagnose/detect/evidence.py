@@ -143,6 +143,31 @@ def _norm_quote(text: str) -> str:
     return normalized
 
 
+def _similarity(needle: str, haystack: str) -> float:
+    """How closely the best-matching window of ``haystack`` resembles ``needle``.
+
+    Anchors on the longest common substring, then scores a window the size of
+    the needle around it with :class:`difflib.SequenceMatcher`. 1.0 is an exact
+    match; an invented quote shares only stray words and scores well under any
+    sensible threshold. Cheap enough to run only after exact matching fails.
+    """
+    import difflib
+
+    if not needle or not haystack:
+        return 0.0
+    matcher = difflib.SequenceMatcher(None, haystack, needle, autojunk=False)
+    match = matcher.find_longest_match(0, len(haystack), 0, len(needle))
+    if match.size == 0:
+        return 0.0
+    start = max(0, match.a - match.b)
+    window = haystack[start:start + len(needle)]
+    return difflib.SequenceMatcher(None, window, needle, autojunk=False).ratio()
+
+
+def _best_similarity(needle: str, haystacks: Iterable[str]) -> float:
+    return max((_similarity(needle, h) for h in haystacks if h), default=0.0)
+
+
 def _event_text(event: AgentEvent) -> str:
     """Every string an event carries, joined for substring search."""
 
@@ -209,6 +234,7 @@ def verify_finding_quotes(
     finding: FailureFinding,
     trajectory: AgentTrajectory,
     shown: Optional[Mapping[str, str]] = None,
+    similarity_threshold: Optional[float] = None,
 ) -> Optional[bool]:
     """Return the value :attr:`FailureFinding.quote_verified` should carry.
 
@@ -221,6 +247,15 @@ def verify_finding_quotes(
     that event. Omit it and the check is against the source alone, exactly as
     before. Supplying it never widens *which* events may be cited -- only what
     counts as that event's text.
+
+    ``similarity_threshold`` (0-1), when set, accepts a quote whose best window
+    in the *same permitted haystacks* scores at least that similar, after exact
+    matching has failed on every haystack. Measured on SWE-Bench-Pro, 43% of
+    quotes were still rejected after the escape and summary fixes, most of
+    them mixed Chinese/English spans the model copies with small drift. The
+    score is recorded in ``metadata['quote_similarity']`` and such findings
+    are counted separately, so a report can say how much of its grounding is
+    approximate. Left ``None`` -- the default -- nothing changes.
     """
 
     wrong = finding.wrong_content_quote
@@ -231,6 +266,7 @@ def verify_finding_quotes(
     events = list(trajectory.events)
     blamed = _blamed_event(finding, events)
     via_source = True
+    similarity = 1.0
 
     if wrong:
         needle = _norm_quote(wrong)
@@ -242,9 +278,14 @@ def verify_finding_quotes(
         source = _event_text(blamed) if blamed is not None else ''
         if needle not in source:
             rendered = (shown or {}).get(blamed.event_id) if blamed is not None else None
-            if not rendered or needle not in _norm(rendered):
-                return False
-            via_source = False
+            if rendered and needle in _norm(rendered):
+                via_source = False
+            else:
+                score = _best_similarity(needle, [source, _norm(rendered or '')])
+                if similarity_threshold is None or score < similarity_threshold:
+                    return False
+                similarity = min(similarity, score)
+                via_source = False
 
     if reference:
         needle = _norm_quote(reference)
@@ -261,10 +302,17 @@ def verify_finding_quotes(
                 if shown and e.event_id in shown and shown[e.event_id]
             ]
             if not any(needle in h for h in widened):
-                return False
+                score = _best_similarity(needle, haystacks + widened)
+                if similarity_threshold is None or score < similarity_threshold:
+                    return False
+                similarity = min(similarity, score)
             via_source = False
 
-    finding.metadata['quote_verified_against'] = 'source' if via_source else 'shown'
+    if similarity < 1.0:
+        finding.metadata['quote_verified_against'] = 'similar'
+        finding.metadata['quote_similarity'] = round(similarity, 3)
+    else:
+        finding.metadata['quote_verified_against'] = 'source' if via_source else 'shown'
     return True
 
 
@@ -272,12 +320,15 @@ def annotate_quote_verification(
     findings: Iterable[FailureFinding],
     trajectory: AgentTrajectory,
     shown: Optional[Mapping[str, str]] = None,
+    similarity_threshold: Optional[float] = None,
 ) -> List[FailureFinding]:
     """Set ``quote_verified`` on each finding in place, and return them."""
 
     annotated = list(findings)
     for finding in annotated:
-        finding.quote_verified = verify_finding_quotes(finding, trajectory, shown)
+        finding.quote_verified = verify_finding_quotes(
+            finding, trajectory, shown, similarity_threshold
+        )
     return annotated
 
 
@@ -289,15 +340,19 @@ def quote_verification_summary(findings: Iterable[FailureFinding]) -> dict:
     previously produce about its own output.
     """
 
-    summary = {'verified': 0, 'unsupported': 0, 'unchecked': 0, 'verified_via_shown': 0}
+    summary = {'verified': 0, 'unsupported': 0, 'unchecked': 0,
+               'verified_via_shown': 0, 'verified_via_similarity': 0}
     for finding in findings:
         if finding.quote_verified is True:
             summary['verified'] += 1
             # Counted separately because a quote that resolves only against the
             # rendered summary is weaker evidence than one found in the source:
             # the summary itself is model output and can be wrong.
-            if finding.metadata.get('quote_verified_against') == 'shown':
+            against = finding.metadata.get('quote_verified_against')
+            if against == 'shown':
                 summary['verified_via_shown'] += 1
+            elif against == 'similar':
+                summary['verified_via_similarity'] += 1
         elif finding.quote_verified is False:
             summary['unsupported'] += 1
         else:
