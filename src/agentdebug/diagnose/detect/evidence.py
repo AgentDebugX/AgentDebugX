@@ -88,12 +88,41 @@ _REFERENCE_SCOPE = {
     ConflictAxis.TASK: {
         EventType.RUN_START,
         EventType.HUMAN_FEEDBACK,
+        # The task statement is frequently the first observation rather than
+        # run.start: TrajDebug's format puts the issue description in the first
+        # user message, which imports as an observation, while `goal` carries
+        # only a short summary of it. A task-axis quote of the real instructions
+        # has to be able to resolve against the event that actually holds them.
+        EventType.OBSERVATION,
     },
 }
 
 
+_ESCAPES = (('\\n', '\n'), ('\\t', '\t'), ('\\"', '"'), ("\\'", "'"))
+
+
+def _unescape(text: str) -> str:
+    """Turn JSON-style escape sequences into the characters they encode.
+
+    Trajectories store tool arguments and results as JSON-encoded strings, so a
+    Python function in the source reads ``def f():\\\\n    '''doc`` -- a literal
+    backslash and ``n``, two characters. The model reads that and, reasonably,
+    writes back a real newline. Whitespace normalization does not bridge the
+    gap because a literal backslash is not whitespace, so a perfectly copied
+    quote was failing verification. Measured on SWE-Bench-Pro, 5,037 of 5,038
+    agent steps carry such escapes; this was the single largest cause of quotes
+    being rejected, and every one of them was the model getting it right.
+
+    Both sides go through this, so a model that copies the escaped form
+    verbatim still matches.
+    """
+    for seq, char in _ESCAPES:
+        text = text.replace(seq, char)
+    return text
+
+
 def _norm(text: str) -> str:
-    return _WS.sub(' ', text).strip()
+    return _WS.sub(' ', _unescape(text)).strip()
 
 
 def _norm_quote(text: str) -> str:

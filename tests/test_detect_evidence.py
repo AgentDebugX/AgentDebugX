@@ -307,3 +307,96 @@ class TestAnnotationAndSummary:
             # text to resolve.
             'verified_via_shown': 0,
         }
+
+
+class TestEscapedSource:
+    """Trajectories store tool arguments as JSON-encoded strings.
+
+    A function in the source therefore reads ``def f():\n    '''doc`` -- a
+    literal backslash and ``n`` -- and a model that copies it back with a real
+    newline has copied it correctly. On SWE-Bench-Pro 5,037 of 5,038 agent steps
+    carry such escapes, and this was the single largest reason correct quotes
+    were being rejected.
+    """
+
+    def _traj(self, source: str) -> AgentTrajectory:
+        traj = AgentTrajectory(trace_id='t', task_id='k', goal='fix it')
+        traj.add_event(AgentEvent(
+            trace_id='t', event_id='evt_code', agent_name='agent',
+            event_type=EventType.AGENT_STEP, step_index=0, output=source,
+        ))
+        return traj
+
+    def test_a_real_newline_matches_a_literal_backslash_n(self) -> None:
+        source = "def _parse(content):\n    '''parse the file\n    :arg content: data"
+        finding = _finding(
+            event_id='evt_code',
+            wrong_content_quote="def _parse(content):\n    '''parse the file",
+            reference_quote='fix it',
+            conflict_with=ConflictAxis.TASK,
+        )
+
+        assert verify_finding_quotes(finding, self._traj(source)) is True
+
+    def test_copying_the_escaped_form_verbatim_also_matches(self) -> None:
+        source = "def _parse(content):\n    '''parse the file"
+        finding = _finding(
+            event_id='evt_code',
+            wrong_content_quote="def _parse(content):\n    '''parse the file",
+            reference_quote='fix it',
+            conflict_with=ConflictAxis.TASK,
+        )
+
+        assert verify_finding_quotes(finding, self._traj(source)) is True
+
+    def test_escaped_quotes_inside_strings_match_too(self) -> None:
+        source = 'print(\\"hello\\")'
+        finding = _finding(
+            event_id='evt_code',
+            wrong_content_quote='print("hello")',
+            reference_quote='fix it',
+            conflict_with=ConflictAxis.TASK,
+        )
+
+        assert verify_finding_quotes(finding, self._traj(source)) is True
+
+    def test_unescaping_does_not_make_an_invented_quote_pass(self) -> None:
+        source = "def _parse(content):\n    return content"
+        finding = _finding(
+            event_id='evt_code',
+            wrong_content_quote='def _delete_everything():',
+            reference_quote='fix it',
+            conflict_with=ConflictAxis.TASK,
+        )
+
+        assert verify_finding_quotes(finding, self._traj(source)) is False
+
+
+class TestTaskScopeReachesTheTaskStatement:
+    """The task text is usually the first observation, not run.start.
+
+    TrajDebug's format puts the issue description in the first user message,
+    which imports as an observation, while `goal` carries only a short summary.
+    A task-axis quote of the real instructions was unresolvable by construction.
+    """
+
+    def test_task_axis_may_cite_the_first_observation(self) -> None:
+        traj = AgentTrajectory(trace_id='t', task_id='k', goal='short summary')
+        traj.add_event(AgentEvent(
+            trace_id='t', event_id='evt_task', agent_name='user',
+            event_type=EventType.OBSERVATION, step_index=0,
+            output='You must not modify any test files. Fix the plugin only.',
+        ))
+        traj.add_event(AgentEvent(
+            trace_id='t', event_id='evt_edit', agent_name='agent',
+            event_type=EventType.AGENT_STEP, step_index=1,
+            output='Editing tests/test_plugin.py to make it pass.',
+        ))
+        finding = _finding(
+            event_id='evt_edit',
+            wrong_content_quote='Editing tests/test_plugin.py',
+            reference_quote='You must not modify any test files',
+            conflict_with=ConflictAxis.TASK,
+        )
+
+        assert verify_finding_quotes(finding, traj) is True
