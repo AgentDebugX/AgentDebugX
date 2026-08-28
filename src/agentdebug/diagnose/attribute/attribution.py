@@ -40,7 +40,6 @@ from agentdebug.schema import (
     AgentTrajectory,
     FailureFinding,
     confidence_or_default,
-    new_id,
 )
 
 LOG = logging.getLogger('agentdebug.attribution')

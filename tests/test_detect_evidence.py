@@ -407,7 +407,7 @@ class TestSimilarityFallback:
     """Opt-in fuzzy matching for quotes the model copied with small drift."""
 
     def _finding(self, trajectory, quote):
-        from agentdebug.schema import ConflictAxis, FailureFinding, SEED_FAILURE_MODES
+        from agentdebug.schema import FailureFinding, SEED_FAILURE_MODES
         mode = next(iter(SEED_FAILURE_MODES.values()))
         event = trajectory.events[0]
         return FailureFinding(

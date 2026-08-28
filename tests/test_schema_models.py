@@ -11,7 +11,6 @@ from agentdebug.schema import (
     AgentTrajectory,
     DiagnosticAuditEntry,
     DiagnosticReport,
-    EventType,
     get_failure_mode,
     model_to_json,
     model_to_dict,
