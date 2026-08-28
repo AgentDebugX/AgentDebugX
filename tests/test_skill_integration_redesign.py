@@ -14,6 +14,7 @@ def test_all_host_skills_share_unified_run_contract(platform: str) -> None:
     bundle = build_debug_skill_bundle(platform=platform)
     skill = bundle.files['SKILL.md']
     assert 'agentdebug run <input> --profile standard --json' in skill
+    assert 'agentdebug run --current --profile quick --json' in skill
     assert 'agentdebug run <input> --batch' in skill
     assert '--trajectory-id <id>' in skill
     assert 'item.result' in skill
@@ -47,4 +48,4 @@ def test_codex_packaging_edge_uses_canonical_bundle() -> None:
     metadata = bundle.files['agents/openai.yaml']
     assert 'display_name: "agentdebug"' in metadata
     assert 'Use $agentdebug ' in metadata
-    assert 'supplied trajectory or collection' in metadata
+    assert 'this captured session or a supplied trajectory' in metadata

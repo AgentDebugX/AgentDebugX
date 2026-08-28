@@ -18,17 +18,21 @@ def prepare_for_capture(trajectory: AgentTrajectory) -> PreparedTrajectory:
     prepared = copier(deep=True) if callable(copier) else trajectory.copy(deep=True)
     counters: Dict[str, int] = {}
     original_by_id = {event.event_id: event for event in prepared.events}
-    excluded = {
-        event.event_id: rule
-        for event in prepared.events
-        if (rule := _excluded_by(event)) is not None
-    }
+    instrumentation_ids = _agentdebug_instrumentation_ids(prepared.events)
+    excluded: Dict[str, str] = {}
+    for event in prepared.events:
+        if event.event_id in instrumentation_ids:
+            excluded[event.event_id] = 'agentdebug_instrumentation'
+            continue
+        rule = _excluded_by(event)
+        if rule is not None:
+            excluded[event.event_id] = rule
     for event in prepared.events:
         if (
             event.event_type == EventType.TOOL_RESULT.value
             and event.parent_event_id in excluded
         ):
-            excluded[event.event_id] = 'integration_owned'
+            excluded.setdefault(event.event_id, 'integration_owned')
     kept: List[AgentEvent] = []
     for event in prepared.events:
         rule = excluded.get(event.event_id)
@@ -84,6 +88,51 @@ def _excluded_by(event: AgentEvent) -> Optional[str]:
     ):
         return 'integration_owned'
     return None
+
+
+def _agentdebug_instrumentation_ids(events: List[AgentEvent]) -> set[str]:
+    excluded: set[str] = set()
+    segment: List[AgentEvent] = []
+    for event in events:
+        if _starts_conversation_turn(event) and segment:
+            _exclude_agentdebug_segment(segment, excluded)
+            segment = []
+        segment.append(event)
+    _exclude_agentdebug_segment(segment, excluded)
+    return excluded
+
+
+def _starts_conversation_turn(event: AgentEvent) -> bool:
+    return (
+        event.event_type == EventType.OBSERVATION.value
+        and event.agent_name == 'user'
+        and event.module == 'conversation'
+    )
+
+
+def _exclude_agentdebug_segment(
+    segment: List[AgentEvent], excluded: set[str]
+) -> None:
+    if any(
+        event.event_type == EventType.TOOL_CALL.value
+        and _contains_agentdebug_run(event.input)
+        for event in segment
+    ):
+        excluded.update(event.event_id for event in segment)
+
+
+def _contains_agentdebug_run(value: Any) -> bool:
+    if isinstance(value, str):
+        normalized = ' '.join(value.split())
+        return (
+            'agentdebug run ' in f'{normalized} '
+            or 'agentdebug.cli run ' in f'{normalized} '
+        )
+    if isinstance(value, dict):
+        return any(_contains_agentdebug_run(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_agentdebug_run(item) for item in value)
+    return False
 
 
 def _managed_skill_path(value: Any) -> bool:

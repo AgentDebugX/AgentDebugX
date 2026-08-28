@@ -49,6 +49,22 @@ agentdebug integrations status --platform codex --json
 Use the platform target the user requested; do not install into another host's
 skill directory without approval.
 
+## Current-Session Capture
+
+Current-session self-debugging requires project capture hooks in addition to
+the skill:
+
+```bash
+agentdebug integrations capture enable --platform claude --project "$PWD" --json
+agentdebug integrations capture status --platform claude --project "$PWD" --json
+```
+
+Use `--platform codex` for Codex. Capture is automatic after enablement;
+diagnosis still runs only after an explicit AgentDebug request. The host
+integration supplies the exact session context used by `agentdebug run
+--current`. After enabling Claude capture, start or resume the session once so
+its `SessionStart` hook can expose that context.
+
 ## LLM Configuration
 
 Deterministic conversion and heuristic diagnosis do not need an API key. These

@@ -6,7 +6,7 @@ description: Use AgentDebugX for trajectory diagnosis only when the user explici
 # AgentDebugX Debug Skill
 
 Use the locally installed `agentdebug` CLI to create durable debug runs for
-trajectories supplied by the user or an external harness.
+the current captured host session or an explicitly supplied trajectory.
 
 Read references as needed:
 
@@ -33,6 +33,7 @@ running this skill.
 
 Accept any of:
 
+- The current Claude Code or Codex session when project auto-capture is enabled
 - AgentDebugX-normalized trajectory files
 - Raw trajectory exports supported by the installed AgentDebugX adapters
 - Benchmark or agent-runtime trajectory directories supported by an adapter
@@ -45,8 +46,11 @@ evolves independently across agent runtimes and benchmark formats. Read
 `references/formats.md` when format selection is unclear, and prefer automatic
 detection unless the user supplies an explicit format.
 
-If the user has not provided a trajectory/export path, ask for one. Do not
-silently inspect host-local private state to find traces.
+Treat target and intent independently. A request to inspect this agent's own,
+current, latest, or just-completed work selects the current captured session.
+An explicit path or trace ID selects that external target. For an ambiguous
+past session, present candidates and ask the user to confirm one; never choose
+the most recently modified trace.
 
 ## Choose The Operation
 
@@ -54,6 +58,8 @@ First determine whether the supplied input represents one trajectory or an
 independent collection. If that cannot be determined from the path and the
 user's wording, ask before using batch mode.
 
+- Current/self session:
+  `agentdebug run --current --profile quick --json`
 - One trajectory or one stored trace ID:
   `agentdebug run <input> --profile standard --json`
 - One selected AgentErrorBench record:
@@ -74,34 +80,41 @@ parallel workers, memory, and output layout.
 
 ## Run The Diagnosis
 
-1. If no trajectory, export, store trace ID, or supported collection was
-   supplied, ask the user for one. Never discover or snapshot the current host
-   conversation.
-2. Use `standard` unless the user explicitly requests another profile. Use
-   `gui` only for one compatible CUA/GUI trajectory. Disclose that `deep` and
-   `gui` are LLM-backed before invoking them.
+1. Resolve a clearly requested self-debug operation with `--current`. The CLI
+   must receive exact session-scoped capture context; do not inspect the store
+   for a "latest" trace. If the context is unavailable, explain that current
+   capture is not active and ask whether the user wants setup help or has an
+   explicit trajectory.
+2. Use `quick` for current-session reflection and `standard` for supplied
+   trajectories unless the user requests another profile. Use `gui` only for
+   one compatible CUA/GUI trajectory. Disclose that `deep` and `gui` are
+   LLM-backed before invoking them.
 3. Invoke exactly one primary `agentdebug run` operation. Pass through explicit
    `--format`, `--diagnoser`, `--attributor`, or `--recovery` choices instead
    of reinterpreting them.
 4. Add `--ui` for a single run only when the user asks for visual inspection or
    an interactive UI. Do not add `--ui` to a batch. After a batch, the user may
    select one returned `run_id` for `agentdebug ui ensure --run-id <run-id>`.
-5. Treat recovery output as suggest-only. Do not apply a fix or execute a rerun
-   without separate user authorization.
+5. Follow the user's objective after diagnosis. Inspection alone calls for a
+   report; a request to self-critique and retry may use the diagnosis to form a
+   better next attempt; a request to repair a custom agent may authorize code,
+   prompt, skill, or tool changes within the stated scope.
 
 ## Read The Result
 
 For a single run, read the top-level `status`, `run_id`, `trace_id`,
-`report_id`, `resolved_pipeline`, `candidate_root_cause`, `top_evidence`,
-`ui_url`, `warnings`, and `errors`.
+`report_id`, `trajectory_snapshot_path`, `resolved_pipeline`,
+`candidate_root_cause`, `top_evidence`, `ui_url`, `warnings`, and `errors`.
 
-Report a single result in this compact shape:
+Report a single result in this compact shape, then interpret it for the user's
+objective:
 
 ```text
 Status: <status>
 Run: <run_id>
 Trace: <trace_id>
 Report: <report_id>
+Analyzed snapshot: <trajectory_snapshot_path>
 Candidate root cause: <summary or unavailable>
 Evidence: <top evidence or unavailable>
 UI: <ui_url, omitted when absent>
@@ -127,6 +140,12 @@ Do not dump the full report JSON unless the user asks. Preserve the distinction
 between trajectory facts, deterministic findings, LLM conclusions, recovery
 proposals, and externally supplied labels.
 
+For a current-session target, frame the diagnosis as self-reflection: identify
+what this agent should change in its reasoning, verification, or next attempt.
+Do not assume an AgentDebugX or host-framework code defect. For an external or
+custom-agent target, connect findings to the relevant agent code, prompt,
+skill, tool, or runtime only when the evidence supports that connection.
+
 ## Ground Rules
 
 - Do not reproduce ingest/diagnose/recovery orchestration in shell commands;
@@ -137,10 +156,10 @@ proposals, and externally supplied labels.
   are independent trajectories.
 - Do not use unified batch mode for GUI RCA collections.
 - Do not automatically open or start one UI per batch item.
-- Do not make trajectory acquisition the default workflow; assume the user has
-  provided an exported trajectory or ask for one.
-- Do not apply fixes, rerun tools, or mutate a workspace unless the user
-  explicitly approves.
+- Do not treat a diagnosis-only request as authorization to retry, patch, or
+  mutate. When the user explicitly requests diagnosis plus follow-through,
+  carry out the authorized retry or repair instead of imposing a report-only
+  workflow.
 - Recovery output is a proposal. Treat it as next-run guidance unless the user
   separately asks to implement or apply a fix.
 - Always say "candidate root cause" or "likely" rather than claiming ground

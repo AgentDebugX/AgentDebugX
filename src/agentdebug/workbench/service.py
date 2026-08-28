@@ -74,6 +74,15 @@ def execute_run(
     try:
         trajectory = trajectory or _load_input(request, store)
         run.input.detected_format = str(trajectory.metadata.get('source_format') or trajectory.framework or 'agenttrajectory')
+        snapshot_path = registry.save_trajectory_snapshot(run.run_id, trajectory)
+        run.artifacts.trajectory_snapshot_path = str(snapshot_path)
+        run.provenance['input_snapshot'] = {
+            'trace_id': trajectory.trace_id,
+            'event_count': len(trajectory.events),
+            'last_event_id': (
+                trajectory.events[-1].event_id if trajectory.events else None
+            ),
+        }
         store.save_trajectory(trajectory)
         run.artifacts.trace_id = trajectory.trace_id
         registry.update_run(run)

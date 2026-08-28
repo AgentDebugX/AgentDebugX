@@ -8,6 +8,17 @@ from types import SimpleNamespace
 
 from agentdebug.cli import main
 from agentdebug.cli import legacy
+from agentdebug.capture.config import (
+    CaptureConfig,
+    PlatformCaptureConfig,
+    write_capture_config,
+)
+from agentdebug.capture.context import (
+    CURRENT_CAPTURE_CONTEXT_ENV,
+    write_current_capture_context,
+)
+from agentdebug.capture.contracts import HookNotification
+from agentdebug.capture.identity import trace_id_for
 from agentdebug.rerun import HttpLiveExecutor, RerunResult
 from agentdebug.runtime import CompletionResult, OpenAICompatClient, SQLiteTraceStore
 from agentdebug.schema import (
@@ -32,6 +43,102 @@ def test_ingest_command_writes_normalized_output(tmp_path) -> None:
 
     assert result == 0
     assert payload['events'][0]['output'] == 'hello'
+
+
+def test_run_current_uses_exact_host_session_instead_of_latest_trace(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    from datetime import datetime, timezone
+
+    store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
+    write_capture_config(
+        CaptureConfig(
+            project_root=tmp_path,
+            store_path=store_path,
+            platforms={
+                'claude_code': PlatformCaptureConfig(
+                    installed_hooks=['SessionStart', 'Stop']
+                )
+            },
+        )
+    )
+    current_id = trace_id_for('claude_code', 'current-session')
+    newer_id = trace_id_for('claude_code', 'newer-session')
+    store = SQLiteTraceStore(str(store_path))
+    store.save_trajectory(
+        AgentTrajectory(
+            trace_id=current_id,
+            goal='current session',
+            events=[AgentEvent(trace_id=current_id, output='current')],
+        )
+    )
+    store.save_trajectory(
+        AgentTrajectory(
+            trace_id=newer_id,
+            goal='newer session',
+            events=[AgentEvent(trace_id=newer_id, output='newer')],
+        )
+    )
+    notification = HookNotification(
+        host='claude_code',
+        event_name='Stop',
+        session_id='current-session',
+        transcript_path=tmp_path / 'session.jsonl',
+        cwd=tmp_path,
+        observed_at=datetime.now(timezone.utc),
+    )
+    context_path = write_current_capture_context(tmp_path, notification)
+    monkeypatch.setenv(CURRENT_CAPTURE_CONTEXT_ENV, str(context_path))
+    monkeypatch.chdir(tmp_path)
+
+    assert main(['run', '--current', '--profile', 'quick', '--json']) == 0
+    explicit = json.loads(capsys.readouterr().out)
+    assert explicit['trace_id'] == current_id
+
+    assert main(['run', '--profile', 'quick', '--json']) == 0
+    implicit = json.loads(capsys.readouterr().out)
+    assert implicit['trace_id'] == current_id
+    assert (tmp_path / '.agentdebug' / 'runs').is_dir()
+
+
+def test_run_without_input_requires_current_host_context(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    monkeypatch.delenv(CURRENT_CAPTURE_CONTEXT_ENV, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert main(['run', '--profile', 'quick']) == 2
+    assert 'no current captured session context' in capsys.readouterr().err
+
+
+def test_run_current_resolves_codex_session_from_host_environment(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
+    write_capture_config(
+        CaptureConfig(
+            project_root=tmp_path,
+            store_path=store_path,
+            platforms={
+                'codex': PlatformCaptureConfig(
+                    installed_hooks=['SessionStart', 'Stop']
+                )
+            },
+        )
+    )
+    trace_id = trace_id_for('codex', 'codex-session')
+    SQLiteTraceStore(str(store_path)).save_trajectory(
+        AgentTrajectory(
+            trace_id=trace_id,
+            events=[AgentEvent(trace_id=trace_id, output='captured')],
+        )
+    )
+    monkeypatch.delenv(CURRENT_CAPTURE_CONTEXT_ENV, raising=False)
+    monkeypatch.setenv('CODEX_THREAD_ID', 'codex-session')
+    monkeypatch.chdir(tmp_path)
+
+    assert main(['run', '--current', '--profile', 'quick', '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['trace_id'] == trace_id
 
 
 def test_convert_compatibility_alias(tmp_path) -> None:

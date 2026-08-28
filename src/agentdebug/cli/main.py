@@ -72,7 +72,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_ingest.set_defaults(handler=ingest.run)
 
     p_run = sub.add_parser('run', help='Run durable, unified debug workflows')
-    p_run.add_argument('input', help='Trajectory/export path or stored trace ID')
+    p_run.add_argument(
+        'input', nargs='?', help='Trajectory/export path or stored trace ID'
+    )
+    p_run.add_argument(
+        '--current', action='store_true',
+        help='Use the exact trajectory captured for the calling host session',
+    )
     run_input_group = p_run.add_mutually_exclusive_group()
     run_input_group.add_argument(
         '--trajectory-id',
@@ -90,7 +96,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     store_group = p_run.add_mutually_exclusive_group()
     store_group.add_argument('--store-sqlite')
     store_group.add_argument('--store-jsonl')
-    p_run.add_argument('--run-root', default='.agentdebug')
+    p_run.add_argument('--run-root', default=None)
     p_run.add_argument('--plan', action='store_true')
     p_run.add_argument('--ui', action='store_true')
     p_run.add_argument('--json', action='store_true')

@@ -316,6 +316,17 @@ contain no response, label, reward, or verified answer.
 
 ## Stores
 
+Diagnose the exact auto-captured trajectory for the calling Claude Code or
+Codex session:
+
+```bash
+agentdebug run --current --profile quick --json
+```
+
+With valid session-scoped plugin context, bare `agentdebug run` is equivalent
+to `--current`. It fails instead of selecting a recently modified trace when
+that context is absent.
+
 ```bash
 agentdebug list --store-jsonl .agentdebug/traces.jsonl
 agentdebug show <trace_id> --store-jsonl .agentdebug/traces.jsonl

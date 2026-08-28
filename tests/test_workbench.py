@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -82,10 +83,49 @@ def test_execute_run_persists_one_consistent_identity(tmp_path, store_type, suff
     store = SQLiteTraceStore(str(store_path)) if store_type == 'sqlite' else JsonlTraceStore(str(store_path))
     assert run.artifacts.trace_id == result.trace_id == 'stable-trace'
     assert run.artifacts.report_id == result.report_id
+    assert run.artifacts.trajectory_snapshot_path == result.trajectory_snapshot_path
+    snapshot = json.loads(
+        Path(result.trajectory_snapshot_path).read_text(encoding='utf-8')
+    )
+    assert snapshot['trace_id'] == 'stable-trace'
+    assert len(snapshot['events']) == 1
     assert store.load_trajectory(result.trace_id) is not None
     report = store.load_report(result.trace_id, result.report_id)
     assert report is not None
     assert report.metadata['debug_run_id'] == result.run_id
+
+
+def test_run_snapshot_is_immutable_when_cumulative_trace_advances(tmp_path) -> None:
+    store_path = tmp_path / 'capture.sqlite'
+    store = SQLiteTraceStore(str(store_path))
+    original = AgentTrajectory(
+        trace_id='capture-current',
+        events=[AgentEvent(trace_id='capture-current', event_id='before-debug')],
+    )
+    store.save_trajectory(original)
+
+    result = execute_run(
+        RunRequest(
+            input_reference='capture-current',
+            profile='quick',
+            store_path=str(store_path),
+            run_root=str(tmp_path / 'state'),
+        )
+    )
+    advanced = AgentTrajectory(
+        trace_id='capture-current',
+        events=[
+            *original.events,
+            AgentEvent(trace_id='capture-current', event_id='self-debug-turn'),
+        ],
+    )
+    store.save_trajectory(advanced)
+
+    snapshot = json.loads(
+        Path(result.trajectory_snapshot_path).read_text(encoding='utf-8')
+    )
+    assert [event['event_id'] for event in snapshot['events']] == ['before-debug']
+    assert len(store.load_trajectory('capture-current').events) == 2
 
 
 def test_successful_diagnosis_survives_ui_failure(tmp_path, monkeypatch) -> None:

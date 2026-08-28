@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import List
 
+from agentdebug.schema import AgentTrajectory
 from agentdebug.schema.models import model_to_json, utc_now
 
 from .models import DebugRun
@@ -42,6 +43,16 @@ class RunRegistry:
 
     def list_runs(self) -> List[DebugRun]:
         return sorted((self.load_run(p.stem) for p in self.runs_dir.glob('*.json')), key=lambda r: r.created_at, reverse=True)
+
+    def save_trajectory_snapshot(
+        self, run_id: str, trajectory: AgentTrajectory
+    ) -> Path:
+        path = self.runs_dir / f'{run_id}.trajectory.json'
+        temp = path.with_suffix(f'.{os.getpid()}.tmp')
+        temp.write_text(model_to_json(trajectory, indent=2) + '\n', encoding='utf-8')
+        os.chmod(temp, 0o600)
+        os.replace(temp, path)
+        return path
 
     def _path(self, run_id: str) -> Path:
         if not run_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in run_id):

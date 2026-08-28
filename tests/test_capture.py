@@ -8,6 +8,11 @@ from agentdebug.capture.config import (
     PlatformCaptureConfig,
     write_capture_config,
 )
+from agentdebug.capture.context import (
+    CURRENT_CAPTURE_CONTEXT_ENV,
+    expose_current_capture_context,
+    write_current_capture_context,
+)
 from agentdebug.capture.identity import (
     project_id_for,
     receipt_id_for,
@@ -50,6 +55,117 @@ def test_capture_identities_are_stable_and_source_scoped(tmp_path: Path) -> None
     assert receipt_id_for(notification, 'source-v1') != receipt_id_for(
         notification, 'source-v2'
     )
+
+
+def test_claude_session_start_exposes_session_scoped_capture_context(
+    tmp_path: Path,
+) -> None:
+    store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
+    write_capture_config(
+        CaptureConfig(
+            project_root=tmp_path,
+            store_path=store_path,
+            platforms={
+                'claude_code': PlatformCaptureConfig(
+                    installed_hooks=['SessionStart', 'Stop']
+                )
+            },
+        )
+    )
+    notification = HookNotification(
+        host='claude_code',
+        event_name='SessionStart',
+        session_id='session-1',
+        transcript_path=tmp_path / 'session.jsonl',
+        cwd=tmp_path,
+        observed_at=datetime.now(timezone.utc),
+    )
+    env_file = tmp_path / 'claude-env'
+    env_file.write_text('', encoding='utf-8')
+
+    context_path = write_current_capture_context(tmp_path, notification)
+    expose_current_capture_context(
+        notification,
+        context_path,
+        environ={'CLAUDE_ENV_FILE': str(env_file)},
+    )
+
+    assignment = env_file.read_text(encoding='utf-8').strip()
+    assert assignment == (
+        f'export {CURRENT_CAPTURE_CONTEXT_ENV}={context_path}'
+    )
+    payload = __import__('json').loads(context_path.read_text(encoding='utf-8'))
+    assert payload['session_id'] == 'session-1'
+    assert payload['trace_id'] == trace_id_for('claude_code', 'session-1')
+
+
+def test_capture_excludes_agentdebug_self_diagnosis_turns() -> None:
+    trace_id = 'capture-self-debug'
+    events = [
+        AgentEvent(
+            trace_id=trace_id,
+            event_id='task-user',
+            agent_name='user',
+            event_type=EventType.OBSERVATION,
+            module='conversation',
+            output='Inspect the file.',
+        ),
+        AgentEvent(
+            trace_id=trace_id,
+            event_id='task-answer',
+            parent_event_id='task-user',
+            agent_name='codex',
+            event_type=EventType.LLM_RESPONSE,
+            module='conversation',
+            output='The file is valid.',
+        ),
+        AgentEvent(
+            trace_id=trace_id,
+            event_id='debug-user',
+            parent_event_id='task-answer',
+            agent_name='user',
+            event_type=EventType.OBSERVATION,
+            module='conversation',
+            output='Use AgentDebug on your current session.',
+        ),
+        AgentEvent(
+            trace_id=trace_id,
+            event_id='debug-call',
+            parent_event_id='debug-user',
+            agent_name='exec',
+            event_type=EventType.TOOL_CALL,
+            module='tool',
+            input='agentdebug run --current --profile quick --json',
+        ),
+        AgentEvent(
+            trace_id=trace_id,
+            event_id='debug-result',
+            parent_event_id='debug-call',
+            agent_name='tool',
+            event_type=EventType.TOOL_RESULT,
+            module='tool',
+            output={'status': 'completed'},
+        ),
+        AgentEvent(
+            trace_id=trace_id,
+            event_id='debug-answer',
+            parent_event_id='debug-result',
+            agent_name='codex',
+            event_type=EventType.LLM_RESPONSE,
+            module='conversation',
+            output='No root cause found.',
+        ),
+    ]
+
+    prepared = prepare_for_capture(
+        AgentTrajectory(trace_id=trace_id, events=events)
+    )
+
+    assert [event.event_id for event in prepared.trajectory.events] == [
+        'task-user',
+        'task-answer',
+    ]
+    assert prepared.counters['agentdebug_instrumentation'] == 4
 
 
 def test_snapshot_ignores_only_an_unterminated_tail(tmp_path: Path) -> None:

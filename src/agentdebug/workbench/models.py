@@ -35,6 +35,7 @@ class RunInput(BaseModel):
 class RunArtifactRefs(BaseModel):
     trace_id: Optional[str] = None
     report_id: Optional[str] = None
+    trajectory_snapshot_path: Optional[str] = None
     store_type: str
     store_path: str
 
@@ -98,6 +99,7 @@ class RunResult(BaseModel):
     status: str
     trace_id: Optional[str] = None
     report_id: Optional[str] = None
+    trajectory_snapshot_path: Optional[str] = None
     candidate_root_cause: Optional[Dict[str, Any]] = None
     top_evidence: List[str] = Field(default_factory=list)
     resolved_pipeline: ResolvedPipeline
@@ -111,6 +113,7 @@ class RunResult(BaseModel):
         return cls(
             run_id=run.run_id, status=run.status,
             trace_id=run.artifacts.trace_id, report_id=run.artifacts.report_id,
+            trajectory_snapshot_path=run.artifacts.trajectory_snapshot_path,
             candidate_root_cause=run.candidate_root_cause,
             top_evidence=run.top_evidence, resolved_pipeline=run.resolved_pipeline,
             actions=[item.action for item in run.actions], ui_url=run.ui_url,

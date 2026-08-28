@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 from agentdebug.capture.config import load_capture_config
+from agentdebug.capture.context import (
+    expose_current_capture_context,
+    write_current_capture_context,
+)
 from agentdebug.capture.contracts import HookNotification
 from agentdebug.capture.hosts.claude_code import ClaudeCodeCaptureAdapter
 from agentdebug.capture.identity import project_id_for
@@ -56,7 +60,13 @@ def _dispatch(platform: str, project: Path) -> int:
             return 0
         adapter = _adapter(platform)
         notification = adapter.parse_notification(payload)
-        CaptureService(project, adapter).handle(notification)
+        result = CaptureService(project, adapter).handle(notification)
+        if result.status in {'captured', 'no_op'}:
+            try:
+                context_path = write_current_capture_context(project, notification)
+                expose_current_capture_context(notification, context_path)
+            except (OSError, ValueError):
+                pass
     except sqlite3.OperationalError:
         # Hooks are passive sensors. Host execution must always continue.
         return 0
