@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agentdebug.capture.context import load_current_capture_context
+from agentdebug.capture.hosts.registry import resolve_current_capture_context
 from agentdebug.workbench.models import RunRequest
 from agentdebug.workbench.service import execute_batch_run, execute_run
 
@@ -73,7 +73,7 @@ def _resolve_input(args: Any) -> tuple[str, str, str, str]:
             raise ValueError(
                 'current captured sessions require their configured SQLite store'
             )
-        context = load_current_capture_context()
+        context = resolve_current_capture_context()
         configured_store = str(context.store_path)
         if args.store_sqlite:
             requested_store = str(Path(args.store_sqlite).expanduser().resolve())

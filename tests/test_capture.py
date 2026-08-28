@@ -1,8 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agentdebug.capture.contracts import HookNotification
-from agentdebug.capture.contracts import CaptureRequest
+from agentdebug.capture.contracts import CaptureRequest, CaptureResult, HookNotification
 from agentdebug.capture.config import (
     CaptureConfig,
     PlatformCaptureConfig,
@@ -10,8 +9,6 @@ from agentdebug.capture.config import (
 )
 from agentdebug.capture.context import (
     CURRENT_CAPTURE_CONTEXT_ENV,
-    expose_current_capture_context,
-    write_current_capture_context,
 )
 from agentdebug.capture.identity import (
     project_id_for,
@@ -26,8 +23,12 @@ from agentdebug.integrations.capture_management import (
     enable_capture_integration,
 )
 from agentdebug.capture.filtering import prepare_for_capture
-from agentdebug.capture.hosts.claude_code import ClaudeCodeCaptureAdapter
+from agentdebug.capture.hosts.claude_code import (
+    ClaudeCodeCaptureAdapter,
+    ClaudeCodeCaptureHost,
+)
 from agentdebug.capture.hosts.codex import CodexCaptureAdapter
+from agentdebug.capture.hosts.registry import get_capture_host
 from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.runtime import SQLiteTraceStore
 from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
@@ -57,6 +58,18 @@ def test_capture_identities_are_stable_and_source_scoped(tmp_path: Path) -> None
     )
 
 
+def test_capture_host_registry_routes_native_integrations(tmp_path: Path) -> None:
+    claude = get_capture_host('claude')
+    codex = get_capture_host('codex')
+
+    assert claude.host_name == 'claude_code'
+    assert isinstance(claude.create_adapter(), ClaudeCodeCaptureAdapter)
+    assert claude.settings_path(tmp_path) == tmp_path / '.claude' / 'settings.json'
+    assert codex.host_name == 'codex'
+    assert isinstance(codex.create_adapter(), CodexCaptureAdapter)
+    assert codex.settings_path(tmp_path) == tmp_path / '.codex' / 'hooks.json'
+
+
 def test_claude_session_start_exposes_session_scoped_capture_context(
     tmp_path: Path,
 ) -> None:
@@ -83,14 +96,15 @@ def test_claude_session_start_exposes_session_scoped_capture_context(
     env_file = tmp_path / 'claude-env'
     env_file.write_text('', encoding='utf-8')
 
-    context_path = write_current_capture_context(tmp_path, notification)
-    expose_current_capture_context(
+    ClaudeCodeCaptureHost().after_dispatch(
+        tmp_path,
         notification,
-        context_path,
+        CaptureResult(status='no_op'),
         environ={'CLAUDE_ENV_FILE': str(env_file)},
     )
 
     assignment = env_file.read_text(encoding='utf-8').strip()
+    context_path = Path(assignment.split('=', 1)[1])
     assert assignment == (
         f'export {CURRENT_CAPTURE_CONTEXT_ENV}={context_path}'
     )

@@ -20,16 +20,6 @@ from agentdebug.capture.identity import (
 from agentdebug.capture.repository import CaptureRepository
 from agentdebug.capture.snapshot import read_complete_jsonl
 
-BOUNDARY_KINDS = {
-    'SessionStart': 'session_start_reconciled',
-    'UserPromptSubmit': 'pre_prompt_reconciled',
-    'Stop': 'turn_completed',
-    'TaskCompleted': 'task_completion_requested',
-    'SessionEnd': 'session_reconciled',
-    'after_agent': 'turn_completed',
-}
-
-
 class CaptureService:
     def __init__(
         self,
@@ -66,7 +56,9 @@ class CaptureService:
                 cwd.relative_to(self.project_root)
             except ValueError as exc:
                 raise ValueError('hook cwd is outside the configured project') from exc
-            logical_boundary = BOUNDARY_KINDS.get(notification.event_name)
+            logical_boundary = self.adapter.event_boundaries.get(
+                notification.event_name
+            )
             if logical_boundary is None:
                 raise ValueError(f'unsupported capture event: {notification.event_name}')
             transcript_path = self.adapter.validate_transcript_path(notification)

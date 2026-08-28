@@ -17,8 +17,8 @@ from agentdebug.capture.config import (
     load_capture_config,
     write_capture_config,
 )
+from agentdebug.capture.hosts.registry import get_capture_host
 from agentdebug.integrations.capture_templates import (
-    CAPTURE_EVENTS,
     capture_hook_groups,
     is_agentdebug_capture_group,
 )
@@ -26,8 +26,8 @@ from agentdebug.integrations.capture_templates import (
 
 def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
     root = project.expanduser().resolve()
-    host = _host_name(platform)
-    settings_path = _settings_path(platform, root)
+    host = get_capture_host(platform)
+    settings_path = host.settings_path(root)
     managed_root = root / '.agentdebug' / 'capture-hooks' / platform
     launcher_path = managed_root / 'dispatch.sh'
     marker_path = managed_root / 'ownership.json'
@@ -61,7 +61,7 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
         'platform': platform,
         'launcher': launcher_command,
         'settings_path': str(settings_path),
-        'owned_events': CAPTURE_EVENTS[platform],
+        'owned_events': list(host.event_boundaries),
     }
     _atomic_json(marker_path, marker)
 
@@ -69,7 +69,7 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
     hooks = settings.setdefault('hooks', {})
     if not isinstance(hooks, dict):
         raise ValueError(f'host hooks setting must be an object: {settings_path}')
-    generated = capture_hook_groups(platform, launcher_command)
+    generated = capture_hook_groups(host.event_boundaries, launcher_command)
     for event, groups in generated.items():
         existing = hooks.get(event, [])
         if not isinstance(existing, list):
@@ -90,9 +90,9 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
             store_path=store_path,
             platforms={},
         )
-    config.platforms[host] = PlatformCaptureConfig(
+    config.platforms[host.host_name] = PlatformCaptureConfig(
         enabled=True,
-        installed_hooks=CAPTURE_EVENTS[platform],
+        installed_hooks=list(host.event_boundaries),
     )
     write_capture_config(config)
     return {
@@ -103,16 +103,17 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
         'settings_path': str(settings_path),
         'launcher_path': str(launcher_path),
         'ownership_path': str(marker_path),
-        'installed_hooks': CAPTURE_EVENTS[platform],
+        'installed_hooks': list(host.event_boundaries),
     }
 
 
 def disable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
     root = project.expanduser().resolve()
+    host = get_capture_host(platform)
     config = load_capture_config(root)
     if config is not None:
-        disable_capture(root, _host_name(platform))
-    settings_path = _settings_path(platform, root)
+        disable_capture(root, host.host_name)
+    settings_path = host.settings_path(root)
     settings = _read_settings(settings_path)
     hooks = settings.get('hooks')
     if isinstance(hooks, dict):
@@ -141,17 +142,18 @@ def disable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
 
 def capture_integration_status(platform: str, project: Path) -> Dict[str, Any]:
     root = project.expanduser().resolve()
+    host = get_capture_host(platform)
     config = load_capture_config(root)
     platform_config = (
-        None if config is None else config.platforms.get(_host_name(platform))
+        None if config is None else config.platforms.get(host.host_name)
     )
-    settings_path = _settings_path(platform, root)
+    settings_path = host.settings_path(root)
     settings = _read_settings(settings_path)
     hooks = settings.get('hooks', {})
     detected = []
     duplicates = []
     if isinstance(hooks, dict):
-        for event in CAPTURE_EVENTS[platform]:
+        for event in host.event_boundaries:
             groups = hooks.get(event, [])
             count = sum(
                 is_agentdebug_capture_group(group)
@@ -179,23 +181,6 @@ def capture_integration_status(platform: str, project: Path) -> Dict[str, Any]:
         'detected_hooks': detected,
         'duplicate_hooks': duplicates,
     }
-
-
-def _host_name(platform: str) -> str:
-    if platform == 'claude':
-        return 'claude_code'
-    if platform == 'codex':
-        return 'codex'
-    raise ValueError(f'unsupported capture platform: {platform}')
-
-
-def _settings_path(platform: str, root: Path) -> Path:
-    if platform == 'claude':
-        return root / '.claude' / 'settings.json'
-    if platform == 'codex':
-        return root / '.codex' / 'hooks.json'
-    raise ValueError(f'unsupported capture platform: {platform}')
-
 
 def _read_settings(path: Path) -> Dict[str, Any]:
     try:

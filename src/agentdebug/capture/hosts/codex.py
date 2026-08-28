@@ -7,10 +7,13 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
+from agentdebug.capture.config import load_capture_config
+from agentdebug.capture.context import CurrentCaptureContext
 from agentdebug.capture.contracts import HookNotification, TranscriptSnapshot
-from agentdebug.capture.identity import event_id_for
+from agentdebug.capture.contracts import CaptureResult
+from agentdebug.capture.identity import event_id_for, trace_id_for
 from agentdebug.ingest import convert_payload
 from agentdebug.schema import AgentTrajectory
 
@@ -22,9 +25,58 @@ CODEX_EVENTS = {
 }
 
 
+class CodexCaptureHost:
+    cli_name = 'codex'
+    host_name = 'codex'
+    event_boundaries = CODEX_EVENTS
+
+    def create_adapter(self) -> CodexCaptureAdapter:
+        return CodexCaptureAdapter()
+
+    def settings_path(self, project_root: Path) -> Path:
+        return project_root / '.codex' / 'hooks.json'
+
+    def after_dispatch(
+        self,
+        project_root: Path,
+        notification: HookNotification,
+        result: CaptureResult,
+        *,
+        environ: Optional[Mapping[str, str]] = None,
+    ) -> None:
+        return None
+
+    def resolve_current_context(
+        self,
+        environ: Mapping[str, str],
+        cwd: Path,
+    ) -> Optional[CurrentCaptureContext]:
+        session_id = environ.get('CODEX_THREAD_ID') or environ.get(
+            'CODEX_SESSION_ID'
+        )
+        if not session_id:
+            return None
+        for root in (cwd, *cwd.parents):
+            config = load_capture_config(root)
+            platform = None if config is None else config.platforms.get(self.host_name)
+            if config is None or platform is None or not platform.enabled:
+                continue
+            return CurrentCaptureContext(
+                host=self.host_name,
+                session_id=session_id,
+                project_root=root,
+                store_path=config.store_path.expanduser().resolve(),
+                trace_id=trace_id_for(self.host_name, session_id),
+            )
+        raise ValueError(
+            f'automatic capture is not enabled for Codex in {cwd}'
+        )
+
+
 class CodexCaptureAdapter:
     host = 'codex'
     version = 1
+    event_boundaries = CODEX_EVENTS
 
     def __init__(self, *, transcript_root: Optional[Path] = None) -> None:
         self.transcript_root = (

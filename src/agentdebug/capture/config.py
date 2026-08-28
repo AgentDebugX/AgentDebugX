@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
-PlatformName = Literal['claude_code', 'codex']
+from agentdebug.capture.contracts import HostName
 
 
 class PlatformCaptureConfig(BaseModel):
@@ -21,7 +21,7 @@ class CaptureConfig(BaseModel):
     schema_version: int = 2
     project_root: Path
     store_path: Path
-    platforms: Dict[PlatformName, PlatformCaptureConfig]
+    platforms: Dict[HostName, PlatformCaptureConfig]
 
 
 def capture_config_path(project_root: Path) -> Path:
@@ -75,7 +75,7 @@ def write_capture_config(config: CaptureConfig) -> Path:
 
 
 def disable_capture(
-    project_root: Path, platform: PlatformName
+    project_root: Path, platform: HostName
 ) -> CaptureConfig:
     config = load_capture_config(project_root)
     if config is None:

@@ -9,17 +9,12 @@ from pathlib import Path
 from typing import Any, Dict
 
 from agentdebug.capture.config import load_capture_config
-from agentdebug.capture.context import (
-    expose_current_capture_context,
-    write_current_capture_context,
-)
 from agentdebug.capture.contracts import HookNotification
-from agentdebug.capture.hosts.claude_code import ClaudeCodeCaptureAdapter
+from agentdebug.capture.hosts.registry import get_capture_host
 from agentdebug.capture.identity import project_id_for
 from agentdebug.capture.repository import CaptureRepository
 from agentdebug.capture.service import CaptureService
 from agentdebug.integrations.capture_management import (
-    _host_name,
     capture_integration_status,
     disable_capture_integration,
     enable_capture_integration,
@@ -58,15 +53,14 @@ def _dispatch(platform: str, project: Path) -> int:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
             return 0
-        adapter = _adapter(platform)
+        host = get_capture_host(platform)
+        adapter = host.create_adapter()
         notification = adapter.parse_notification(payload)
         result = CaptureService(project, adapter).handle(notification)
-        if result.status in {'captured', 'no_op'}:
-            try:
-                context_path = write_current_capture_context(project, notification)
-                expose_current_capture_context(notification, context_path)
-            except (OSError, ValueError):
-                pass
+        try:
+            host.after_dispatch(project, notification, result)
+        except (OSError, ValueError):
+            pass
     except sqlite3.OperationalError:
         # Hooks are passive sensors. Host execution must always continue.
         return 0
@@ -74,6 +68,7 @@ def _dispatch(platform: str, project: Path) -> int:
 
 
 def _status(platform: str, project: Path) -> Dict[str, Any]:
+    host = get_capture_host(platform)
     payload = capture_integration_status(platform, project)
     config = load_capture_config(project)
     if config is None or not config.store_path.exists():
@@ -91,7 +86,7 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
     repository = CaptureRepository(config.store_path, initialize=False)
     try:
         status = repository.status(
-            project_id_for(project), host=_host_name(platform)
+            project_id_for(project), host=host.host_name
         )
     except Exception:
         payload.update(
@@ -117,7 +112,7 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
                 for session in status.sessions
             ],
             'last_error': _last_error(
-                repository, project_id_for(project), _host_name(platform)
+                repository, project_id_for(project), host.host_name
             ),
         }
     )
@@ -126,16 +121,20 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
 
 
 def _reconcile(platform: str, project: Path) -> Dict[str, Any]:
+    capture_host = get_capture_host(platform)
     config = load_capture_config(project)
-    host = _host_name(platform)
-    platform_config = None if config is None else config.platforms.get(host)
+    platform_config = (
+        None if config is None else config.platforms.get(capture_host.host_name)
+    )
     if platform_config is None or not platform_config.enabled:
         return {'status': 'disabled', 'replayed': 0, 'failed': 0}
     if not config.store_path.exists():
         return {'status': 'reconciled', 'replayed': 0, 'failed': 0}
-    adapter = _adapter(platform)
+    adapter = capture_host.create_adapter()
     repository = CaptureRepository(config.store_path)
-    receipts = repository.list_replayable(project_id_for(project), host=host)
+    receipts = repository.list_replayable(
+        project_id_for(project), host=capture_host.host_name
+    )
     replayed = 0
     failed = 0
     for receipt in receipts:
@@ -162,17 +161,6 @@ def _reconcile(platform: str, project: Path) -> Dict[str, Any]:
         'replayed': replayed,
         'failed': failed,
     }
-
-
-def _adapter(platform: str) -> Any:
-    if platform == 'claude':
-        return ClaudeCodeCaptureAdapter()
-    if platform == 'codex':
-        from agentdebug.capture.hosts.codex import CodexCaptureAdapter
-
-        return CodexCaptureAdapter()
-    raise ValueError(f'unsupported capture platform: {platform}')
-
 
 def _last_error(
     repository: CaptureRepository, project_id: str, host: str

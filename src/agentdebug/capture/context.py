@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -56,39 +55,10 @@ def write_current_capture_context(
     return path
 
 
-def expose_current_capture_context(
-    notification: HookNotification,
-    context_path: Path,
-    *,
-    environ: Optional[Mapping[str, str]] = None,
-) -> None:
-    if (
-        notification.host != 'claude_code'
-        or notification.event_name != 'SessionStart'
-    ):
-        return
-    values = os.environ if environ is None else environ
-    env_file = values.get('CLAUDE_ENV_FILE')
-    if not env_file:
-        return
-    with Path(env_file).expanduser().open('a', encoding='utf-8') as handle:
-        handle.write(
-            f'export {CURRENT_CAPTURE_CONTEXT_ENV}='
-            f'{shlex.quote(str(context_path.expanduser().resolve()))}\n'
-        )
-
-
-def load_current_capture_context(
-    *, environ: Optional[Mapping[str, str]] = None, cwd: Optional[Path] = None
+def validate_current_capture_context(
+    context: CurrentCaptureContext, *, cwd: Optional[Path] = None
 ) -> CurrentCaptureContext:
-    values = os.environ if environ is None else environ
-    context_value = values.get(CURRENT_CAPTURE_CONTEXT_ENV)
     working_directory = (cwd or Path.cwd()).expanduser().resolve()
-    context = (
-        _read_context_file(context_value)
-        if context_value
-        else _context_from_codex_environment(values, working_directory)
-    )
     root = context.project_root.expanduser().resolve()
     try:
         working_directory.relative_to(root)
@@ -115,7 +85,7 @@ def load_current_capture_context(
     return context
 
 
-def _read_context_file(value: str) -> CurrentCaptureContext:
+def read_current_capture_context(value: str) -> CurrentCaptureContext:
     path = Path(value).expanduser().resolve()
     try:
         payload = json.loads(path.read_text(encoding='utf-8'))
@@ -129,33 +99,10 @@ def _read_context_file(value: str) -> CurrentCaptureContext:
     )
 
 
-def _context_from_codex_environment(
-    environ: Mapping[str, str], cwd: Path
-) -> CurrentCaptureContext:
-    session_id = environ.get('CODEX_THREAD_ID') or environ.get('CODEX_SESSION_ID')
-    if session_id:
-        for root in (cwd, *cwd.parents):
-            config = load_capture_config(root)
-            platform = None if config is None else config.platforms.get('codex')
-            if config is None or platform is None or not platform.enabled:
-                continue
-            return CurrentCaptureContext(
-                host='codex',
-                session_id=session_id,
-                project_root=root,
-                store_path=config.store_path.expanduser().resolve(),
-                trace_id=trace_id_for('codex', session_id),
-            )
-    raise ValueError(
-        'no current captured session context; provide a trajectory or invoke '
-        'AgentDebugX from a supported host plugin'
-    )
-
-
 __all__ = [
     'CURRENT_CAPTURE_CONTEXT_ENV',
     'CurrentCaptureContext',
-    'expose_current_capture_context',
-    'load_current_capture_context',
+    'read_current_capture_context',
+    'validate_current_capture_context',
     'write_current_capture_context',
 ]

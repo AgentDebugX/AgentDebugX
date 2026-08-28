@@ -105,6 +105,8 @@ def test_run_without_input_requires_current_host_context(
     tmp_path, monkeypatch, capsys,
 ) -> None:
     monkeypatch.delenv(CURRENT_CAPTURE_CONTEXT_ENV, raising=False)
+    monkeypatch.delenv('CODEX_THREAD_ID', raising=False)
+    monkeypatch.delenv('CODEX_SESSION_ID', raising=False)
     monkeypatch.chdir(tmp_path)
 
     assert main(['run', '--profile', 'quick']) == 2
