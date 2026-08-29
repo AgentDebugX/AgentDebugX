@@ -55,7 +55,11 @@ class ClaudeCodeCaptureHost:
         env_file = values.get('CLAUDE_ENV_FILE')
         if not env_file:
             return
+
+        # Persist the exact session-to-trace mapping before transcript capture.
         context_path = write_current_capture_context(project_root, notification)
+
+        # Claude sources this file before later Bash commands in the session.
         assignment = (
             f'export {CURRENT_CAPTURE_CONTEXT_ENV}='
             f'{shlex.quote(str(context_path.expanduser().resolve()))}'
@@ -65,8 +69,11 @@ class ClaudeCodeCaptureHost:
             existing = env_path.read_text(encoding='utf-8').splitlines()
         except FileNotFoundError:
             existing = []
+
+        # Resumes may reuse the environment file, so export the path only once.
         if assignment in existing:
             return
+
         with env_path.open('a', encoding='utf-8') as handle:
             handle.write(f'{assignment}\n')
 
