@@ -1,6 +1,6 @@
 {
   "name": "agentdebug",
-  "version": "0.4.0",
+  "version": "0.1.0",
   "description": "Capture and diagnose Codex trajectories with AgentDebugX.",
   "author": {
     "name": "ULab @ UIUC",

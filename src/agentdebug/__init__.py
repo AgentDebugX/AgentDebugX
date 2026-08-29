@@ -289,7 +289,7 @@ __all__ = [
     'write_converted_trajectory',
 ]
 
-__version__ = '0.4.0'
+__version__ = '0.3.1'
 
 _COMPAT_MODULE_ALIASES = {
     'agentdebug.models': _core_models_mod,

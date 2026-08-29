@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./hooks/dispatch.py",
+            "command": "agentdebug integrations capture dispatch --platform codex",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./hooks/dispatch.py",
+            "command": "agentdebug integrations capture dispatch --platform codex",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./hooks/dispatch.py",
+            "command": "agentdebug integrations capture dispatch --platform codex",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -41,8 +41,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ./hooks/dispatch.py",
-            "timeout": 10,
+            "command": "agentdebug integrations capture dispatch --platform codex",
+            "timeout": 3,
             "statusMessage": "agentdebug-capture"
           }
         ]

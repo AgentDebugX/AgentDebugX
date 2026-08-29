@@ -8,7 +8,7 @@
       "name": "agentdebug",
       "source": {
         "source": "local",
-        "path": "./plugins/agentdebug"
+        "path": "./integrations/codex/plugins/agentdebug"
       },
       "policy": {
         "installation": "AVAILABLE",

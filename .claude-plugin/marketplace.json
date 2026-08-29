@@ -13,7 +13,7 @@
       "author": {
         "name": "ULab @ UIUC"
       },
-      "source": "./plugins/agentdebug",
+      "source": "./integrations/claude-code/plugins/agentdebug",
       "category": "development",
       "homepage": "https://www.agentdebugx.com"
     }

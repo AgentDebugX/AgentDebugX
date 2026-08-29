@@ -1,5 +1,3 @@
-import importlib.util
-import io
 import json
 from pathlib import Path
 
@@ -10,83 +8,50 @@ ROOT = Path(__file__).parents[1]
 PLUGINS = [
     (
         ROOT / 'integrations' / 'claude-code' / 'plugins' / 'agentdebug',
-        'claude_code',
+        Path('hooks/hooks.json'),
         'claude',
+        {'SessionStart', 'UserPromptSubmit', 'Stop', 'TaskCompleted', 'SessionEnd'},
     ),
     (
         ROOT / 'integrations' / 'codex' / 'plugins' / 'agentdebug',
+        Path('hooks/hooks.json'),
         'codex',
-        'codex',
+        {'SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd'},
     ),
 ]
 
 
-@pytest.mark.parametrize('plugin_root,config_platform,cli_platform', PLUGINS)
-def test_native_plugin_dispatches_only_for_enabled_projects(
+@pytest.mark.parametrize('plugin_root,hooks_path,platform,events', PLUGINS)
+def test_native_plugin_hooks_use_portable_cli_command(
     plugin_root: Path,
-    config_platform: str,
-    cli_platform: str,
-    tmp_path: Path,
-    monkeypatch,
+    hooks_path: Path,
+    platform: str,
+    events: set,
 ) -> None:
-    dispatch_path = plugin_root / 'hooks' / 'dispatch.py'
-    spec = importlib.util.spec_from_file_location(
-        f'agentdebug_{cli_platform}_plugin_dispatch', dispatch_path
+    payload = json.loads((plugin_root / hooks_path).read_text(encoding='utf-8'))
+    hooks = payload['hooks']
+
+    assert set(hooks) == events
+    commands = {
+        hook['command']
+        for groups in hooks.values()
+        for group in groups
+        for hook in group['hooks']
+    }
+    assert commands == {
+        f'agentdebug integrations capture dispatch --platform {platform}'
+    }
+
+
+def test_repository_marketplaces_resolve_plugin_roots() -> None:
+    claude_marketplace = json.loads(
+        (ROOT / '.claude-plugin' / 'marketplace.json').read_text(encoding='utf-8')
     )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    payload = json.dumps({'cwd': str(tmp_path / 'nested')})
-    (tmp_path / 'nested').mkdir()
-    calls = []
-    monkeypatch.setattr(module.shutil, 'which', lambda command: '/usr/bin/uvx')
-    monkeypatch.setattr(
-        module.subprocess,
-        'run',
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
-
-    monkeypatch.setattr(module.sys, 'stdin', io.StringIO(payload))
-    assert module.main() == 0
-    assert calls == []
-
-    config_path = tmp_path / '.agentdebug' / 'capture.json'
-    config_path.parent.mkdir()
-    config_path.write_text(
-        json.dumps(
-            {
-                'platforms': {
-                    config_platform: {
-                        'enabled': True,
-                        'installed_hooks': [],
-                    }
-                }
-            }
-        ),
-        encoding='utf-8',
+    codex_marketplace = json.loads(
+        (ROOT / '.agents' / 'plugins' / 'marketplace.json').read_text(encoding='utf-8')
     )
 
-    monkeypatch.setattr(module.sys, 'stdin', io.StringIO(payload))
-    assert module.main() == 0
-    assert len(calls) == 1
-    command = calls[0][0][0]
-    assert command[:4] == [
-        '/usr/bin/uvx',
-        '--quiet',
-        '--from',
-        'agentdebugx==0.4.0',
-    ]
-    assert command[-2:] == ['--platform', cli_platform]
-    assert calls[0][1]['input'] == payload
-
-    monkeypatch.setenv('AGENTDEBUGX_PLUGIN_SOURCE', '/workspace/AgentDebugX')
-    monkeypatch.setattr(module.sys, 'stdin', io.StringIO(payload))
-    assert module.main() == 0
-    assert calls[1][0][0][:5] == [
-        '/usr/bin/uvx',
-        '--quiet',
-        '--from',
-        '/workspace/AgentDebugX',
-        'agentdebug',
-    ]
+    claude_source = claude_marketplace['plugins'][0]['source']
+    codex_source = codex_marketplace['plugins'][0]['source']['path']
+    assert (ROOT / claude_source).is_dir()
+    assert (ROOT / codex_source).is_dir()

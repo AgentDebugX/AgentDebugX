@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "agentdebugx"
-version = "0.4.0"
+version = "0.3.1"
 description = "Portable error analysis, tracing, and recovery framework for agentic AI systems. Import as `agentdebug`."
 authors = ["ULab @ UIUC <ulab@illinois.edu>"]
 license = "MIT"

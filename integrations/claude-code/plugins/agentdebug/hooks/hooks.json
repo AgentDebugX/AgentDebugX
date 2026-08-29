@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "command": "agentdebug integrations capture dispatch --platform claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "command": "agentdebug integrations capture dispatch --platform claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "command": "agentdebug integrations capture dispatch --platform claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "command": "agentdebug integrations capture dispatch --platform claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "command": "agentdebug integrations capture dispatch --platform claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }

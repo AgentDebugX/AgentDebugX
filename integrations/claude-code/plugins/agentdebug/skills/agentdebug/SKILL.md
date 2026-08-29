@@ -10,10 +10,10 @@ Diagnosis is never automatic.
 
 ## Project setup
 
-Use the pinned private runtime; do not install into the project environment:
+Use the installed AgentDebugX CLI:
 
 ```bash
-uvx --from agentdebugx==0.4.0 agentdebug integrations capture enable --native-plugin --platform claude --project "$PWD" --json
+agentdebug integrations capture enable --native-plugin --platform claude --project "$PWD" --json
 ```
 
 Inspect or disable capture with the same command, replacing `enable` with
@@ -28,7 +28,7 @@ project code.
 For an explicit request to inspect this Claude Code session, run:
 
 ```bash
-uvx --from agentdebugx==0.4.0 agentdebug run --current --profile quick --json
+agentdebug run --current --profile quick --json
 ```
 
 For a supplied trajectory path or trace ID, pass it explicitly and use the
