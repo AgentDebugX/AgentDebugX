@@ -1,0 +1,20 @@
+{
+  "name": "agentdebug",
+  "interface": {
+    "displayName": "AgentDebugX"
+  },
+  "plugins": [
+    {
+      "name": "agentdebug",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agentdebug"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

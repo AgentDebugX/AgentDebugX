@@ -1,0 +1,27 @@
+{
+  "name": "agentdebug",
+  "version": "0.4.0",
+  "description": "Capture and diagnose Codex trajectories with AgentDebugX.",
+  "author": {
+    "name": "ULab @ UIUC",
+    "email": "ulab@illinois.edu",
+    "url": "https://www.agentdebugx.com"
+  },
+  "homepage": "https://www.agentdebugx.com",
+  "repository": "https://github.com/AgentDebugX/AgentDebugX",
+  "license": "MIT",
+  "keywords": ["agents", "debugging", "trajectories", "observability"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AgentDebugX",
+    "shortDescription": "Capture and diagnose Codex trajectories.",
+    "longDescription": "Project-scoped passive capture and explicit trajectory diagnosis for Codex sessions.",
+    "developerName": "ULab @ UIUC",
+    "category": "Developer Tools",
+    "capabilities": ["Capture", "Analysis"],
+    "websiteURL": "https://www.agentdebugx.com",
+    "defaultPrompt": [
+      "Use AgentDebug to inspect what went wrong in this session."
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agentdebug",
+  "description": "AgentDebugX plugins for Claude Code.",
+  "owner": {
+    "name": "ULab @ UIUC",
+    "email": "ulab@illinois.edu"
+  },
+  "plugins": [
+    {
+      "name": "agentdebug",
+      "description": "Capture and diagnose Claude Code trajectories with AgentDebugX.",
+      "author": {
+        "name": "ULab @ UIUC"
+      },
+      "source": "./plugins/agentdebug",
+      "category": "development",
+      "homepage": "https://www.agentdebugx.com"
+    }
+  ]
+}

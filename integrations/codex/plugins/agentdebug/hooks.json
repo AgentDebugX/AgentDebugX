@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/dispatch.py",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/dispatch.py",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/dispatch.py",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/dispatch.py",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "description": "Passively capture enabled Claude Code project sessions for AgentDebugX.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch.py\"",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ]
+  }
+}
