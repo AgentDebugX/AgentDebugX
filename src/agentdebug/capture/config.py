@@ -74,6 +74,27 @@ def write_capture_config(config: CaptureConfig) -> Path:
     return path
 
 
+def enable_capture(
+    project_root: Path,
+    platform: HostName,
+    installed_hooks: List[str],
+) -> CaptureConfig:
+    root = project_root.expanduser().resolve()
+    config = load_capture_config(root)
+    if config is None:
+        config = CaptureConfig(
+            project_root=root,
+            store_path=root / '.agentdebug' / 'agentdebug.sqlite',
+            platforms={},
+        )
+    config.platforms[platform] = PlatformCaptureConfig(
+        enabled=True,
+        installed_hooks=installed_hooks,
+    )
+    write_capture_config(config)
+    return config
+
+
 def disable_capture(
     project_root: Path, platform: HostName
 ) -> CaptureConfig:

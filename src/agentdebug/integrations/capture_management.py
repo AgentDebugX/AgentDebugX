@@ -11,11 +11,9 @@ from typing import Any, Dict
 
 from agentdebug import __version__
 from agentdebug.capture.config import (
-    CaptureConfig,
-    PlatformCaptureConfig,
     disable_capture,
+    enable_capture,
     load_capture_config,
-    write_capture_config,
 )
 from agentdebug.capture.hosts.registry import get_capture_host
 from agentdebug.integrations.capture_templates import (
@@ -79,22 +77,8 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
         ] + groups
     _atomic_json(settings_path, settings)
 
-    config = load_capture_config(root)
-    store_path = (
-        root / '.agentdebug' / 'agentdebug.sqlite'
-        if config is None else config.store_path
-    )
-    if config is None:
-        config = CaptureConfig(
-            project_root=root,
-            store_path=store_path,
-            platforms={},
-        )
-    config.platforms[host.host_name] = PlatformCaptureConfig(
-        enabled=True,
-        installed_hooks=list(host.event_boundaries),
-    )
-    write_capture_config(config)
+    config = enable_capture(root, host.host_name, list(host.event_boundaries))
+    store_path = config.store_path
     return {
         'status': 'enabled',
         'platform': platform,
@@ -103,6 +87,20 @@ def enable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
         'settings_path': str(settings_path),
         'launcher_path': str(launcher_path),
         'ownership_path': str(marker_path),
+        'installed_hooks': list(host.event_boundaries),
+    }
+
+
+def enable_native_capture(platform: str, project: Path) -> Dict[str, Any]:
+    root = project.expanduser().resolve()
+    host = get_capture_host(platform)
+    config = enable_capture(root, host.host_name, list(host.event_boundaries))
+    return {
+        'status': 'enabled',
+        'platform': platform,
+        'project_root': str(root),
+        'store_path': str(config.store_path),
+        'hook_source': 'native_plugin',
         'installed_hooks': list(host.event_boundaries),
     }
 
@@ -140,13 +138,26 @@ def disable_capture_integration(platform: str, project: Path) -> Dict[str, Any]:
     }
 
 
+def disable_native_capture(platform: str, project: Path) -> Dict[str, Any]:
+    root = project.expanduser().resolve()
+    host = get_capture_host(platform)
+    config = load_capture_config(root)
+    if config is not None:
+        disable_capture(root, host.host_name)
+    return {
+        'status': 'disabled',
+        'platform': platform,
+        'project_root': str(root),
+        'store_path': None if config is None else str(config.store_path),
+        'hook_source': 'native_plugin',
+    }
+
+
 def capture_integration_status(platform: str, project: Path) -> Dict[str, Any]:
     root = project.expanduser().resolve()
     host = get_capture_host(platform)
     config = load_capture_config(root)
-    platform_config = (
-        None if config is None else config.platforms.get(host.host_name)
-    )
+    platform_config = None if config is None else config.platforms.get(host.host_name)
     settings_path = host.settings_path(root)
     settings = _read_settings(settings_path)
     hooks = settings.get('hooks', {})
@@ -181,6 +192,27 @@ def capture_integration_status(platform: str, project: Path) -> Dict[str, Any]:
         'detected_hooks': detected,
         'duplicate_hooks': duplicates,
     }
+
+
+def native_capture_status(platform: str, project: Path) -> Dict[str, Any]:
+    root = project.expanduser().resolve()
+    host = get_capture_host(platform)
+    config = load_capture_config(root)
+    platform_config = (
+        None if config is None else config.platforms.get(host.host_name)
+    )
+    return {
+        'schema_version': 1,
+        'platform': platform,
+        'project_root': str(root),
+        'enabled': bool(platform_config and platform_config.enabled),
+        'store_path': str(config.store_path) if config else None,
+        'hook_source': 'native_plugin',
+        'installed_hooks': (
+            [] if platform_config is None else platform_config.installed_hooks
+        ),
+    }
+
 
 def _read_settings(path: Path) -> Dict[str, Any]:
     try:

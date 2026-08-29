@@ -660,6 +660,61 @@ def test_capture_dispatch_is_fail_open_and_silent(
     assert captured.err == ''
 
 
+def test_native_capture_uses_payload_project_without_installing_hooks(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    import io
+    import json
+
+    from agentdebug.cli.main import main
+
+    project = tmp_path / 'project'
+    child = project / 'nested'
+    child.mkdir(parents=True)
+    base = ['--platform', 'claude', '--project', str(project), '--native-plugin']
+
+    assert main(['integrations', 'capture', 'enable', *base, '--json']) == 0
+    enabled = json.loads(capsys.readouterr().out)
+    assert enabled['hook_source'] == 'native_plugin'
+    assert not (project / '.claude' / 'settings.json').exists()
+
+    monkeypatch.setattr(
+        'sys.stdin',
+        io.StringIO(
+            json.dumps(
+                {
+                    'hook_event_name': 'Stop',
+                    'session_id': 'session-1',
+                    'transcript_path': str(tmp_path / 'missing.jsonl'),
+                    'cwd': str(child),
+                }
+            )
+        ),
+    )
+    assert main(
+        [
+            'integrations',
+            'capture',
+            'dispatch',
+            '--platform',
+            'claude',
+        ]
+    ) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ''
+    assert captured.err == ''
+
+    assert main(['integrations', 'capture', 'status', *base, '--json']) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status['enabled'] is True
+    assert status['hook_source'] == 'native_plugin'
+
+    assert main(['integrations', 'capture', 'disable', *base, '--json']) == 0
+    disabled = json.loads(capsys.readouterr().out)
+    assert disabled['status'] == 'disabled'
+    assert not (project / '.claude' / 'settings.json').exists()
+
+
 def test_claude_session_start_exposes_context_before_transcript_exists(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:

@@ -482,7 +482,13 @@ def _add_integrations_subcommands(parser: argparse.ArgumentParser) -> None:
     for command in ('enable', 'disable', 'status', 'reconcile', 'dispatch'):
         item = capture_sub.add_parser(command)
         item.add_argument('--platform', choices=('claude', 'codex'), required=True)
-        item.add_argument('--project', required=True)
+        item.add_argument('--project', required=command != 'dispatch')
+        if command in {'enable', 'disable', 'status'}:
+            item.add_argument(
+                '--native-plugin',
+                action='store_true',
+                help='Manage project capture consent without installing hook files',
+            )
         if command in {'enable', 'disable', 'status', 'reconcile'}:
             item.add_argument('--json', action='store_true')
 

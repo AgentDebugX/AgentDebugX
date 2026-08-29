@@ -6,7 +6,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from agentdebug.capture.config import load_capture_config
 from agentdebug.capture.contracts import HookNotification
@@ -17,21 +17,34 @@ from agentdebug.capture.service import CaptureService
 from agentdebug.integrations.capture_management import (
     capture_integration_status,
     disable_capture_integration,
+    disable_native_capture,
     enable_capture_integration,
+    enable_native_capture,
+    native_capture_status,
 )
 
 
 def run(args: Any) -> int:
-    project = Path(args.project).expanduser().resolve()
     if args.capture_command == 'dispatch':
+        project = None if args.project is None else Path(args.project).expanduser().resolve()
         return _dispatch(args.platform, project)
+    project = Path(args.project).expanduser().resolve()
+    native_plugin = getattr(args, 'native_plugin', False)
     try:
         if args.capture_command == 'enable':
-            payload = enable_capture_integration(args.platform, project)
+            payload = (
+                enable_native_capture(args.platform, project)
+                if native_plugin
+                else enable_capture_integration(args.platform, project)
+            )
         elif args.capture_command == 'disable':
-            payload = disable_capture_integration(args.platform, project)
+            payload = (
+                disable_native_capture(args.platform, project)
+                if native_plugin
+                else disable_capture_integration(args.platform, project)
+            )
         elif args.capture_command == 'status':
-            payload = _status(args.platform, project)
+            payload = _status(args.platform, project, native_plugin=native_plugin)
         elif args.capture_command == 'reconcile':
             payload = _reconcile(args.platform, project)
         else:
@@ -48,7 +61,7 @@ def run(args: Any) -> int:
     return 0
 
 
-def _dispatch(platform: str, project: Path) -> int:
+def _dispatch(platform: str, project: Optional[Path]) -> int:
     try:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
@@ -56,6 +69,10 @@ def _dispatch(platform: str, project: Path) -> int:
         host = get_capture_host(platform)
         adapter = host.create_adapter()
         notification = adapter.parse_notification(payload)
+        if project is None:
+            project = _find_enabled_project(notification.cwd, host.host_name)
+        if project is None:
+            return 0
         try:
             host.prepare_session_context(project, notification)
         except (OSError, ValueError):
@@ -67,9 +84,15 @@ def _dispatch(platform: str, project: Path) -> int:
     return 0
 
 
-def _status(platform: str, project: Path) -> Dict[str, Any]:
+def _status(
+    platform: str, project: Path, *, native_plugin: bool = False
+) -> Dict[str, Any]:
     host = get_capture_host(platform)
-    payload = capture_integration_status(platform, project)
+    payload = (
+        native_capture_status(platform, project)
+        if native_plugin
+        else capture_integration_status(platform, project)
+    )
     config = load_capture_config(project)
     if config is None or not config.store_path.exists():
         payload.update(
@@ -118,6 +141,16 @@ def _status(platform: str, project: Path) -> Dict[str, Any]:
     )
     payload['status'] = 'enabled' if payload['enabled'] else 'disabled'
     return payload
+
+
+def _find_enabled_project(cwd: Path, host_name: str) -> Optional[Path]:
+    root = cwd.expanduser().resolve()
+    for candidate in (root, *root.parents):
+        config = load_capture_config(candidate)
+        platform = None if config is None else config.platforms.get(host_name)
+        if platform is not None and platform.enabled:
+            return candidate
+    return None
 
 
 def _reconcile(platform: str, project: Path) -> Dict[str, Any]:
