@@ -17,11 +17,7 @@ from agentdebug.capture.context import (
     read_current_capture_context,
     write_current_capture_context,
 )
-from agentdebug.capture.contracts import (
-    CaptureResult,
-    HookNotification,
-    TranscriptSnapshot,
-)
+from agentdebug.capture.contracts import HookNotification, TranscriptSnapshot
 from agentdebug.capture.identity import event_id_for
 from agentdebug.ingest import convert_payload
 from agentdebug.schema import AgentTrajectory
@@ -46,29 +42,33 @@ class ClaudeCodeCaptureHost:
     def settings_path(self, project_root: Path) -> Path:
         return project_root / '.claude' / 'settings.json'
 
-    def after_dispatch(
+    def prepare_session_context(
         self,
         project_root: Path,
         notification: HookNotification,
-        result: CaptureResult,
         *,
         environ: Optional[Mapping[str, str]] = None,
     ) -> None:
-        if (
-            notification.event_name != 'SessionStart'
-            or result.status not in {'captured', 'no_op'}
-        ):
+        if notification.event_name != 'SessionStart':
             return
         values = os.environ if environ is None else environ
         env_file = values.get('CLAUDE_ENV_FILE')
         if not env_file:
             return
         context_path = write_current_capture_context(project_root, notification)
-        with Path(env_file).expanduser().open('a', encoding='utf-8') as handle:
-            handle.write(
-                f'export {CURRENT_CAPTURE_CONTEXT_ENV}='
-                f'{shlex.quote(str(context_path.expanduser().resolve()))}\n'
-            )
+        assignment = (
+            f'export {CURRENT_CAPTURE_CONTEXT_ENV}='
+            f'{shlex.quote(str(context_path.expanduser().resolve()))}'
+        )
+        env_path = Path(env_file).expanduser()
+        try:
+            existing = env_path.read_text(encoding='utf-8').splitlines()
+        except FileNotFoundError:
+            existing = []
+        if assignment in existing:
+            return
+        with env_path.open('a', encoding='utf-8') as handle:
+            handle.write(f'{assignment}\n')
 
     def resolve_current_context(
         self,

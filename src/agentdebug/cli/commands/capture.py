@@ -56,11 +56,11 @@ def _dispatch(platform: str, project: Path) -> int:
         host = get_capture_host(platform)
         adapter = host.create_adapter()
         notification = adapter.parse_notification(payload)
-        result = CaptureService(project, adapter).handle(notification)
         try:
-            host.after_dispatch(project, notification, result)
+            host.prepare_session_context(project, notification)
         except (OSError, ValueError):
             pass
+        CaptureService(project, adapter).handle(notification)
     except sqlite3.OperationalError:
         # Hooks are passive sensors. Host execution must always continue.
         return 0

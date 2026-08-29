@@ -6,11 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Protocol
 
 from agentdebug.capture.context import CurrentCaptureContext
-from agentdebug.capture.contracts import (
-    CaptureResult,
-    HookNotification,
-    TranscriptSnapshot,
-)
+from agentdebug.capture.contracts import HookNotification, TranscriptSnapshot
 from agentdebug.schema import AgentTrajectory
 
 
@@ -44,11 +40,10 @@ class CaptureHost(Protocol):
     def settings_path(self, project_root: Path) -> Path:
         ...
 
-    def after_dispatch(
+    def prepare_session_context(
         self,
         project_root: Path,
         notification: HookNotification,
-        result: CaptureResult,
         *,
         environ: Optional[Mapping[str, str]] = None,
     ) -> None:

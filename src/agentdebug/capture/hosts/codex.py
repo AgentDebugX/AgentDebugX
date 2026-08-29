@@ -12,7 +12,6 @@ from typing import Any, Dict, Mapping, Optional
 from agentdebug.capture.config import load_capture_config
 from agentdebug.capture.context import CurrentCaptureContext
 from agentdebug.capture.contracts import HookNotification, TranscriptSnapshot
-from agentdebug.capture.contracts import CaptureResult
 from agentdebug.capture.identity import event_id_for, trace_id_for
 from agentdebug.ingest import convert_payload
 from agentdebug.schema import AgentTrajectory
@@ -36,11 +35,10 @@ class CodexCaptureHost:
     def settings_path(self, project_root: Path) -> Path:
         return project_root / '.codex' / 'hooks.json'
 
-    def after_dispatch(
+    def prepare_session_context(
         self,
         project_root: Path,
         notification: HookNotification,
-        result: CaptureResult,
         *,
         environ: Optional[Mapping[str, str]] = None,
     ) -> None:

@@ -1,7 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agentdebug.capture.contracts import CaptureRequest, CaptureResult, HookNotification
+from agentdebug.capture.contracts import (
+    CaptureRequest,
+    HookNotification,
+)
 from agentdebug.capture.config import (
     CaptureConfig,
     PlatformCaptureConfig,
@@ -96,14 +99,21 @@ def test_claude_session_start_exposes_session_scoped_capture_context(
     env_file = tmp_path / 'claude-env'
     env_file.write_text('', encoding='utf-8')
 
-    ClaudeCodeCaptureHost().after_dispatch(
+    host = ClaudeCodeCaptureHost()
+    host.prepare_session_context(
         tmp_path,
         notification,
-        CaptureResult(status='no_op'),
+        environ={'CLAUDE_ENV_FILE': str(env_file)},
+    )
+    host.prepare_session_context(
+        tmp_path,
+        notification,
         environ={'CLAUDE_ENV_FILE': str(env_file)},
     )
 
-    assignment = env_file.read_text(encoding='utf-8').strip()
+    assignments = env_file.read_text(encoding='utf-8').splitlines()
+    assert len(assignments) == 1
+    assignment = assignments[0]
     context_path = Path(assignment.split('=', 1)[1])
     assert assignment == (
         f'export {CURRENT_CAPTURE_CONTEXT_ENV}={context_path}'
@@ -648,6 +658,55 @@ def test_capture_dispatch_is_fail_open_and_silent(
     assert result == 0
     assert captured.out == ''
     assert captured.err == ''
+
+
+def test_claude_session_start_exposes_context_before_transcript_exists(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    import io
+    import json
+
+    from agentdebug.cli.main import main
+
+    enable_capture_integration('claude', tmp_path)
+    env_file = tmp_path / 'claude-env'
+    env_file.write_text('', encoding='utf-8')
+    monkeypatch.setenv('CLAUDE_ENV_FILE', str(env_file))
+    monkeypatch.setattr(
+        'sys.stdin',
+        io.StringIO(
+            json.dumps(
+                {
+                    'hook_event_name': 'SessionStart',
+                    'session_id': 'new-session',
+                    'transcript_path': str(tmp_path / 'not-created-yet.jsonl'),
+                    'cwd': str(tmp_path),
+                    'source': 'startup',
+                }
+            )
+        ),
+    )
+
+    assert main(
+        [
+            'integrations',
+            'capture',
+            'dispatch',
+            '--platform',
+            'claude',
+            '--project',
+            str(tmp_path),
+        ]
+    ) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == ''
+    assert captured.err == ''
+    assignment = env_file.read_text(encoding='utf-8').strip()
+    assert assignment.startswith(f'export {CURRENT_CAPTURE_CONTEXT_ENV}=')
+    context_path = Path(assignment.split('=', 1)[1])
+    payload = json.loads(context_path.read_text(encoding='utf-8'))
+    assert payload['session_id'] == 'new-session'
 
 
 def test_capture_management_cli_enable_status_reconcile_disable(

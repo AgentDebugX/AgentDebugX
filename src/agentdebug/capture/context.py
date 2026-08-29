@@ -33,6 +33,18 @@ def write_current_capture_context(
     config = load_capture_config(root)
     if config is None:
         raise ValueError(f'capture is not configured for {root}')
+    if config.project_root.expanduser().resolve() != root:
+        raise ValueError('capture config project root does not match dispatch scope')
+    platform = config.platforms.get(notification.host)
+    if platform is None or not platform.enabled:
+        raise ValueError(
+            f'automatic capture is not enabled for {notification.host} in {root}'
+        )
+    cwd = notification.cwd.expanduser().resolve()
+    try:
+        cwd.relative_to(root)
+    except ValueError as exc:
+        raise ValueError('hook cwd is outside the configured project') from exc
     trace_id = trace_id_for(notification.host, notification.session_id)
     context = CurrentCaptureContext(
         host=notification.host,
