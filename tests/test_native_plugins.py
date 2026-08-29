@@ -80,12 +80,13 @@ def test_native_plugin_dispatches_only_for_enabled_projects(
     assert command[-2:] == ['--platform', cli_platform]
     assert calls[0][1]['input'] == payload
 
-    monkeypatch.setenv(
-        'AGENTDEBUGX_PLUGIN_CLI', '/workspace/.venv/bin/agentdebug --verbose'
-    )
+    monkeypatch.setenv('AGENTDEBUGX_PLUGIN_SOURCE', '/workspace/AgentDebugX')
     monkeypatch.setattr(module.sys, 'stdin', io.StringIO(payload))
     assert module.main() == 0
-    assert calls[1][0][0][:2] == [
-        '/workspace/.venv/bin/agentdebug',
-        '--verbose',
+    assert calls[1][0][0][:5] == [
+        '/usr/bin/uvx',
+        '--quiet',
+        '--from',
+        '/workspace/AgentDebugX',
+        'agentdebug',
     ]

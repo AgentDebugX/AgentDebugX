@@ -3,7 +3,6 @@
 
 import json
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -47,13 +46,11 @@ def main() -> int:
 
 
 def _runtime_command():
-    override = os.environ.get('AGENTDEBUGX_PLUGIN_CLI')
-    if override:
-        return shlex.split(override) or None
     uvx = shutil.which('uvx')
     if uvx is None:
         return None
-    return [uvx, '--quiet', '--from', PACKAGE, 'agentdebug']
+    source = os.environ.get('AGENTDEBUGX_PLUGIN_SOURCE', PACKAGE)
+    return [uvx, '--quiet', '--from', source, 'agentdebug']
 
 
 def _enabled_project(cwd: Path):
