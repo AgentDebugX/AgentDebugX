@@ -2,6 +2,8 @@
 """Fail-open bridge from Codex hooks to the pinned AgentDebugX runtime."""
 
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,17 +22,13 @@ def main() -> int:
         project = _enabled_project(Path(payload['cwd']))
     except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
         return 0
-    uvx = shutil.which('uvx')
-    if project is None or uvx is None:
+    command = _runtime_command()
+    if project is None or command is None:
         return 0
     try:
         subprocess.run(
-            [
-                uvx,
-                '--quiet',
-                '--from',
-                PACKAGE,
-                'agentdebug',
+            command
+            + [
                 'integrations',
                 'capture',
                 'dispatch',
@@ -46,6 +44,16 @@ def main() -> int:
     except OSError:
         pass
     return 0
+
+
+def _runtime_command():
+    override = os.environ.get('AGENTDEBUGX_PLUGIN_CLI')
+    if override:
+        return shlex.split(override) or None
+    uvx = shutil.which('uvx')
+    if uvx is None:
+        return None
+    return [uvx, '--quiet', '--from', PACKAGE, 'agentdebug']
 
 
 def _enabled_project(cwd: Path):
