@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block footer %}
+  {% include "partials/footer.html" %}
+  <aside class="adx-version-switcher" aria-label="Documentation version">
+    <details>
+      <summary aria-label="Select documentation version">
+        <svg class="adx-version-switcher__branch" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 3v12a4 4 0 0 0 4 4h4m-8-8h6a4 4 0 0 0 4-4V5m0 0-3 3m3-3 3 3"/>
+        </svg>
+        <span>Docs version</span>
+        <strong>{{ config.extra.docs_version }}</strong>
+        <svg class="adx-version-switcher__chevron" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m7 10 5 5 5-5"/>
+        </svg>
+      </summary>
+      <nav class="adx-version-switcher__menu" aria-label="Available documentation versions">
+        <span class="adx-version-switcher__heading">Versions</span>
+        <a href="{{ nav.homepage.url | url }}" aria-current="page">
+          <span>{{ config.extra.docs_version }}</span>
+          <small>Current</small>
+        </a>
+        <p>More versions will appear here when they are published.</p>
+      </nav>
+    </details>
+  </aside>
+{% endblock %}
