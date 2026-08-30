@@ -15,36 +15,23 @@ from agentdebug.capture.identity import project_id_for
 from agentdebug.capture.repository import CaptureRepository
 from agentdebug.capture.service import CaptureService
 from agentdebug.integrations.capture_management import (
-    capture_integration_status,
-    disable_capture_integration,
-    disable_native_capture,
-    enable_capture_integration,
-    enable_native_capture,
-    native_capture_status,
+    capture_consent_status,
+    disable_capture_consent,
+    enable_capture_consent,
 )
 
 
 def run(args: Any) -> int:
     if args.capture_command == 'dispatch':
-        project = None if args.project is None else Path(args.project).expanduser().resolve()
-        return _dispatch(args.platform, project)
+        return _dispatch(args.platform)
     project = Path(args.project).expanduser().resolve()
-    native_plugin = getattr(args, 'native_plugin', False)
     try:
         if args.capture_command == 'enable':
-            payload = (
-                enable_native_capture(args.platform, project)
-                if native_plugin
-                else enable_capture_integration(args.platform, project)
-            )
+            payload = enable_capture_consent(args.platform, project)
         elif args.capture_command == 'disable':
-            payload = (
-                disable_native_capture(args.platform, project)
-                if native_plugin
-                else disable_capture_integration(args.platform, project)
-            )
+            payload = disable_capture_consent(args.platform, project)
         elif args.capture_command == 'status':
-            payload = _status(args.platform, project, native_plugin=native_plugin)
+            payload = _status(args.platform, project)
         elif args.capture_command == 'reconcile':
             payload = _reconcile(args.platform, project)
         else:
@@ -61,7 +48,7 @@ def run(args: Any) -> int:
     return 0
 
 
-def _dispatch(platform: str, project: Optional[Path]) -> int:
+def _dispatch(platform: str) -> int:
     try:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
@@ -69,8 +56,7 @@ def _dispatch(platform: str, project: Optional[Path]) -> int:
         host = get_capture_host(platform)
         adapter = host.create_adapter()
         notification = adapter.parse_notification(payload)
-        if project is None:
-            project = _find_enabled_project(notification.cwd, host.host_name)
+        project = _find_enabled_project(notification.cwd, host.host_name)
         if project is None:
             return 0
         try:
@@ -84,15 +70,9 @@ def _dispatch(platform: str, project: Optional[Path]) -> int:
     return 0
 
 
-def _status(
-    platform: str, project: Path, *, native_plugin: bool = False
-) -> Dict[str, Any]:
+def _status(platform: str, project: Path) -> Dict[str, Any]:
     host = get_capture_host(platform)
-    payload = (
-        native_capture_status(platform, project)
-        if native_plugin
-        else capture_integration_status(platform, project)
-    )
+    payload = capture_consent_status(platform, project)
     config = load_capture_config(project)
     if config is None or not config.store_path.exists():
         payload.update(

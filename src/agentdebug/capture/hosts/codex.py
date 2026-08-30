@@ -32,9 +32,6 @@ class CodexCaptureHost:
     def create_adapter(self) -> CodexCaptureAdapter:
         return CodexCaptureAdapter()
 
-    def settings_path(self, project_root: Path) -> Path:
-        return project_root / '.codex' / 'hooks.json'
-
     def prepare_session_context(
         self,
         project_root: Path,

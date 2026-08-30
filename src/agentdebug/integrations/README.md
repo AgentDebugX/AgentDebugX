@@ -20,7 +20,7 @@ Current integration families include:
 
 1. Select the target integration.
 2. Render the canonical `agentdebug run` contract with host-edge metadata.
-3. Install managed assets, generate assets, or enable host capture hooks.
+3. Install or generate host assets, or enable project capture consent.
 4. Validate ownership, contract version, CLI availability, UI extras, and the
    writable run root with `agentdebug integrations status`.
 
@@ -34,6 +34,8 @@ documented formats.
 
 - Keep reusable templates in this package.
 - Keep generated assets documented and self-contained.
+- Follow the accepted [native plugin installation decision](../../../AUTO_CAPTURE_PLUGIN_INSTALLATION.md)
+  for automatic capture distribution and project activation.
 - Do not mix integration generation with Diagnose implementation.
 - Preserve legacy `diagnose/actions/integrations` imports as compatibility
   shims.

@@ -14,8 +14,8 @@ from typing import Any, Dict, List
 
 from agentdebug import __version__
 from agentdebug.integrations.capture_management import (
-    disable_capture_integration,
-    enable_capture_integration,
+    disable_capture_consent,
+    enable_capture_consent,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,7 +106,7 @@ def _payload(host: str, event: str, session_id: str, transcript: Path, project: 
     return payload
 
 
-def _dispatch_command(host: str, project: Path) -> List[str]:
+def _dispatch_command(host: str) -> List[str]:
     return [
         sys.executable,
         '-m',
@@ -116,15 +116,13 @@ def _dispatch_command(host: str, project: Path) -> List[str]:
         'dispatch',
         '--platform',
         host,
-        '--project',
-        str(project),
     ]
 
 
 def _dispatch(host: str, project: Path, payload: Dict[str, Any]) -> float:
     started = time.perf_counter()
     completed = subprocess.run(
-        _dispatch_command(host, project),
+        _dispatch_command(host),
         input=json.dumps(payload),
         text=True,
         stdout=subprocess.PIPE,
@@ -165,7 +163,7 @@ def measure_latency(host: str, transcript_root: Path) -> List[Dict[str, Any]]:
                 ) as raw_session:
                     transcript = Path(raw_session) / 'transcript.jsonl'
                     _write_records(transcript, _records(host, session_id, count, 'initial'))
-                    enable_capture_integration(host, project)
+                    enable_capture_consent(host, project)
                     if event in {'SessionStart', 'UserPromptSubmit'}:
                         _dispatch(
                             host,
@@ -212,8 +210,8 @@ def measure_disabled(transcript_root: Path) -> Dict[str, Any]:
         ) as raw_session:
             transcript = Path(raw_session) / 'transcript.jsonl'
             _write_records(transcript, _records('claude', 'disabled-session', 10, 'base'))
-            enable_capture_integration('claude', project)
-            disable_capture_integration('claude', project)
+            enable_capture_consent('claude', project)
+            disable_capture_consent('claude', project)
             payload = _payload('claude', 'Stop', 'disabled-session', transcript, project, 'base')
             _dispatch('claude', project, payload)
             samples = [_dispatch('claude', project, payload) for _ in range(REPETITIONS)]
@@ -242,7 +240,7 @@ def measure_growth(host: str, transcript_root: Path) -> List[Dict[str, Any]]:
             prefix='agentdebug-growth-session-', dir=transcript_root
         ) as raw_session:
             transcript = Path(raw_session) / 'transcript.jsonl'
-            enabled = enable_capture_integration(host, project)
+            enabled = enable_capture_consent(host, project)
             database = Path(enabled['store_path'])
             rows = [
                 {

@@ -22,8 +22,7 @@ from agentdebug.capture.snapshot import SnapshotError, read_complete_jsonl
 from agentdebug.capture.repository import CaptureRepository
 from agentdebug.capture.service import CaptureService
 from agentdebug.integrations.capture_management import (
-    disable_capture_integration,
-    enable_capture_integration,
+    enable_capture_consent,
 )
 from agentdebug.capture.filtering import prepare_for_capture
 from agentdebug.capture.hosts.claude_code import (
@@ -61,16 +60,14 @@ def test_capture_identities_are_stable_and_source_scoped(tmp_path: Path) -> None
     )
 
 
-def test_capture_host_registry_routes_native_integrations(tmp_path: Path) -> None:
+def test_capture_host_registry_routes_plugin_integrations() -> None:
     claude = get_capture_host('claude')
     codex = get_capture_host('codex')
 
     assert claude.host_name == 'claude_code'
     assert isinstance(claude.create_adapter(), ClaudeCodeCaptureAdapter)
-    assert claude.settings_path(tmp_path) == tmp_path / '.claude' / 'settings.json'
     assert codex.host_name == 'codex'
     assert isinstance(codex.create_adapter(), CodexCaptureAdapter)
-    assert codex.settings_path(tmp_path) == tmp_path / '.codex' / 'hooks.json'
 
 
 def test_claude_session_start_exposes_session_scoped_capture_context(
@@ -83,7 +80,7 @@ def test_claude_session_start_exposes_session_scoped_capture_context(
             store_path=store_path,
             platforms={
                 'claude_code': PlatformCaptureConfig(
-                    installed_hooks=['SessionStart', 'Stop']
+                    capture_events=['SessionStart', 'Stop']
                 )
             },
         )
@@ -450,7 +447,7 @@ def test_stop_capture_upserts_one_stable_trajectory_and_duplicate_is_no_op(
             project_root=tmp_path,
             store_path=store_path,
             platforms={
-                'claude_code': PlatformCaptureConfig(installed_hooks=['Stop'])
+                'claude_code': PlatformCaptureConfig(capture_events=['Stop'])
             },
         )
     )
@@ -494,7 +491,7 @@ def test_claude_lifecycle_reconciles_prior_content_and_records_signals(
             store_path=store_path,
             platforms={
                 'claude_code': PlatformCaptureConfig(
-                    installed_hooks=[
+                    capture_events=[
                         'SessionStart',
                         'UserPromptSubmit',
                         'Stop',
@@ -578,47 +575,6 @@ def test_claude_lifecycle_reconciles_prior_content_and_records_signals(
     assert session is not None and session.status == 'ended'
 
 
-def test_managed_capture_enable_disable_preserves_unrelated_hooks(
-    tmp_path: Path,
-) -> None:
-    import json
-
-    settings_path = tmp_path / '.claude' / 'settings.json'
-    settings_path.parent.mkdir(parents=True)
-    unrelated = {
-        'matcher': 'manual',
-        'hooks': [{'type': 'command', 'command': '/usr/bin/unrelated'}],
-    }
-    settings_path.write_text(
-        json.dumps({'theme': 'dark', 'hooks': {'Stop': [unrelated]}}) + '\n',
-        encoding='utf-8',
-    )
-
-    enabled = enable_capture_integration('claude', tmp_path)
-    enabled_again = enable_capture_integration('claude', tmp_path)
-    installed = json.loads(settings_path.read_text(encoding='utf-8'))
-
-    assert enabled['installed_hooks'] == enabled_again['installed_hooks']
-    assert installed['theme'] == 'dark'
-    assert unrelated in installed['hooks']['Stop']
-    assert sum(
-        'agentdebug-capture' in hook.get('statusMessage', '')
-        for group in installed['hooks']['Stop']
-        for hook in group.get('hooks', [])
-    ) == 1
-
-    store_path = Path(enabled['store_path'])
-    SQLiteTraceStore(str(store_path)).save_trajectory(
-        AgentTrajectory(trace_id='preserved')
-    )
-    disable_capture_integration('claude', tmp_path)
-    disabled = json.loads(settings_path.read_text(encoding='utf-8'))
-
-    assert disabled['hooks']['Stop'] == [unrelated]
-    assert disabled['theme'] == 'dark'
-    assert store_path.exists()
-
-
 def test_capture_dispatch_is_fail_open_and_silent(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -627,7 +583,7 @@ def test_capture_dispatch_is_fail_open_and_silent(
 
     from agentdebug.cli.main import main
 
-    enable_capture_integration('claude', tmp_path)
+    enable_capture_consent('claude', tmp_path)
     monkeypatch.setattr(
         'sys.stdin',
         io.StringIO(
@@ -649,8 +605,6 @@ def test_capture_dispatch_is_fail_open_and_silent(
             'dispatch',
             '--platform',
             'claude',
-            '--project',
-            str(tmp_path),
         ]
     )
 
@@ -660,7 +614,7 @@ def test_capture_dispatch_is_fail_open_and_silent(
     assert captured.err == ''
 
 
-def test_native_capture_uses_payload_project_without_installing_hooks(
+def test_plugin_capture_uses_payload_project_without_installing_hooks(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     import io
@@ -671,11 +625,11 @@ def test_native_capture_uses_payload_project_without_installing_hooks(
     project = tmp_path / 'project'
     child = project / 'nested'
     child.mkdir(parents=True)
-    base = ['--platform', 'claude', '--project', str(project), '--native-plugin']
+    base = ['--platform', 'claude', '--project', str(project)]
 
     assert main(['integrations', 'capture', 'enable', *base, '--json']) == 0
     enabled = json.loads(capsys.readouterr().out)
-    assert enabled['hook_source'] == 'native_plugin'
+    assert enabled['hook_source'] == 'plugin'
     assert not (project / '.claude' / 'settings.json').exists()
 
     monkeypatch.setattr(
@@ -707,7 +661,7 @@ def test_native_capture_uses_payload_project_without_installing_hooks(
     assert main(['integrations', 'capture', 'status', *base, '--json']) == 0
     status = json.loads(capsys.readouterr().out)
     assert status['enabled'] is True
-    assert status['hook_source'] == 'native_plugin'
+    assert status['hook_source'] == 'plugin'
 
     assert main(['integrations', 'capture', 'disable', *base, '--json']) == 0
     disabled = json.loads(capsys.readouterr().out)
@@ -723,7 +677,7 @@ def test_claude_session_start_exposes_context_before_transcript_exists(
 
     from agentdebug.cli.main import main
 
-    enable_capture_integration('claude', tmp_path)
+    enable_capture_consent('claude', tmp_path)
     env_file = tmp_path / 'claude-env'
     env_file.write_text('', encoding='utf-8')
     monkeypatch.setenv('CLAUDE_ENV_FILE', str(env_file))
@@ -749,8 +703,6 @@ def test_claude_session_start_exposes_context_before_transcript_exists(
             'dispatch',
             '--platform',
             'claude',
-            '--project',
-            str(tmp_path),
         ]
     ) == 0
 
@@ -823,6 +775,9 @@ def test_capture_management_tracks_platforms_and_sessions_independently(
     persisted = json.loads(legacy_path.read_text(encoding='utf-8'))
     assert persisted['schema_version'] == 2
     assert set(persisted['platforms']) == {'claude_code', 'codex'}
+    assert persisted['platforms']['codex']['capture_events'] == [
+        'SessionStart', 'Stop', 'SessionEnd'
+    ]
 
     repository = CaptureRepository(store_path)
     snapshot_path = tmp_path / 'snapshot.jsonl'
@@ -870,7 +825,7 @@ def test_capture_management_tracks_platforms_and_sessions_independently(
     assert main(['integrations', 'capture', 'status', *codex_base]) == 0
     codex_status = json.loads(capsys.readouterr().out)
     assert codex_status['enabled'] is True
-    assert codex_status['installed_hooks'] == [
+    assert codex_status['capture_events'] == [
         'SessionStart', 'Stop', 'SessionEnd'
     ]
     assert [session['host'] for session in codex_status['sessions']] == ['codex']
@@ -878,7 +833,7 @@ def test_capture_management_tracks_platforms_and_sessions_independently(
     assert main(['integrations', 'capture', 'status', *claude_base]) == 0
     claude_status = json.loads(capsys.readouterr().out)
     assert claude_status['enabled'] is True
-    assert claude_status['installed_hooks'] == [
+    assert claude_status['capture_events'] == [
         'SessionStart', 'UserPromptSubmit', 'Stop', 'TaskCompleted', 'SessionEnd'
     ]
     assert [session['host'] for session in claude_status['sessions']] == [
@@ -947,14 +902,14 @@ def test_codex_supported_hook_set_captures_a_rollout_end_to_end(
     fixture = Path(__file__).parent / 'fixtures' / 'codex' / 'rollout.jsonl'
     transcript = tmp_path / 'rollout.jsonl'
     transcript.write_bytes(fixture.read_bytes())
-    enabled = enable_capture_integration('codex', tmp_path)
-    assert enabled['installed_hooks'] == [
+    enabled = enable_capture_consent('codex', tmp_path)
+    assert enabled['capture_events'] == [
         'SessionStart',
         'UserPromptSubmit',
         'Stop',
         'SessionEnd',
     ]
-    assert 'TaskCompleted' not in enabled['installed_hooks']
+    assert 'TaskCompleted' not in enabled['capture_events']
     adapter = CodexCaptureAdapter(transcript_root=tmp_path)
     service = CaptureService(tmp_path, adapter)
 
@@ -1015,7 +970,7 @@ def test_codex_resume_keeps_one_trajectory_and_ignores_empty_launcher(
             store_path=store_path,
             platforms={
                 'codex': PlatformCaptureConfig(
-                    installed_hooks=['SessionStart', 'Stop', 'SessionEnd']
+                    capture_events=['SessionStart', 'Stop', 'SessionEnd']
                 )
             },
         )
@@ -1163,7 +1118,7 @@ def test_failed_snapshot_does_not_advance_state_and_next_boundary_reconciles(
             project_root=tmp_path,
             store_path=store_path,
             platforms={
-                'claude_code': PlatformCaptureConfig(installed_hooks=['Stop'])
+                'claude_code': PlatformCaptureConfig(capture_events=['Stop'])
             },
         )
     )
@@ -1260,7 +1215,7 @@ def test_concurrent_duplicate_delivery_commits_one_content_boundary(
             project_root=tmp_path,
             store_path=store_path,
             platforms={
-                'claude_code': PlatformCaptureConfig(installed_hooks=['Stop'])
+                'claude_code': PlatformCaptureConfig(capture_events=['Stop'])
             },
         )
     )

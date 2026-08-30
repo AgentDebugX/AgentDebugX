@@ -57,7 +57,7 @@ def test_run_current_uses_exact_host_session_instead_of_latest_trace(
             store_path=store_path,
             platforms={
                 'claude_code': PlatformCaptureConfig(
-                    installed_hooks=['SessionStart', 'Stop']
+                    capture_events=['SessionStart', 'Stop']
                 )
             },
         )
@@ -123,7 +123,7 @@ def test_run_current_resolves_codex_session_from_host_environment(
             store_path=store_path,
             platforms={
                 'codex': PlatformCaptureConfig(
-                    installed_hooks=['SessionStart', 'Stop']
+                    capture_events=['SessionStart', 'Stop']
                 )
             },
         )

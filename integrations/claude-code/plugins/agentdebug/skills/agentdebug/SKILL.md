@@ -13,7 +13,7 @@ Diagnosis is never automatic.
 Use the installed AgentDebugX CLI:
 
 ```bash
-agentdebug integrations capture enable --native-plugin --platform claude --project "$PWD" --json
+agentdebug integrations capture enable --platform claude --project "$PWD" --json
 ```
 
 Inspect or disable capture with the same command, replacing `enable` with

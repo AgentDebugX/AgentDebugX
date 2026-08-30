@@ -39,9 +39,6 @@ class ClaudeCodeCaptureHost:
     def create_adapter(self) -> ClaudeCodeCaptureAdapter:
         return ClaudeCodeCaptureAdapter()
 
-    def settings_path(self, project_root: Path) -> Path:
-        return project_root / '.claude' / 'settings.json'
-
     def prepare_session_context(
         self,
         project_root: Path,

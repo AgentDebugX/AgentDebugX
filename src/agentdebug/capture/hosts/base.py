@@ -37,9 +37,6 @@ class CaptureHost(Protocol):
     def create_adapter(self) -> HostCaptureAdapter:
         ...
 
-    def settings_path(self, project_root: Path) -> Path:
-        ...
-
     def prepare_session_context(
         self,
         project_root: Path,

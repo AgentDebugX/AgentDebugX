@@ -14,7 +14,7 @@ from agentdebug.capture.contracts import HostName
 
 class PlatformCaptureConfig(BaseModel):
     enabled: bool = True
-    installed_hooks: List[str]
+    capture_events: List[str]
 
 
 class CaptureConfig(BaseModel):
@@ -43,10 +43,16 @@ def load_capture_config(project_root: Path) -> Optional[CaptureConfig]:
             'platforms': {
                 platform: {
                     'enabled': payload.get('enabled', True),
-                    'installed_hooks': payload.get('installed_hooks', []),
+                    'capture_events': payload.get(
+                        'capture_events', payload.get('installed_hooks', [])
+                    ),
                 }
             },
         }
+    else:
+        for settings in payload['platforms'].values():
+            if 'capture_events' not in settings:
+                settings['capture_events'] = settings.pop('installed_hooks', [])
     validator = getattr(CaptureConfig, 'model_validate', None)
     return validator(payload) if callable(validator) else CaptureConfig.parse_obj(payload)
 
@@ -62,7 +68,7 @@ def write_capture_config(config: CaptureConfig) -> Path:
         'platforms': {
             platform: {
                 'enabled': settings.enabled,
-                'installed_hooks': settings.installed_hooks,
+                'capture_events': settings.capture_events,
             }
             for platform, settings in config.platforms.items()
         },
@@ -77,7 +83,7 @@ def write_capture_config(config: CaptureConfig) -> Path:
 def enable_capture(
     project_root: Path,
     platform: HostName,
-    installed_hooks: List[str],
+    capture_events: List[str],
 ) -> CaptureConfig:
     root = project_root.expanduser().resolve()
     config = load_capture_config(root)
@@ -89,7 +95,7 @@ def enable_capture(
         )
     config.platforms[platform] = PlatformCaptureConfig(
         enabled=True,
-        installed_hooks=installed_hooks,
+        capture_events=capture_events,
     )
     write_capture_config(config)
     return config
