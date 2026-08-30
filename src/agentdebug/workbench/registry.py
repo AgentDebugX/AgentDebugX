@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 from pathlib import Path
 from typing import List
 
-from agentdebug.schema import AgentTrajectory
 from agentdebug.schema.models import model_to_json, utc_now
 
 from .models import DebugRun
@@ -42,25 +43,37 @@ class RunRegistry:
         return run
 
     def list_runs(self) -> List[DebugRun]:
-        return sorted((self.load_run(p.stem) for p in self.runs_dir.glob('*.json')), key=lambda r: r.created_at, reverse=True)
+        paths = [*self.runs_dir.glob('*.json'), *self.root.glob('sessions/*/*/runs/*.json')]
+        return sorted((self.load_run(p.stem) for p in paths), key=lambda r: r.created_at, reverse=True)
 
-    def save_trajectory_snapshot(
-        self, run_id: str, trajectory: AgentTrajectory
-    ) -> Path:
-        path = self.runs_dir / f'{run_id}.trajectory.json'
-        temp = path.with_suffix(f'.{os.getpid()}.tmp')
-        temp.write_text(model_to_json(trajectory, indent=2) + '\n', encoding='utf-8')
-        os.chmod(temp, 0o600)
-        os.replace(temp, path)
-        return path
+    def bind_session(self, run_id: str, host: str, session_id: str) -> Path:
+        current = self._path(run_id)
+        destination = (
+            self.root / 'sessions' / _path_component(host)
+            / _path_component(session_id) / 'runs' / f'{run_id}.json'
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if current != destination:
+            os.replace(current, destination)
+        return destination
 
     def _path(self, run_id: str) -> Path:
         if not run_id or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in run_id):
             raise ValueError('invalid run_id')
-        return self.runs_dir / f'{run_id}.json'
+        direct = self.runs_dir / f'{run_id}.json'
+        if direct.exists():
+            return direct
+        matches = list(self.root.glob(f'sessions/*/*/runs/{run_id}.json'))
+        return matches[0] if matches else direct
 
     @staticmethod
     def _write(path: Path, run: DebugRun) -> None:
         temp = path.with_suffix(f'.{os.getpid()}.tmp')
         temp.write_text(model_to_json(run, indent=2) + '\n', encoding='utf-8')
         os.replace(temp, path)
+
+
+def _path_component(value: str) -> str:
+    if re.fullmatch(r'[A-Za-z0-9._-]+', value):
+        return value
+    return hashlib.sha256(value.encode()).hexdigest()

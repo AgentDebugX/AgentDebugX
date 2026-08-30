@@ -1,0 +1,6 @@
+interface:
+  display_name: "agentdebug"
+  short_description: "Explicit AgentDebug trajectory diagnosis"
+  default_prompt: "Use $agentdebug to diagnose this captured session or a supplied trajectory with AgentDebugX."
+policy:
+  allow_implicit_invocation: false

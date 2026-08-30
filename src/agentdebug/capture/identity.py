@@ -23,6 +23,10 @@ def trace_id_for(host: str, session_id: str) -> str:
     return f'capture_{_digest("trace", (host, session_id))[:32]}'
 
 
+def trace_id_for_boundary(host: str, session_id: str, boundary_id: str) -> str:
+    return f'capture_{_digest("trace-boundary", (host, session_id, boundary_id))[:32]}'
+
+
 def project_id_for(project_root: Path) -> str:
     root = str(project_root.expanduser().resolve())
     return f'project_{_digest("project", (root,))[:32]}'

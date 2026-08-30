@@ -12,7 +12,8 @@ from typing import Any, Dict, Mapping, Optional
 from agentdebug.capture.config import load_capture_config
 from agentdebug.capture.context import CurrentCaptureContext
 from agentdebug.capture.contracts import HookNotification, TranscriptSnapshot
-from agentdebug.capture.identity import event_id_for, trace_id_for
+from agentdebug.capture.identity import event_id_for
+from agentdebug.capture.repository import CaptureRepository
 from agentdebug.ingest import convert_payload
 from agentdebug.schema import AgentTrajectory
 
@@ -56,12 +57,15 @@ class CodexCaptureHost:
             platform = None if config is None else config.platforms.get(self.host_name)
             if config is None or platform is None or not platform.enabled:
                 continue
+            session = CaptureRepository(config.store_path).load_session(
+                self.host_name, session_id
+            )
             return CurrentCaptureContext(
                 host=self.host_name,
                 session_id=session_id,
                 project_root=root,
                 store_path=config.store_path.expanduser().resolve(),
-                trace_id=trace_id_for(self.host_name, session_id),
+                trace_id=None if session is None else session.trace_id,
             )
         raise ValueError(
             f'automatic capture is not enabled for Codex in {cwd}'

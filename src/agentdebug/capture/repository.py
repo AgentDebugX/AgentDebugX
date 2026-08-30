@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,7 +18,7 @@ from agentdebug.capture.contracts import (
     TranscriptSnapshot,
 )
 from agentdebug.runtime.storage import SQLiteTraceStore, _upsert_trajectory
-from agentdebug.schema import AgentTrajectory, utc_now
+from agentdebug.schema import AgentTrajectory, model_to_json, utc_now
 
 
 class CaptureRepository:
@@ -116,7 +119,29 @@ class CaptureRepository:
             ).fetchone()
             if receipt is None:
                 raise ValueError(f'unknown capture receipt: {receipt_id}')
+            if receipt['status'] in {'committed', 'no_op'}:
+                return
             _upsert_trajectory(conn, trajectory, updated_at=now)
+            sequence = int(conn.execute(
+                """
+                SELECT COALESCE(MAX(sequence), 0) + 1
+                FROM capture_traces WHERE host = ? AND session_id = ?
+                """,
+                (receipt['host'], receipt['session_id']),
+            ).fetchone()[0])
+            conn.execute(
+                """
+                INSERT INTO capture_traces(
+                    host, session_id, sequence, trace_id, boundary_id,
+                    event_count, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    receipt['host'], receipt['session_id'], sequence,
+                    trajectory.trace_id, result_metadata.get('boundary_id'),
+                    len(trajectory.events), now,
+                ),
+            )
             last_event_id = trajectory.events[-1].event_id if trajectory.events else None
             ended_at = now if receipt['native_event_name'] == 'SessionEnd' else None
             conn.execute(
@@ -157,6 +182,9 @@ class CaptureRepository:
                     now,
                     ended_at,
                 ),
+            )
+            self._write_session_artifacts(
+                conn, receipt, trajectory, sequence, now
             )
             conn.execute(
                 """
@@ -202,14 +230,15 @@ class CaptureRepository:
                     receipt_id,
                 ),
             )
-            if receipt['native_event_name'] == 'SessionEnd':
+            if receipt['native_event_name'] in {'SessionStart', 'SessionEnd'}:
                 now = utc_now().isoformat()
+                ended = receipt['native_event_name'] == 'SessionEnd'
                 conn.execute(
                     """
                     UPDATE capture_sessions
                     SET transcript_path = ?, transcript_size = ?,
                         transcript_sha256 = ?, last_boundary_id = ?,
-                        status = 'ended', updated_at = ?, ended_at = ?
+                        status = ?, updated_at = ?, ended_at = ?
                     WHERE host = ? AND session_id = ?
                     """,
                     (
@@ -217,8 +246,9 @@ class CaptureRepository:
                         snapshot.complete_size,
                         snapshot.content_sha256,
                         result_metadata.get('boundary_id'),
+                        'ended' if ended else 'active',
                         now,
-                        now,
+                        now if ended else None,
                         receipt['host'],
                         receipt['session_id'],
                     ),
@@ -363,11 +393,69 @@ class CaptureRepository:
                     native_payload_json TEXT,
                     source_version TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS capture_traces (
+                    host TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    trace_id TEXT NOT NULL UNIQUE,
+                    boundary_id TEXT,
+                    event_count INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(host, session_id, sequence)
+                );
                 CREATE UNIQUE INDEX IF NOT EXISTS capture_boundary_once
                 ON capture_receipts(host, session_id, boundary_id)
                 WHERE boundary_id IS NOT NULL;
                 """
             )
+
+    def _write_session_artifacts(
+        self,
+        conn: sqlite3.Connection,
+        receipt: sqlite3.Row,
+        trajectory: AgentTrajectory,
+        sequence: int,
+        updated_at: str,
+    ) -> None:
+        session_dir = (
+            self.path.parent / 'sessions' / _path_component(receipt['host'])
+            / _path_component(receipt['session_id'])
+        )
+        traces_dir = session_dir / 'traces'
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write(
+            traces_dir / f'{sequence:04d}.json',
+            model_to_json(trajectory, indent=2) + '\n',
+        )
+        traces = [
+            {
+                'sequence': int(row['sequence']),
+                'trace_id': row['trace_id'],
+                'event_count': int(row['event_count']),
+                'created_at': row['created_at'],
+            }
+            for row in conn.execute(
+                """
+                SELECT sequence, trace_id, event_count, created_at
+                FROM capture_traces
+                WHERE host = ? AND session_id = ? ORDER BY sequence
+                """,
+                (receipt['host'], receipt['session_id']),
+            ).fetchall()
+        ]
+        _atomic_write(
+            session_dir / 'session.json',
+            json.dumps(
+                {
+                    'schema_version': 1,
+                    'host': receipt['host'],
+                    'session_id': receipt['session_id'],
+                    'updated_at': updated_at,
+                    'traces': traces,
+                },
+                indent=2,
+            ) + '\n',
+        )
 
     @staticmethod
     def _receipt_from_row(row: sqlite3.Row) -> CaptureReceipt:
@@ -401,3 +489,17 @@ class CaptureRepository:
     @staticmethod
     def _session_from_row(row: sqlite3.Row) -> CaptureSession:
         return CaptureSession(**dict(row))
+
+
+def _path_component(value: str) -> str:
+    if re.fullmatch(r'[A-Za-z0-9._-]+', value):
+        return value
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _atomic_write(path: Path, payload: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
+    temp.write_text(payload, encoding='utf-8')
+    os.chmod(temp, 0o600)
+    os.replace(temp, path)

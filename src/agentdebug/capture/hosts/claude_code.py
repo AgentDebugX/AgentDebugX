@@ -14,6 +14,7 @@ from typing import Any, Dict, Mapping, Optional
 from agentdebug.capture.context import (
     CURRENT_CAPTURE_CONTEXT_ENV,
     CurrentCaptureContext,
+    current_capture_context_path,
     read_current_capture_context,
     write_current_capture_context,
 )
@@ -46,6 +47,9 @@ class ClaudeCodeCaptureHost:
         *,
         environ: Optional[Mapping[str, str]] = None,
     ) -> None:
+        if notification.event_name == 'UserPromptSubmit':
+            write_current_capture_context(project_root, notification)
+            return
         if notification.event_name != 'SessionStart':
             return
         values = os.environ if environ is None else environ
@@ -54,7 +58,7 @@ class ClaudeCodeCaptureHost:
             return
 
         # Persist the exact session-to-trace mapping before transcript capture.
-        context_path = write_current_capture_context(project_root, notification)
+        context_path = current_capture_context_path(project_root, notification)
 
         # Claude sources this file before later Bash commands in the session.
         assignment = (

@@ -83,19 +83,17 @@ def test_execute_run_persists_one_consistent_identity(tmp_path, store_type, suff
     store = SQLiteTraceStore(str(store_path)) if store_type == 'sqlite' else JsonlTraceStore(str(store_path))
     assert run.artifacts.trace_id == result.trace_id == 'stable-trace'
     assert run.artifacts.report_id == result.report_id
-    assert run.artifacts.trajectory_snapshot_path == result.trajectory_snapshot_path
-    snapshot = json.loads(
-        Path(result.trajectory_snapshot_path).read_text(encoding='utf-8')
-    )
-    assert snapshot['trace_id'] == 'stable-trace'
-    assert len(snapshot['events']) == 1
+    assert run.artifacts.trajectory_snapshot_path is None
+    assert result.trajectory_snapshot_path is None
+    assert run.result is not None
+    assert run.result['report_id'] == result.report_id
     assert store.load_trajectory(result.trace_id) is not None
     report = store.load_report(result.trace_id, result.report_id)
     assert report is not None
     assert report.metadata['debug_run_id'] == result.run_id
 
 
-def test_run_snapshot_is_immutable_when_cumulative_trace_advances(tmp_path) -> None:
+def test_run_does_not_duplicate_trajectory_snapshot(tmp_path) -> None:
     store_path = tmp_path / 'capture.sqlite'
     store = SQLiteTraceStore(str(store_path))
     original = AgentTrajectory(
@@ -112,20 +110,37 @@ def test_run_snapshot_is_immutable_when_cumulative_trace_advances(tmp_path) -> N
             run_root=str(tmp_path / 'state'),
         )
     )
-    advanced = AgentTrajectory(
-        trace_id='capture-current',
-        events=[
-            *original.events,
-            AgentEvent(trace_id='capture-current', event_id='self-debug-turn'),
-        ],
-    )
-    store.save_trajectory(advanced)
+    assert result.trajectory_snapshot_path is None
+    assert not list((tmp_path / 'state' / 'runs').glob('*.trajectory.json'))
 
-    snapshot = json.loads(
-        Path(result.trajectory_snapshot_path).read_text(encoding='utf-8')
+
+def test_captured_run_is_grouped_under_its_host_session(tmp_path) -> None:
+    trajectory = AgentTrajectory(
+        trace_id='captured-trace',
+        metadata={
+            'capture_host': 'claude_code',
+            'capture_host_session_id': 'session-1',
+        },
+        events=[AgentEvent(trace_id='captured-trace', event_id='event-1')],
     )
-    assert [event['event_id'] for event in snapshot['events']] == ['before-debug']
-    assert len(store.load_trajectory('capture-current').events) == 2
+    result = execute_run(
+        RunRequest(
+            input_reference='captured-trace',
+            profile='quick',
+            store_path=str(tmp_path / 'store.sqlite'),
+            run_root=str(tmp_path / '.agentdebug'),
+        ),
+        trajectory=trajectory,
+    )
+
+    run_path = (
+        tmp_path / '.agentdebug' / 'sessions' / 'claude_code' / 'session-1'
+        / 'runs' / f'{result.run_id}.json'
+    )
+    payload = json.loads(run_path.read_text(encoding='utf-8'))
+    assert payload['artifacts']['trace_id'] == 'captured-trace'
+    assert payload['result']['report_id'] == result.report_id
+    assert not list(run_path.parent.glob('*.trajectory.json'))
 
 
 def test_successful_diagnosis_survives_ui_failure(tmp_path, monkeypatch) -> None:

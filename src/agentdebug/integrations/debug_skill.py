@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 SkillPlatform = Literal['claude', 'codex', 'hermes', 'openclaw']
-CONTRACT_VERSION = '2.3.0'
+CONTRACT_VERSION = '2.4.0'
 
 
 def _read_skill_file(rel_path: str) -> str:
@@ -144,8 +144,6 @@ name: "{name}"
 description: "Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review."
 argument-hint: "debug this agent run, why did this agent fail, diagnose this trajectory, debug this Hermes/OpenClaw/OpenHands trace"
 allowed-tools: Bash(agentdebug *)
-metadata:
-  agentdebug-contract-version: "{CONTRACT_VERSION}"
 ---
 
 {CANONICAL_SKILL_BODY}
@@ -157,8 +155,6 @@ def _codex_skill_md(name: str) -> str:
 ---
 name: {name}
 description: Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review.
-metadata:
-  agentdebug-contract-version: "{CONTRACT_VERSION}"
 ---
 
 {CANONICAL_SKILL_BODY}
@@ -183,7 +179,6 @@ name: {name}
 description: Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review.
 version: {CONTRACT_VERSION}
 metadata:
-  agentdebug-contract-version: "{CONTRACT_VERSION}"
   hermes:
     category: debugging
     tags: [agent-debugging, trajectory, root-cause]
@@ -201,7 +196,6 @@ name: {name}
 description: Use AgentDebugX only when the user explicitly asks for AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging or trajectory review.
 version: {CONTRACT_VERSION}
 metadata:
-  agentdebug-contract-version: "{CONTRACT_VERSION}"
   openclaw:
     category: debugging
     tags: [agent-debugging, trajectory, root-cause]

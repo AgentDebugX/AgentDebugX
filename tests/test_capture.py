@@ -70,7 +70,7 @@ def test_capture_host_registry_routes_plugin_integrations() -> None:
     assert isinstance(codex.create_adapter(), CodexCaptureAdapter)
 
 
-def test_claude_session_start_exposes_session_scoped_capture_context(
+def test_claude_context_is_exported_at_start_and_materialized_at_first_prompt(
     tmp_path: Path,
 ) -> None:
     store_path = tmp_path / '.agentdebug' / 'agentdebug.sqlite'
@@ -80,7 +80,7 @@ def test_claude_session_start_exposes_session_scoped_capture_context(
             store_path=store_path,
             platforms={
                 'claude_code': PlatformCaptureConfig(
-                    capture_events=['SessionStart', 'Stop']
+                        capture_events=['SessionStart', 'UserPromptSubmit', 'Stop']
                 )
             },
         )
@@ -115,9 +115,15 @@ def test_claude_session_start_exposes_session_scoped_capture_context(
     assert assignment == (
         f'export {CURRENT_CAPTURE_CONTEXT_ENV}={context_path}'
     )
+    assert not context_path.exists()
+    host.prepare_session_context(
+        tmp_path,
+        notification.model_copy(update={'event_name': 'UserPromptSubmit'}),
+        environ={},
+    )
     payload = __import__('json').loads(context_path.read_text(encoding='utf-8'))
     assert payload['session_id'] == 'session-1'
-    assert payload['trace_id'] == trace_id_for('claude_code', 'session-1')
+    assert payload['trace_id'] is None
 
 
 def test_capture_excludes_agentdebug_self_diagnosis_turns() -> None:
@@ -469,13 +475,61 @@ def test_stop_capture_upserts_one_stable_trajectory_and_duplicate_is_no_op(
             update={'observed_at': datetime(2026, 1, 2, tzinfo=timezone.utc)}
         )
     )
+    housekeeping_results = []
+    for index, (record_type, event_name) in enumerate(
+        (
+            ('system', 'SessionEnd'),
+            ('cost-state', 'SessionStart'),
+            ('last-prompt', 'UserPromptSubmit'),
+        ),
+        start=3,
+    ):
+        with transcript.open('a', encoding='utf-8') as handle:
+            handle.write(
+                __import__('json').dumps(
+                    {
+                        'type': record_type,
+                        'sessionId': 'session-1',
+                        'content': f'claude housekeeping {index}',
+                    }
+                )
+                + '\n'
+            )
+        housekeeping_results.append(
+            service.handle(
+                notification.model_copy(
+                    update={
+                        'event_name': event_name,
+                        'observed_at': datetime(2026, 1, index, tzinfo=timezone.utc),
+                        'session_end_reason': (
+                            'resume' if event_name == 'SessionEnd' else None
+                        ),
+                    }
+                )
+            )
+        )
 
     trajectory = SQLiteTraceStore(str(store_path)).load_trajectory(captured.trace_id or '')
     assert captured.status == 'captured'
     assert duplicate.status == 'no_op'
+    assert [result.status for result in housekeeping_results] == [
+        'no_op',
+        'no_op',
+        'no_op',
+    ]
     assert trajectory is not None
     assert len(trajectory.events) == 2
     assert len({event.event_id for event in trajectory.events}) == 2
+    session_dir = tmp_path / '.agentdebug' / 'sessions' / 'claude_code' / 'session-1'
+    session = __import__('json').loads(
+        (session_dir / 'session.json').read_text(encoding='utf-8')
+    )
+    persisted = __import__('json').loads(
+        (session_dir / 'traces' / '0001.json').read_text(encoding='utf-8')
+    )
+    assert len(session['traces']) == 1
+    assert session['traces'][0]['trace_id'] == captured.trace_id
+    assert persisted['trace_id'] == captured.trace_id
 
 
 def test_claude_lifecycle_reconciles_prior_content_and_records_signals(
@@ -669,7 +723,7 @@ def test_plugin_capture_uses_payload_project_without_installing_hooks(
     assert not (project / '.claude' / 'settings.json').exists()
 
 
-def test_claude_session_start_exposes_context_before_transcript_exists(
+def test_claude_session_start_exports_context_path_without_creating_artifact(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     import io
@@ -712,8 +766,7 @@ def test_claude_session_start_exposes_context_before_transcript_exists(
     assignment = env_file.read_text(encoding='utf-8').strip()
     assert assignment.startswith(f'export {CURRENT_CAPTURE_CONTEXT_ENV}=')
     context_path = Path(assignment.split('=', 1)[1])
-    payload = json.loads(context_path.read_text(encoding='utf-8'))
-    assert payload['session_id'] == 'new-session'
+    assert not context_path.exists()
 
 
 def test_capture_management_cli_enable_status_reconcile_disable(
@@ -1025,7 +1078,7 @@ def test_codex_resume_keeps_one_trajectory_and_ignores_empty_launcher(
     write_records(resumed_path, records)
     assert service.handle(
         notice('SessionStart', 'resumed-session', resumed_path)
-    ).status == 'captured'
+    ).status == 'no_op'
     active = CaptureRepository(store_path).load_session('codex', 'resumed-session')
     assert active is not None and active.status == 'active'
     assert active.ended_at is None
@@ -1072,6 +1125,15 @@ def test_codex_resume_keeps_one_trajectory_and_ignores_empty_launcher(
     trajectory = store.load_trajectory(first.trace_id or '')
     assert trajectory is not None
     assert [event.output for event in trajectory.events] == [
+        'create hello.txt', 'created'
+    ]
+    latest_session = CaptureRepository(store_path).load_session(
+        'codex', 'resumed-session'
+    )
+    assert latest_session is not None
+    latest = store.load_trajectory(latest_session.trace_id)
+    assert latest is not None
+    assert [event.output for event in latest.events] == [
         'create hello.txt', 'created', 'update hello_V2.txt', 'updated'
     ]
     assert launcher_end.status == 'no_op'
@@ -1172,7 +1234,7 @@ def test_failed_snapshot_does_not_advance_state_and_next_boundary_reconciles(
     second = service.handle(stop())
     status = CaptureRepository(store_path).status(project_id_for(tmp_path))
     trajectory = SQLiteTraceStore(str(store_path)).load_trajectory(
-        first.trace_id or ''
+        second.trace_id or ''
     )
 
     assert second.status == 'captured'

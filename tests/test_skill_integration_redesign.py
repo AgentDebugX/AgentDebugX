@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -9,19 +10,20 @@ from agentdebug.integrations.codex_skill import build_codex_skill_bundle
 from agentdebug.integrations.management import MARKER, install_skill, integration_status
 
 
+ROOT = Path(__file__).parents[1]
+
+
 @pytest.mark.parametrize('platform', ['claude', 'codex', 'hermes', 'openclaw'])
 def test_all_host_skills_share_unified_run_contract(platform: str) -> None:
     bundle = build_debug_skill_bundle(platform=platform)
     skill = bundle.files['SKILL.md']
-    assert 'agentdebug run <input> --profile standard --json' in skill
-    assert 'agentdebug run --current --profile quick --json' in skill
-    assert 'agentdebug run <input> --batch' in skill
-    assert '--trajectory-id <id>' in skill
-    assert 'item.result' in skill
+    assert 'agentdebug run <input> --profile deep --json' in skill
+    assert 'agentdebug run --current --profile deep --json' in skill
+    assert 'DeepDebug' in skill
+    assert 'references/cli_reference.md' in skill
     assert 'agentdebug diagnose <trajectory.json>' not in skill
     assert 'only when the user explicitly asks' in skill
-    assert 'generic request to debug' in skill
-    assert CONTRACT_VERSION in skill
+    assert 'generic debugging requests normally' in skill
     if platform == 'codex':
         assert 'agents/openai.yaml' in bundle.files
         assert 'allow_implicit_invocation: false' in bundle.files['agents/openai.yaml']
@@ -44,8 +46,31 @@ def test_managed_install_refuses_unmanaged_and_preserves_unrelated_files(tmp_pat
 def test_codex_packaging_edge_uses_canonical_bundle() -> None:
     bundle = build_codex_skill_bundle()
     assert bundle.platform == 'codex'
-    assert 'agentdebug run <input> --profile standard --json' in bundle.files['SKILL.md']
+    assert 'agentdebug run <input> --profile deep --json' in bundle.files['SKILL.md']
     metadata = bundle.files['agents/openai.yaml']
     assert 'display_name: "agentdebug"' in metadata
     assert 'Use $agentdebug ' in metadata
     assert 'this captured session or a supplied trajectory' in metadata
+
+
+@pytest.mark.parametrize(
+    'platform,target',
+    [
+        ('claude', 'integrations/claude-code/plugins/agentdebug/skills/agentdebug'),
+        ('codex', 'integrations/codex/plugins/agentdebug/skills/agentdebug'),
+    ],
+)
+def test_native_plugin_skill_matches_canonical_bundle(
+    platform: str, target: str
+) -> None:
+    bundle = build_debug_skill_bundle(platform=platform)
+    root = ROOT / target
+    actual = {
+        str(path.relative_to(root))
+        for path in root.rglob('*')
+        if path.is_file()
+    }
+    assert actual == set(bundle.files)
+    for relative, content in bundle.files.items():
+        assert (root / relative).read_text(encoding='utf-8') == content
+    assert 'trajectory_snapshot_path' not in bundle.files['SKILL.md']

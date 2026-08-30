@@ -70,6 +70,7 @@ class DebugRun(BaseModel):
     resolved_pipeline: ResolvedPipeline
     artifacts: RunArtifactRefs
     candidate_root_cause: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
     top_evidence: List[str] = Field(default_factory=list)
     provenance: Dict[str, Any] = Field(default_factory=dict)
     warnings: List[RunWarning] = Field(default_factory=list)

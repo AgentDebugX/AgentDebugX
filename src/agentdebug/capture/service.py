@@ -16,6 +16,7 @@ from agentdebug.capture.identity import (
     project_id_for,
     receipt_id_for,
     trace_id_for,
+    trace_id_for_boundary,
 )
 from agentdebug.capture.repository import CaptureRepository
 from agentdebug.capture.snapshot import read_complete_jsonl
@@ -95,6 +96,10 @@ class CaptureService:
                 and session is not None
                 and session.transcript_size == stat.st_size
                 and not replayable_for_session
+                and not (
+                    notification.event_name == 'SessionStart'
+                    and session.status == 'ended'
+                )
             ):
                 return CaptureResult(
                     status='no_op',
@@ -139,6 +144,9 @@ class CaptureService:
                     elapsed_ms=_elapsed_ms(started),
                 )
             boundary_id = boundary_id_for(request, snapshot)
+            trace_id = trace_id_for_boundary(
+                notification.host, notification.session_id, boundary_id
+            )
             existing_boundary = repository.load_boundary_receipt(
                 notification.host, notification.session_id, boundary_id
             )
@@ -230,6 +238,34 @@ class CaptureService:
                     last_event_id=None if current is None else current.last_event_id,
                     boundary_id=boundary_id,
                     warnings=warnings,
+                    elapsed_ms=_elapsed_ms(started),
+                )
+            if (
+                notification.event_name != 'TaskCompleted'
+                and session is not None
+                and session.event_count == len(trajectory.events)
+                and session.last_event_id == trajectory.events[-1].event_id
+            ):
+                repository.commit_no_op(
+                    receipt_id,
+                    snapshot,
+                    {
+                        'boundary_id': boundary_id,
+                        'duration_ms': _elapsed_ms(started),
+                    },
+                )
+                repository.reconcile_prior_receipts(
+                    project_id,
+                    notification.host,
+                    notification.session_id,
+                    current_receipt_id=receipt_id,
+                )
+                return CaptureResult(
+                    status='no_op',
+                    trace_id=session.trace_id,
+                    event_count=session.event_count,
+                    last_event_id=session.last_event_id,
+                    boundary_id=boundary_id,
                     elapsed_ms=_elapsed_ms(started),
                 )
             if reconciliation and not _has_durable_assistant_boundary(trajectory):

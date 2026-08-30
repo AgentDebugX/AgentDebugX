@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -15,6 +16,7 @@ from agentdebug.ingest.adapters.importers import (
 from agentdebug.runtime import JsonlTraceStore, SQLiteTraceStore
 from agentdebug.runtime.storage import trajectory_from_jsonl_record
 from agentdebug.schema import AgentTrajectory
+from agentdebug.schema.models import model_to_dict
 
 from .models import (
     BatchRunItem, BatchRunResult, DebugRun, RunAction, RunArtifactRefs,
@@ -74,10 +76,13 @@ def execute_run(
     try:
         trajectory = trajectory or _load_input(request, store)
         run.input.detected_format = str(trajectory.metadata.get('source_format') or trajectory.framework or 'agenttrajectory')
-        snapshot_path = registry.save_trajectory_snapshot(run.run_id, trajectory)
-        run.artifacts.trajectory_snapshot_path = str(snapshot_path)
         run.provenance['input_snapshot'] = {
             'trace_id': trajectory.trace_id,
+            'sha256': hashlib.sha256(
+                json.dumps(
+                    model_to_dict(trajectory), sort_keys=True, separators=(',', ':')
+                ).encode('utf-8')
+            ).hexdigest(),
             'event_count': len(trajectory.events),
             'last_event_id': (
                 trajectory.events[-1].event_id if trajectory.events else None
@@ -85,6 +90,12 @@ def execute_run(
         }
         store.save_trajectory(trajectory)
         run.artifacts.trace_id = trajectory.trace_id
+        capture_host = trajectory.metadata.get('capture_host')
+        capture_session_id = trajectory.metadata.get('capture_host_session_id')
+        if capture_host and capture_session_id:
+            registry.bind_session(
+                run.run_id, str(capture_host), str(capture_session_id)
+            )
         registry.update_run(run)
     except Exception as exc:
         run.status = 'failed'
@@ -125,6 +136,7 @@ def execute_run(
             'resolved_pipeline': _dump(pipeline),
         })
         store.save_report(report)
+        run.result = model_to_dict(report)
         run.artifacts.report_id = report.report_id
         run.candidate_root_cause = _root_cause(report)
         run.top_evidence = list(report.findings[0].evidence[:3]) if report.findings else []

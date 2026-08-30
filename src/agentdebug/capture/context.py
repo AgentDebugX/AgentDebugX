@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from agentdebug.capture.config import load_capture_config
 from agentdebug.capture.contracts import HookNotification
 from agentdebug.capture.identity import trace_id_for
+from agentdebug.capture.repository import CaptureRepository
+from agentdebug.runtime import SQLiteTraceStore
 
 
 CURRENT_CAPTURE_CONTEXT_ENV = 'AGENTDEBUG_CAPTURE_CONTEXT'
@@ -23,7 +25,7 @@ class CurrentCaptureContext(BaseModel):
     session_id: str
     project_root: Path
     store_path: Path
-    trace_id: str
+    trace_id: Optional[str] = None
 
 
 def write_current_capture_context(
@@ -45,15 +47,13 @@ def write_current_capture_context(
         cwd.relative_to(root)
     except ValueError as exc:
         raise ValueError('hook cwd is outside the configured project') from exc
-    trace_id = trace_id_for(notification.host, notification.session_id)
     context = CurrentCaptureContext(
         host=notification.host,
         session_id=notification.session_id,
         project_root=root,
         store_path=config.store_path.expanduser().resolve(),
-        trace_id=trace_id,
     )
-    path = root / '.agentdebug' / 'capture-context' / f'{trace_id}.json'
+    path = current_capture_context_path(root, notification)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = (
         context.model_dump(mode='json')
@@ -67,6 +67,14 @@ def write_current_capture_context(
     return path
 
 
+def current_capture_context_path(
+    project_root: Path, notification: HookNotification
+) -> Path:
+    root = project_root.expanduser().resolve()
+    context_id = trace_id_for(notification.host, notification.session_id)
+    return root / '.agentdebug' / 'capture-context' / f'{context_id}.json'
+
+
 def validate_current_capture_context(
     context: CurrentCaptureContext, *, cwd: Optional[Path] = None
 ) -> CurrentCaptureContext:
@@ -78,9 +86,6 @@ def validate_current_capture_context(
         raise ValueError(
             f'current capture context belongs to a different project: {root}'
         ) from exc
-    expected_trace_id = trace_id_for(context.host, context.session_id)
-    if context.trace_id != expected_trace_id:
-        raise ValueError('current capture context has an invalid trace ID')
     config = load_capture_config(root)
     platform = None if config is None else config.platforms.get(context.host)
     if platform is None or not platform.enabled:
@@ -94,6 +99,20 @@ def validate_current_capture_context(
         )
     context.project_root = root
     context.store_path = configured_store
+    session = CaptureRepository(configured_store).load_session(
+        context.host, context.session_id
+    )
+    if session is None:
+        legacy_trace_id = context.trace_id or trace_id_for(
+            context.host, context.session_id
+        )
+        if SQLiteTraceStore(str(configured_store)).load_trajectory(
+            legacy_trace_id
+        ) is None:
+            raise ValueError('the current session has no captured trace yet')
+        context.trace_id = legacy_trace_id
+    else:
+        context.trace_id = session.trace_id
     return context
 
 
@@ -114,6 +133,7 @@ def read_current_capture_context(value: str) -> CurrentCaptureContext:
 __all__ = [
     'CURRENT_CAPTURE_CONTEXT_ENV',
     'CurrentCaptureContext',
+    'current_capture_context_path',
     'read_current_capture_context',
     'validate_current_capture_context',
     'write_current_capture_context',
