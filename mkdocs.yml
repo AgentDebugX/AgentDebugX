@@ -1,0 +1,93 @@
+site_name: AgentDebugX
+site_description: Local-first debugging for agentic AI systems
+site_url: https://agentdebugx.github.io/AgentDebugX/
+repo_url: https://github.com/AgentDebugX/AgentDebugX
+repo_name: AgentDebugX/AgentDebugX
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - toc.integrate
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+
+nav:
+  - Overview: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - First diagnosis: getting-started/quickstart.md
+  - Concepts:
+      - How AgentDebugX works: concepts/workflow.md
+      - Architecture: ARCHITECTURE.md
+  - Guides:
+      - Ingest traces: guides/ingest.md
+      - Diagnose failures: guides/diagnose.md
+      - Validate with Rerun: guides/rerun.md
+      - GUI / OSWorld tutorial: guides/gui-rca.md
+      - Local inspection UI: guides/local-ui.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Python API: reference/python-api.md
+      - Diagnostic report: reference/diagnostic-report.md
+      - Trace schema: TRACE_SCHEMA.md
+      - GUI batch CLI: GUI_RCA_COMMANDS.md
+  - Help:
+      - Troubleshooting: help/troubleshooting.md
+      - Build these docs: help/build-docs.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+extra:
+  docs_version: v1
+
+copyright: Copyright &copy; AgentDebugX contributors
+
+strict: true

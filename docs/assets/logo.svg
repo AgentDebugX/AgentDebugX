@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="906" height="574" viewBox="0 0 906 574">
+  <title>Robot Search Vector Icon</title>
+  <desc>Clean vector redraw based on the supplied raster image.</desc>
+  <g fill="none" stroke="#061229" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Magnifying glass -->
+    <circle cx="444" cy="240" r="184" stroke-width="24"/>
+    <path d="M566 383 L606 420" stroke-width="28"/>
+    <path d="M605 418 L701 511" stroke-width="56"/>
+  </g>
+
+  <!-- Robot antenna -->
+  <path d="M444 142 L444 195" stroke="#061229" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="444" cy="123" r="23" fill="#1E4AF2"/>
+
+  <!-- Robot shell -->
+  <path d="M341 344 L341 251 C341 222 365 201 395 201 L493 201 C524 201 549 223 549 253 L549 344"
+        fill="none" stroke="#061229" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="302" y="245" width="20" height="63" rx="10" fill="#061229"/>
+  <rect x="569" y="245" width="19" height="63" rx="9.5" fill="#061229"/>
+
+  <!-- Robot face -->
+  <rect x="366" y="246" width="158" height="87" rx="27" fill="#061229"/>
+  <rect x="396" y="269" width="23" height="41" rx="11.5" fill="#1E4AF2"/>
+  <rect x="471" y="269" width="23" height="41" rx="11.5" fill="#1E4AF2"/>
+
+  <!-- Bottom path -->
+  <circle cx="65" cy="472" r="26" fill="#FFFFFF" stroke="#061229" stroke-width="10"/>
+  <path d="M117 474 L201 474" fill="none" stroke="#061229" stroke-width="11" stroke-linecap="round"/>
+  <circle cx="247" cy="472" r="27" fill="#1E4AF2"/>
+  <path d="M292 463 C344 463 379 484 429 501" fill="none" stroke="#061229" stroke-width="9"
+        stroke-linecap="round" stroke-dasharray="25 28"/>
+  <path d="M454 510 C470 512 484 512 497 511" fill="none" stroke="#1E4AF2" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="524" cy="503" r="26" fill="#FFFFFF" stroke="#1E4AF2" stroke-width="10"/>
+  <path d="M570 493 L594 480" fill="none" stroke="#1E4AF2" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- Right path -->
+  <path d="M670 397 L679 376" fill="none" stroke="#1E4AF2" stroke-width="10" stroke-linecap="round"/>
+  <path d="M687 349 L695 329" fill="none" stroke="#061229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M703 301 L711 280" fill="none" stroke="#061229" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="730" cy="239" r="27" fill="#1E4AF2"/>
+  <path d="M763 204 L802 159" fill="none" stroke="#1E4AF2" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="819" cy="142" r="26" fill="#FFFFFF" stroke="#1E4AF2" stroke-width="10"/>
+</svg>

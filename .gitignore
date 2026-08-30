@@ -1,5 +1,7 @@
 .DS_Store
 .pytest_cache/
+.cache/
+site/
 .ruff_cache/
 .mypy_cache/
 .coverage
