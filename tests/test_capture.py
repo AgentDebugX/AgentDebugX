@@ -36,6 +36,15 @@ from agentdebug.runtime import SQLiteTraceStore
 from agentdebug.schema import AgentEvent, AgentTrajectory, EventType
 
 
+def _copy_notification(
+    notification: HookNotification, **updates: object
+) -> HookNotification:
+    copier = getattr(notification, 'model_copy', None)
+    if copier is not None:
+        return copier(update=updates)
+    return notification.copy(update=updates)
+
+
 def test_capture_identities_are_stable_and_source_scoped(tmp_path: Path) -> None:
     notification = HookNotification(
         host='claude_code',
@@ -52,7 +61,7 @@ def test_capture_identities_are_stable_and_source_scoped(tmp_path: Path) -> None
     )
     assert project_id_for(tmp_path) == project_id_for(tmp_path)
     assert receipt_id_for(notification, 'source-v1') == receipt_id_for(
-        notification.model_copy(update={'observed_at': datetime.now(timezone.utc)}),
+        _copy_notification(notification, observed_at=datetime.now(timezone.utc)),
         'source-v1',
     )
     assert receipt_id_for(notification, 'source-v1') != receipt_id_for(
@@ -118,7 +127,7 @@ def test_claude_context_is_exported_at_start_and_materialized_at_first_prompt(
     assert not context_path.exists()
     host.prepare_session_context(
         tmp_path,
-        notification.model_copy(update={'event_name': 'UserPromptSubmit'}),
+        _copy_notification(notification, event_name='UserPromptSubmit'),
         environ={},
     )
     payload = __import__('json').loads(context_path.read_text(encoding='utf-8'))
@@ -471,8 +480,8 @@ def test_stop_capture_upserts_one_stable_trajectory_and_duplicate_is_no_op(
 
     captured = service.handle(notification)
     duplicate = service.handle(
-        notification.model_copy(
-            update={'observed_at': datetime(2026, 1, 2, tzinfo=timezone.utc)}
+        _copy_notification(
+            notification, observed_at=datetime(2026, 1, 2, tzinfo=timezone.utc)
         )
     )
     housekeeping_results = []
@@ -497,14 +506,13 @@ def test_stop_capture_upserts_one_stable_trajectory_and_duplicate_is_no_op(
             )
         housekeeping_results.append(
             service.handle(
-                notification.model_copy(
-                    update={
-                        'event_name': event_name,
-                        'observed_at': datetime(2026, 1, index, tzinfo=timezone.utc),
-                        'session_end_reason': (
-                            'resume' if event_name == 'SessionEnd' else None
-                        ),
-                    }
+                _copy_notification(
+                    notification,
+                    event_name=event_name,
+                    observed_at=datetime(2026, 1, index, tzinfo=timezone.utc),
+                    session_end_reason=(
+                        'resume' if event_name == 'SessionEnd' else None
+                    ),
                 )
             )
         )
@@ -578,14 +586,14 @@ def test_claude_lifecycle_reconciles_prior_content_and_records_signals(
     )
 
     def notice(event: str, **updates: object) -> HookNotification:
-        values = dict(
-            host='claude_code',
-            event_name=event,
-            session_id='session-1',
-            transcript_path=transcript,
-            cwd=tmp_path,
-            observed_at=datetime.now(timezone.utc),
-        )
+        values = {
+            'host': 'claude_code',
+            'event_name': event,
+            'session_id': 'session-1',
+            'transcript_path': transcript,
+            'cwd': tmp_path,
+            'observed_at': datetime.now(timezone.utc),
+        }
         values.update(updates)
         return HookNotification(**values)
 
@@ -967,14 +975,14 @@ def test_codex_supported_hook_set_captures_a_rollout_end_to_end(
     service = CaptureService(tmp_path, adapter)
 
     def notice(event: str, **updates: object) -> HookNotification:
-        values = dict(
-            host='codex',
-            event_name=event,
-            session_id='codex-session-1',
-            transcript_path=transcript,
-            cwd=tmp_path,
-            observed_at=datetime.now(timezone.utc),
-        )
+        values = {
+            'host': 'codex',
+            'event_name': event,
+            'session_id': 'codex-session-1',
+            'transcript_path': transcript,
+            'cwd': tmp_path,
+            'observed_at': datetime.now(timezone.utc),
+        }
         values.update(updates)
         return HookNotification(**values)
 
@@ -1198,7 +1206,7 @@ def test_failed_snapshot_does_not_advance_state_and_next_boundary_reconciles(
             observed_at=datetime.now(timezone.utc),
         )
 
-    first = service.handle(stop())
+    service.handle(stop())
     session_before = CaptureRepository(store_path).load_session(
         'claude_code', 'session-1'
     )

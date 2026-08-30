@@ -39,27 +39,35 @@ def receipt_id_for(notification: HookNotification, source_version: str) -> str:
         separators=(',', ':'),
         default=str,
     )
-    return f'receipt_{_digest("receipt", (
-        notification.host,
-        notification.session_id,
-        notification.event_name,
-        notification.native_event_id or '',
-        payload,
-        source_version,
-    ))}'
+    digest = _digest(
+        'receipt',
+        (
+            notification.host,
+            notification.session_id,
+            notification.event_name,
+            notification.native_event_id or '',
+            payload,
+            source_version,
+        ),
+    )
+    return f'receipt_{digest}'
 
 
 def boundary_id_for(
     request: CaptureRequest, snapshot: TranscriptSnapshot
 ) -> str:
     notification = request.notification
-    return f'boundary_{_digest("boundary", (
-        notification.host,
-        notification.session_id,
-        request.logical_boundary_kind,
-        notification.native_event_id or '',
-        snapshot.last_record_sha256,
-    ))}'
+    digest = _digest(
+        'boundary',
+        (
+            notification.host,
+            notification.session_id,
+            request.logical_boundary_kind,
+            notification.native_event_id or '',
+            snapshot.last_record_sha256,
+        ),
+    )
+    return f'boundary_{digest}'
 
 
 def event_id_for(

@@ -149,17 +149,29 @@ async def test_findings_still_reach_a_requires_findings_attributor(
 
 @pytest.mark.asyncio
 async def test_many_preserves_input_order(failed_trajectory: AgentTrajectory) -> None:
-    attributor = _SyncOnlyAttributor()
-    trajectories = [failed_trajectory] * 5
+    class _OutOfOrderAttributor:
+        id = 'out_of_order'
+        requires_findings = False
 
-    results = await attribute_many_async(attributor, trajectories, concurrency=5)
+        def attribute(self, trajectory, findings=None):  # noqa: ANN001, ANN201
+            position = int(trajectory.trace_id.removeprefix('trace_'))
+            threading.Event().wait((5 - position) * 0.01)
+            return _result(_blame(trajectory.trace_id))
+
+    trajectories = []
+    for index in range(5):
+        trajectory = failed_trajectory.prefix(len(failed_trajectory.events))
+        trajectory.trace_id = f'trace_{index}'
+        trajectories.append(trajectory)
+
+    results = await attribute_many_async(
+        _OutOfOrderAttributor(), trajectories, concurrency=5
+    )
 
     assert len(results) == 5
-    assert attributor.calls == 5
-    # Completion order under concurrency is arbitrary; the returned order is not.
-    assert [r.hypotheses[0].span_id for r in results] == sorted(
-        r.hypotheses[0].span_id for r in results
-    ), 'results must be positionally aligned with the input'
+    assert [r.hypotheses[0].span_id for r in results] == [
+        trajectory.trace_id for trajectory in trajectories
+    ]
 
 
 @pytest.mark.asyncio

@@ -326,7 +326,7 @@ Diagnose the exact auto-captured trajectory for the calling Claude Code or
 Codex session:
 
 ```bash
-agentdebug run --current --profile quick --json
+agentdebug run --current --profile deep --json
 ```
 
 With valid session-scoped plugin context, bare `agentdebug run` is equivalent
