@@ -43,7 +43,7 @@ When updating a tutorial:
 The configured site URL is:
 
 ```text
-https://agentdebugx.github.io/AgentDebugX/
+https://docs.agentdebugx.com/
 ```
 
 Deployment is separate from the GitHub Wiki. The Markdown sources remain versioned with the code in this repository.

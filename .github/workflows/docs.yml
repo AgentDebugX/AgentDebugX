@@ -1,6 +1,6 @@
 name: Documentation
 
-on:
+"on":
   push:
     branches: [main]
     paths:
@@ -46,7 +46,7 @@ jobs:
 
       - name: Upload GitHub Pages artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
