@@ -49,8 +49,21 @@ or the `$agentdebug` skill. Handle generic debugging requests normally.
 ## Select The Target
 
 - Use `--current` for this agent's current, latest, or just-completed captured
-  session. Never substitute the newest trace from the store. If session-scoped
-  capture context is unavailable, explain that capture is inactive.
+  session. Never substitute the newest trace from the store.
+- If `--current` fails because capture is inactive, fall back to the host's own
+  transcript instead of stopping. `run` ingests them directly:
+  - Codex: the rollout named by `$CODEX_THREAD_ID` under
+    `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-*-$CODEX_THREAD_ID.jsonl`. This
+    identifies the session exactly.
+  - Claude Code: `~/.claude/projects/<cwd with each / and . replaced by ->/`,
+    which holds one `<session-id>.jsonl` per session for this project. The
+    current session is not identified there, so pick the most recently modified
+    file, say which file you chose, and ask the user to confirm when more than
+    one was written recently.
+  Then run `agentdebug run <transcript>.jsonl --profile deep --json`. Say that
+  the target came from the transcript rather than a captured trace, and note
+  that the in-flight turn may not be flushed yet. Mention that enabling capture
+  makes `--current` exact, but do not enable it yourself.
 - Use an explicit path or trace ID when supplied. Read `references/formats.md`
   if its format is unclear.
 - If a past session is ambiguous, present candidates and ask the user to choose.
