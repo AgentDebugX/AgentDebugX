@@ -220,22 +220,22 @@ def convert_payload(
         )
     if fmt == 'claude_code':
         records = payload if isinstance(payload, list) else [payload]
-        return _convert_claude_code_records(
+        return _redact_host_transcript(_convert_claude_code_records(
             cast(Sequence[Dict[str, Any]], records),
             trace_id=trace_id,
             task_id=task_id,
             goal=goal,
             framework=framework,
-        )
+        ))
     if fmt == 'codex':
         records = payload if isinstance(payload, list) else [payload]
-        return _convert_codex_records(
+        return _redact_host_transcript(_convert_codex_records(
             cast(Sequence[Dict[str, Any]], records),
             trace_id=trace_id,
             task_id=task_id,
             goal=goal,
             framework=framework,
-        )
+        ))
     if fmt == 'hermes':
         if isinstance(payload, list) and len(payload) == 1 and isinstance(payload[0], dict):
             payload = payload[0]
@@ -2666,3 +2666,23 @@ def _opt_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _redact_host_transcript(trajectory: AgentTrajectory) -> AgentTrajectory:
+    """Scrub secrets out of a live Claude Code or Codex transcript.
+
+    These two formats are read straight from a host's own session log, so they
+    can carry whatever the user pasted or a tool printed. Automatic capture
+    already scrubs before storing; normalizing the same transcript through
+    ``ingest`` has to match, otherwise reading the file directly would persist
+    secrets that capture would have removed. Other formats are user-supplied
+    exports and are left byte-faithful.
+    """
+
+    from agentdebug.hub.scrub import SCRUBBER_VERSION, Scrubber
+
+    report = Scrubber().scrub_trajectory(trajectory)
+    if report.replacements:
+        trajectory.metadata['ingest_redactions'] = dict(report.replacements)
+    trajectory.metadata['ingest_scrubber_version'] = SCRUBBER_VERSION
+    return trajectory
