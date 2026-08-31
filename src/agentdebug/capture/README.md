@@ -6,9 +6,11 @@ that has not consented exits before doing any work, and storage contention is
 absorbed so the host session continues. It never starts diagnosis or invokes an
 LLM.
 
-Fail-open is not yet total. Hook dispatch currently absorbs only
-`sqlite3.OperationalError`; a malformed host payload or an unknown event name
-propagates as a non-zero exit with a traceback on stderr.
+The plugin launchers hold that boundary at the host edge: they force exit 0 and
+discard output, so no capture failure reaches a host session. Inside the CLI,
+fail-open is not yet total - `_dispatch` absorbs only
+`sqlite3.OperationalError`, so a malformed payload or unknown event name still
+propagates a traceback to whatever invoked it directly.
 
 ## Flow
 

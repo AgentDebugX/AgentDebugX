@@ -10,11 +10,33 @@ Code. AgentDebugX does not edit `.claude/settings.json` on your behalf.
 ## What it contains
 
 - `hooks/hooks.json`: `SessionStart`, `UserPromptSubmit`, `Stop`,
-  `TaskCompleted`, and `SessionEnd` hooks that all dispatch
-  `agentdebug integrations capture dispatch --platform claude`.
+  `TaskCompleted`, and `SessionEnd` hooks. Each runs the bundled launcher
+  through `${CLAUDE_PLUGIN_ROOT}`, with a `commandWindows` variant for
+  Windows-native sessions.
+- `bin/`: the launchers. `agentdebug-hook` for POSIX shells and Claude Code's
+  Windows Git-Bash environment, `agentdebug-hook.cmd` and
+  `agentdebug-hook.ps1` for Windows, and `precheck.py`, a standard-library
+  consent probe.
 - `skills/agentdebug/`: the canonical AgentDebug skill, generated from
   `src/agentdebug/integrations/agentdebug_skill/`. Claude Code exposes it as
   `/agentdebug:agentdebug`.
+
+## An idle hook costs nothing
+
+Capture is a passive sensor, so a session that never opted in must not notice
+the plugin. The launcher enforces that:
+
+- It resolves the `agentdebug` CLI before reading anything. A session whose
+  environment has no AgentDebugX - a different virtualenv, conda environment,
+  or machine - exits without starting Python and without reporting an error.
+- `precheck.py` then answers "has this project consented?" by walking up from
+  the payload's `cwd` looking for `.agentdebug/capture.json`. It imports
+  nothing from `agentdebug`, so an unconsented project never pays for the
+  analyzer and HTTP imports the full CLI would load.
+- Every path exits 0 and writes nothing to stdout or stderr. A capture failure
+  can never fail, block, or add visible noise to a host session.
+
+Set `AGENTDEBUG_HOOK_CLI` to pin a specific `agentdebug` executable.
 
 ## Install
 
@@ -63,15 +85,16 @@ prompting leaves no context, session, or trace behind.
 
 Automatic capture is validated on Linux. macOS is expected to work, since the
 hook path is POSIX-identical and project paths containing spaces are quoted
-correctly, but it has not been validated end to end. Windows is unvalidated.
+correctly, but it has not been validated end to end. Windows launchers ship and
+are wired through `commandWindows`, but have not been exercised on Windows.
 
-One Windows limitation is known rather than merely untested. `agentdebug run
---current` resolves the session through an environment variable that the
-`SessionStart` hook exports into `CLAUDE_ENV_FILE` using POSIX shell syntax.
-Where that file is not sourced by a POSIX shell, the variable never reaches the
-session and `--current` cannot resolve it. Capture itself is unaffected and
-traces are still written, so diagnose by listing traces and passing an explicit
-trace ID:
+One Windows limitation is known rather than merely untested, and the launchers
+do not address it. `agentdebug run --current` resolves the session through an
+environment variable that the `SessionStart` hook exports into
+`CLAUDE_ENV_FILE` using POSIX shell syntax. Where that file is not sourced by a
+POSIX shell, the variable never reaches the session and `--current` cannot
+resolve it. Capture itself is unaffected and traces are still written, so
+diagnose by listing traces and passing an explicit trace ID:
 
 ```bash
 agentdebug list --store-sqlite .agentdebug/agentdebug.sqlite

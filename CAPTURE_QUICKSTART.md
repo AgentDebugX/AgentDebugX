@@ -154,8 +154,10 @@ agentdebug integrations capture disable --platform claude --project . --json
 agentdebug integrations capture disable --platform codex --project . --json
 ```
 
-The plugin stays installed, so its hook command still starts briefly to check
-whether capture is enabled. Disable or remove the plugin to avoid that cost:
+The plugin stays installed, so its hooks still run, but an unconsented project
+costs a consent check and nothing more: the launcher exits silently without
+loading AgentDebugX, and exits without starting Python at all when the CLI is
+not on `PATH`. Disable or remove the plugin to stop the hooks entirely:
 
 ```bash
 claude plugin disable agentdebug@agentdebug --scope project   # enable to restore

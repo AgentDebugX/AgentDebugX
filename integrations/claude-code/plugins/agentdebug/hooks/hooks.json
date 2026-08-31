@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agentdebug integrations capture dispatch --platform claude",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/agentdebug-hook\" --platform claude",
+            "commandWindows": "cmd.exe /d /s /c call \"%CLAUDE_PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -18,7 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agentdebug integrations capture dispatch --platform claude",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/agentdebug-hook\" --platform claude",
+            "commandWindows": "cmd.exe /d /s /c call \"%CLAUDE_PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -30,7 +32,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agentdebug integrations capture dispatch --platform claude",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/agentdebug-hook\" --platform claude",
+            "commandWindows": "cmd.exe /d /s /c call \"%CLAUDE_PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -42,7 +45,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agentdebug integrations capture dispatch --platform claude",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/agentdebug-hook\" --platform claude",
+            "commandWindows": "cmd.exe /d /s /c call \"%CLAUDE_PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
@@ -54,7 +58,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agentdebug integrations capture dispatch --platform claude",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/agentdebug-hook\" --platform claude",
+            "commandWindows": "cmd.exe /d /s /c call \"%CLAUDE_PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" claude",
             "timeout": 10,
             "statusMessage": "agentdebug-capture"
           }
