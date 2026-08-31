@@ -137,6 +137,35 @@ The package is installed as `agentdebugx` and imported as `agentdebug`:
 import agentdebug
 ```
 
+## Claude Code and Codex Plugins
+
+AgentDebugX ships native plugins for Claude Code and Codex so an agent can
+debug its own session. The plugin bundles capture hooks and the AgentDebug
+skill, which keeps two boundaries explicit:
+
+- **Capture is automatic** once a project opts in. Sessions are normalized into
+  AgentDebugX trajectories locally and silently.
+- **Diagnosis is explicit.** Ask AgentDebug in-session and the skill diagnoses
+  that exact captured trajectory with `agentdebug run --current --profile deep`.
+  Re-running or repairing the agent's work stays a separately authorized step.
+
+Follow the [capture quickstart](CAPTURE_QUICKSTART.md) to install a plugin,
+enable project capture, diagnose a session, and turn capture off again.
+
+The plugin bundles live in this repository:
+
+| Plugin | Bundle | Documentation |
+| --- | --- | --- |
+| Claude Code | `integrations/claude-code/plugins/agentdebug` | [Claude Code plugin](integrations/claude-code/README.md) |
+| Codex | `integrations/codex/plugins/agentdebug` | [Codex plugin](integrations/codex/README.md) |
+
+Each plugin's documentation covers its hooks, install scope, the capture
+consent step, and lazy session creation. See
+[`src/agentdebug/capture/README.md`](src/agentdebug/capture/README.md) for the
+stored `.agentdebug/` layout and
+[`src/agentdebug/workbench/README.md`](src/agentdebug/workbench/README.md) for
+`agentdebug run` profiles and run manifests.
+
 ## DeepSeek Harness Plugin
 
 AgentDebugX is also available as the

@@ -41,18 +41,25 @@ After install:
 
 ```bash
 agentdebug doctor
-agentdebug integrations install --platform claude
-agentdebug integrations install --platform codex
-agentdebug integrations status --platform codex --json
 ```
 
-Use the platform target the user requested; do not install into another host's
-skill directory without approval.
+If this skill was loaded from the native Claude Code or Codex plugin, the skill
+is already installed and no further installation step is needed. Only use the
+managed standalone skill installer when the user asks for it, and only for the
+platform they named:
+
+```bash
+agentdebug integrations install --platform claude
+agentdebug integrations status --platform claude --json
+```
+
+Do not install into another host's skill directory without approval.
 
 ## Current-Session Capture
 
-Current-session self-debugging requires project capture hooks in addition to
-the skill:
+Current-session self-debugging needs project capture hooks in addition to the
+skill. The native plugin supplies those hooks; the project must then consent
+explicitly:
 
 ```bash
 agentdebug integrations capture enable --platform claude --project "$PWD" --json
