@@ -3,6 +3,7 @@
 from agentdebug.runtime.plugins.registry import register_action_plugin
 from agentdebug.diagnose.attribute import (
     AllAtOnceAttributor,
+    ReferenceAttributor,
     AttributionBudget,
     AttributionResult,
     Attributor,
@@ -49,6 +50,7 @@ from agentdebug.diagnose.recover import (
 
 __all__ = [
     'AllAtOnceAttributor',
+    'ReferenceAttributor',
     'AttributionBudget',
     'AttributionResult',
     'Attributor',
