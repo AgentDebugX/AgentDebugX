@@ -1,0 +1,19 @@
+{
+  "id": "detect.perstep",
+  "stage": "detect",
+  "name": "Per-step evidence-grounded detector",
+  "description": "Judges one agent turn per LLM call -- 'is this step wrong?' -- with the run before it supplied as graded history the model may read but not answer about. This is the structural half of TrajDebug that the chunked detectors do not have: their tier ladder is defined by distance from the step under judgement, so it only expresses a localization prior when there is a single step under judgement. Roughly 30x the inference of detect.llm_judge, which is what detect.stage_a exists to make affordable. Ported from TrajDebug Stage B (THU-KEG/TrajDebug, MIT).",
+  "entrypoint": "agentdebug.diagnose.detect.perstep:PerStepAnalyzer",
+  "capabilities": [
+    "diagnose",
+    "findings",
+    "taxonomy_labels",
+    "evidence_grounding",
+    "llm"
+  ],
+  "dependencies": [
+    "llm_client"
+  ],
+  "cost_profile": "one_llm_call_per_agent_turn",
+  "enabled_by_default": false
+}

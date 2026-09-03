@@ -6,11 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from agentdebug.schema import (
+    SEED_FAILURE_MODES,
     AgentEvent,
     AgentTrajectory,
     DiagnosticAuditEntry,
     DiagnosticReport,
-    EventType,
+    get_failure_mode,
     model_to_json,
     model_to_dict,
     new_id,
@@ -127,3 +128,37 @@ def test_generated_ids_are_prefixed_and_unique() -> None:
     assert first.startswith('trace_')
     assert second.startswith('trace_')
     assert first != second
+
+
+def test_observation_family_covers_reading_feedback_wrongly() -> None:
+    """The observation family fills a real hole, not a cosmetic one.
+
+    Reading environment or tool feedback wrongly had no mode before: the nearest
+    neighbours are `memory.retrieval_failure` (failing to *retrieve* state, not
+    misreading retrieved state) and `multimodal.perception_error` (images, UI
+    and audio only). This pins the four modes and the distinction, so a later
+    tidy-up cannot quietly fold them back into memory or multimodal.
+    """
+
+    observation = {
+        mode_id for mode_id in SEED_FAILURE_MODES if mode_id.startswith('observation.')
+    }
+    assert observation == {
+        'observation.misread',
+        'observation.ignored',
+        'observation.grounding_fail',
+        'observation.timing',
+    }
+
+    misread = get_failure_mode('observation.misread')
+    assert misread is not None
+    assert misread.family == 'observation'
+    assert misread.suggestion_templates
+
+
+def test_every_seed_mode_id_agrees_with_its_family() -> None:
+    """`mode_id` is `<family>.<subtype>`; drift here breaks family filtering."""
+
+    for mode_id, mode in SEED_FAILURE_MODES.items():
+        assert mode.mode_id == mode_id
+        assert mode_id.split('.', 1)[0] == mode.family

@@ -1,0 +1,11 @@
+{
+  "id": "detect.trajdebug",
+  "stage": "detect",
+  "name": "TrajDebug evidence-grounded detector",
+  "description": "Step-level failure detection requiring a verbatim quote pair and a conflict axis, with every quote verified against the trajectory. Ported from TrajDebug Stage B (THU-KEG/TrajDebug, MIT).",
+  "entrypoint": "agentdebug.diagnose.detect.trajdebug:TrajDebugAnalyzer",
+  "capabilities": ["diagnose", "findings", "taxonomy_labels", "evidence_grounding", "llm"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "one_llm_call_per_chunk",
+  "enabled_by_default": false
+}

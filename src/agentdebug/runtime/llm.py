@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 
@@ -145,9 +147,17 @@ class OpenAICompatClient:
         price_in: float = 0.0,
         price_out: float = 0.0,
         on_usage: Optional[Any] = None,
+        max_retries: int = 0,
+        retry_base_delay: float = 1.0,
         default_headers: Optional[Dict[str, str]] = None,
+
     ) -> None:
         self.base_url = base_url.rstrip('/')
+        #: Retries on 429, 5xx and transport errors. Off by default so an existing
+        #: caller sees exactly the failures it always saw; a batch runner against a
+        #: shared gateway turns it on rather than losing a trajectory to one 503.
+        self.max_retries = max_retries
+        self.retry_base_delay = retry_base_delay
         self.api_key = api_key
         self.model = model
         # Embeddings hit a separate endpoint with a separate model id; default
@@ -233,9 +243,7 @@ class OpenAICompatClient:
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
         }
-        resp = httpx.post(
-            url, headers=headers, json=body, timeout=timeout or self.timeout
-        )
+        resp = self._post(url, headers, body, timeout or self.timeout)
         if (
             resp.status_code == 400
             and token_param == 'max_tokens'
@@ -244,9 +252,7 @@ class OpenAICompatClient:
             self._token_param = 'max_completion_tokens'
             body.pop('max_tokens', None)
             body['max_completion_tokens'] = token_budget
-            resp = httpx.post(
-                url, headers=headers, json=body, timeout=timeout or self.timeout
-            )
+            resp = self._post(url, headers, body, timeout or self.timeout)
         resp.raise_for_status()
         data: Dict[str, Any] = resp.json()
         choice = (data.get('choices') or [{}])[0]
@@ -261,6 +267,53 @@ class OpenAICompatClient:
                 data.get('usage'),
             )
         return CompletionResult(text=text, raw=data, usage=self._record_usage(data))
+
+    #: Statuses worth retrying: rate limit, and the gateway-side failures a shared
+    #: proxy produces under load. A 4xx other than 429 is the caller's mistake and
+    #: retrying it only delays the traceback.
+    _RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+    def _post(
+        self,
+        url: str,
+        headers: Dict[str, str],
+        body: Dict[str, Any],
+        timeout: float,
+    ) -> Any:
+        """``httpx.post`` with opt-in retry on transient failures.
+
+        With ``max_retries=0`` this is exactly one ``httpx.post`` and every
+        exception propagates unchanged. Otherwise a retryable status or a
+        transport error is retried with exponential backoff and jitter, and a
+        ``Retry-After`` header is honoured when the server sends one.
+        """
+        attempt = 0
+        while True:
+            try:
+                resp = httpx.post(url, headers=headers, json=body, timeout=timeout)
+            except httpx.HTTPError as exc:
+                if attempt >= self.max_retries:
+                    raise
+                delay = self._retry_delay(attempt, None)
+                LOG.warning('transport error from %s (%s); retry %d/%d in %.1fs',
+                            url, exc, attempt + 1, self.max_retries, delay)
+            else:
+                if resp.status_code not in self._RETRY_STATUSES or attempt >= self.max_retries:
+                    return resp
+                delay = self._retry_delay(attempt, resp.headers.get('retry-after'))
+                LOG.warning('HTTP %d from %s; retry %d/%d in %.1fs',
+                            resp.status_code, url, attempt + 1, self.max_retries, delay)
+            time.sleep(delay)
+            attempt += 1
+
+    def _retry_delay(self, attempt: int, retry_after: Optional[str]) -> float:
+        if retry_after:
+            try:
+                return max(0.0, float(retry_after))
+            except ValueError:
+                pass
+        base = self.retry_base_delay * (2 ** attempt)
+        return min(60.0, base + random.uniform(0, base))
 
     def _record_usage(self, data: Dict[str, Any]) -> TokenUsage:
         """Parse, accumulate and publish the usage for one response."""

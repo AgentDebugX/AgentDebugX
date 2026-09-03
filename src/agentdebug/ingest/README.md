@@ -20,6 +20,7 @@ Supported adapter families include:
 - OpenClaw session and trajectory JSONL
 - GAIA/Open Deep Research style runs
 - OSWorld and GUI-oriented traces
+- TrajDebug / TRAJERRBENCH unified trajectory JSON
 
 ## Flow
 

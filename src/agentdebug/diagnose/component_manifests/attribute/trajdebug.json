@@ -1,0 +1,11 @@
+{
+  "id": "attribute.trajdebug",
+  "stage": "attribute",
+  "name": "TrajDebug state-aware attributor",
+  "description": "Clusters findings by the object they violate, optionally classifies whether each error was fixed and whether it reaches the terminal failure, then selects the earliest instance still in the causal chain. Clustering and selection are deterministic; state classification needs an LLM and is skipped without one. Ported from TrajDebug phase C (THU-KEG/TrajDebug, MIT).",
+  "entrypoint": "agentdebug.diagnose.attribute.trajdebug:TrajDebugAttributor",
+  "capabilities": ["blame_localization", "error_clustering", "state_classification"],
+  "dependencies": [],
+  "cost_profile": "free_without_llm",
+  "enabled_by_default": false
+}

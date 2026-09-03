@@ -140,3 +140,85 @@ def test_from_env_and_json_extraction(monkeypatch) -> None:
     assert extract_json_block('```json\n{"ok": true}\n```') == {'ok': True}
     assert extract_json_block('prefix {"ok": true} suffix') == {'ok': True}
     assert extract_json_block('not json') is None
+
+
+class _Resp(FakeResponse):
+    def __init__(self, payload, *, status_code=200, text='', headers=None):
+        super().__init__(payload, status_code=status_code, text=text)
+        self.headers = headers or {}
+
+
+def test_retries_are_off_by_default(monkeypatch) -> None:
+    """The default client must fail exactly as it always did: one post, one error."""
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        return _Resp({}, status_code=503)
+
+    monkeypatch.setattr('agentdebug.runtime.llm.httpx.post', fake_post)
+    client = OpenAICompatClient(base_url='https://x/v1', api_key='k', model='m')
+    try:
+        client.complete([{'role': 'user', 'content': 'hi'}])
+    except RuntimeError as exc:
+        assert 'HTTP 503' in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError('expected the 503 to propagate')
+    assert len(calls) == 1
+
+
+def test_retries_transient_statuses_then_succeeds(monkeypatch) -> None:
+    calls = []
+    sleeps = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        if len(calls) < 3:
+            return _Resp({}, status_code=429, headers={'retry-after': '0'})
+        return _Resp({'choices': [{'message': {'content': 'ok'}}]})
+
+    monkeypatch.setattr('agentdebug.runtime.llm.httpx.post', fake_post)
+    monkeypatch.setattr('agentdebug.runtime.llm.time.sleep', sleeps.append)
+    client = OpenAICompatClient(
+        base_url='https://x/v1', api_key='k', model='m', max_retries=5,
+    )
+    assert client.complete([{'role': 'user', 'content': 'hi'}]).text == 'ok'
+    assert len(calls) == 3
+    assert sleeps == [0.0, 0.0]  # Retry-After honoured
+
+
+def test_retries_give_up_after_max(monkeypatch) -> None:
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        return _Resp({}, status_code=502)
+
+    monkeypatch.setattr('agentdebug.runtime.llm.httpx.post', fake_post)
+    monkeypatch.setattr('agentdebug.runtime.llm.time.sleep', lambda s: None)
+    client = OpenAICompatClient(
+        base_url='https://x/v1', api_key='k', model='m', max_retries=2,
+    )
+    try:
+        client.complete([{'role': 'user', 'content': 'hi'}])
+    except RuntimeError:
+        pass
+    assert len(calls) == 3  # first try + 2 retries
+
+
+def test_non_retryable_4xx_is_not_retried(monkeypatch) -> None:
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        return _Resp({}, status_code=401)
+
+    monkeypatch.setattr('agentdebug.runtime.llm.httpx.post', fake_post)
+    client = OpenAICompatClient(
+        base_url='https://x/v1', api_key='k', model='m', max_retries=5,
+    )
+    try:
+        client.complete([{'role': 'user', 'content': 'hi'}])
+    except RuntimeError:
+        pass
+    assert len(calls) == 1

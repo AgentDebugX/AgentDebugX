@@ -1,0 +1,11 @@
+{
+  "id": "detect.stage_a",
+  "stage": "detect",
+  "name": "Stage A multi-granularity compression",
+  "description": "Context preparation for LLM detectors: summarises every step at three lengths (th1/th2/th3) and renders the trajectory graded by distance from the region under judgement, so detail is spent where the failure is instead of clipped uniformly. Two short-circuits skip the model for steps that are already short or machine-generated. Ported from TrajDebug Stage A (THU-KEG/TrajDebug, MIT).",
+  "entrypoint": "agentdebug.diagnose.detect.compression:StepCompressor",
+  "capabilities": ["context_preparation", "compression", "llm"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "one_llm_call_per_uncompressed_step",
+  "enabled_by_default": false
+}

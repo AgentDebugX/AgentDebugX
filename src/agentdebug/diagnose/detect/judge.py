@@ -1,7 +1,7 @@
 """LLM-based judge analyzer.
 
 Walks an ``AgentTrajectory`` and asks an LLM to label step-level failures
-against the 19 seed modes shipped in :mod:`agentdebug.taxonomy`. The judge is
+against the seed modes shipped in :mod:`agentdebug.taxonomy`. The judge is
 intentionally schemed to the existing taxonomy so the rest of the pipeline
 (``DiagnosticReport``, recovery, attribution) doesn't need a parallel label
 space.
@@ -13,6 +13,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any, Dict, List, Optional
 
+from agentdebug.diagnose.detect.selection import RootSelector, earliest_finding
 from agentdebug.runtime import LLMClient, extract_json_block
 from agentdebug.schema import (
     SEED_FAILURE_MODES,
@@ -22,7 +23,6 @@ from agentdebug.schema import (
     EventType,
     FailureFinding,
     FailureMode,
-    confidence_or_default,
     new_id,
 )
 
@@ -57,7 +57,12 @@ Schema (compact — fields in this order):
 
 
 class LLMJudgeAnalyzer:
-    """LLM-as-judge analyzer schemed to the 19 seed failure modes."""
+    """LLM-as-judge analyzer schemed to the seed failure taxonomy.
+
+    The allowed mode list is enumerated from ``SEED_FAILURE_MODES`` at prompt
+    time, so adding a family to the taxonomy makes it available here without
+    touching this class.
+    """
 
     def __init__(
         self,
@@ -67,10 +72,25 @@ class LLMJudgeAnalyzer:
         max_evidence_chars: int = 300,
         max_tokens: int = 8192,
         max_findings_per_chunk: int = 6,
+        context_builder: Optional[Any] = None,
+        root_selector: Optional[RootSelector] = None,
+        request_json: bool = False,
     ) -> None:
         self.llm = llm
         self.max_events_per_call = max_events_per_call
         self.max_evidence_chars = max_evidence_chars
+        # Both default to the historical behaviour, so an analyzer built the
+        # way it always was renders and selects exactly as it always did.
+        # `context_builder` is any object with `render_chunk(events, chunk)`;
+        # see agentdebug.diagnose.detect.compression.GradedContextBuilder.
+        self.context_builder = context_builder
+        self.root_selector: RootSelector = root_selector or earliest_finding
+        # Ask the provider to constrain the response to JSON. Off by default
+        # because not every endpoint supports it and the prompt already asks
+        # for JSON in words -- but on long traces the words are not enough, and
+        # a chunk that fails to parse contributes no findings at all, which is
+        # indistinguishable downstream from a chunk with nothing wrong in it.
+        self.request_json = request_json
         # NOTE: thinking models (Gemini 2.x/3.x, o-series) spend a substantial
         # fraction of `max_tokens` on reasoning tokens before any text is
         # emitted. 8192 is the safe default after the v0.2.6 Who&When debate-
@@ -141,7 +161,10 @@ class LLMJudgeAnalyzer:
             {'role': 'system', 'content': system},
             {'role': 'user', 'content': user},
         ]
-        result = self.llm.complete(messages=messages, max_tokens=self.max_tokens)
+        kwargs: Dict[str, Any] = {'max_tokens': self.max_tokens}
+        if self.request_json:
+            kwargs['response_format'] = {'type': 'json_object'}
+        result = self.llm.complete(messages=messages, **kwargs)
         parsed = extract_json_block(result.text)
         if not parsed:
             LOG.warning('LLM judge returned no JSON; raw=%r', result.text[:300])
@@ -202,7 +225,13 @@ class LLMJudgeAnalyzer:
             f'- {mode_id}: {mode.description}'
             for mode_id, mode in SEED_FAILURE_MODES.items()
         )
-        events_doc = '\n'.join(self._render_event(evt) for evt in chunk)
+        if self.context_builder is not None:
+            # Graded rendering: the chunk under judgement arrives at full
+            # detail and the rest of the run as a gist, instead of every event
+            # everywhere clipped to the same few hundred characters.
+            events_doc = self.context_builder.render_chunk(trajectory.events, chunk)
+        else:
+            events_doc = '\n'.join(self._render_event(evt) for evt in chunk)
         return (
             f'GOAL: {trajectory.goal!r}\n'
             f'FRAMEWORK: {trajectory.framework!r}\n\n'
@@ -231,16 +260,7 @@ class LLMJudgeAnalyzer:
     def _select_root(
         self, findings: List[FailureFinding]
     ) -> Optional[FailureFinding]:
-        if not findings:
-            return None
-        return sorted(
-                findings,
-                key=lambda finding: (
-                    finding.step_index is None,
-                    finding.step_index if finding.step_index is not None else 10**9,
-                    -confidence_or_default(finding.confidence),
-                ),
-        )[0]
+        return self.root_selector(findings)
 
     def _collect_suggestions(self, findings: List[FailureFinding]) -> List[str]:
         seen = set()
