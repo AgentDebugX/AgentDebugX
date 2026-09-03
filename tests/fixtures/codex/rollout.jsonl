@@ -1,0 +1,9 @@
+{"timestamp":"2026-08-26T12:00:00Z","type":"session_meta","payload":{"id":"codex-session-1","cwd":"/tmp/project","cli_version":"0.149.1","source":"cli","model_provider":"openai"}}
+{"timestamp":"2026-08-26T12:00:01Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"private harness instructions"}]}}
+{"timestamp":"2026-08-26T12:00:01Z","type":"response_item","payload":{"type":"message","role":"user","id":"msg-injected-1","content":[{"type":"input_text","text":"<recommended_plugins>\n- Example plugin\n</recommended_plugins>"},{"type":"input_text","text":"# AGENTS.md instructions\n\n<INSTRUCTIONS>\nAvoid repeated loops.\n</INSTRUCTIONS>"},{"type":"input_text","text":"<environment_context>\n  <cwd>/tmp/project</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-08-26T12:00:02Z","type":"response_item","payload":{"type":"message","role":"user","id":"msg-user-1","content":[{"type":"input_text","text":"inspect the project"}]}}
+{"timestamp":"2026-08-26T12:00:03Z","type":"response_item","payload":{"type":"reasoning","id":"reason-1","summary":[{"type":"summary_text","text":"private reasoning"}]}}
+{"timestamp":"2026-08-26T12:00:04Z","type":"response_item","payload":{"type":"function_call","id":"call-item-1","call_id":"call-1","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}
+{"timestamp":"2026-08-26T12:00:05Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"/tmp/project"}}
+{"timestamp":"2026-08-26T12:00:06Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"msg-assistant-1","content":[{"type":"output_text","text":"Inspection complete."}]}}
+{"timestamp":"2026-08-26T12:00:07Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":123}}}}

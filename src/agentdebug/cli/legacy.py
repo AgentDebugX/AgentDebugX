@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -66,6 +67,7 @@ _TRACE_FORMAT_CHOICES = [
     'langgraph_callbacks',
     'openclaw',
     'claude_code',
+    'codex',
     'hermes',
     'osworld',
 ]
@@ -450,16 +452,40 @@ def _add_integrations_subcommands(parser: argparse.ArgumentParser) -> None:
     p_skill = int_sub.add_parser('skill', help='Materialize a host debug skill')
     p_skill.add_argument(
         '--target',
-        default='~/.claude/skills',
-        help='Destination directory (default: ~/.claude/skills)',
+        default=None,
+        help='Destination root (defaults to the platform discovery location)',
     )
     p_skill.add_argument('--name', default='agentdebug')
     p_skill.add_argument(
         '--platform',
-        choices=('claude', 'hermes', 'openclaw'),
+        choices=('claude', 'codex', 'hermes', 'openclaw'),
         default='claude',
         help='Host skill format to generate (default: claude)',
     )
+
+    for command in ('install', 'status'):
+        item = int_sub.add_parser(command, help=f'{command.title()} a managed host skill')
+        item.add_argument('--platform', choices=('claude', 'codex'), required=True)
+        item.add_argument('--target', default=None)
+        item.add_argument('--name', default='agentdebug')
+        item.add_argument('--run-root', default='.agentdebug')
+        item.add_argument('--json', action='store_true')
+        if command == 'install':
+            item.add_argument('--force', action='store_true')
+
+    p_capture = int_sub.add_parser(
+        'capture', help='Manage passive automatic trajectory capture'
+    )
+    capture_sub = p_capture.add_subparsers(
+        dest='capture_command', required=True
+    )
+    for command in ('enable', 'disable', 'status', 'reconcile', 'dispatch'):
+        item = capture_sub.add_parser(command)
+        item.add_argument('--platform', choices=('claude', 'codex'), required=True)
+        if command != 'dispatch':
+            item.add_argument('--project', required=True)
+        if command in {'enable', 'disable', 'status', 'reconcile'}:
+            item.add_argument('--json', action='store_true')
 
     p_mc = int_sub.add_parser(
         'openhands-microagent',
@@ -832,13 +858,21 @@ def _cmd_config(args: argparse.Namespace) -> int:
         try:
             result = llm.complete(
                 messages=[{'role': 'user', 'content': 'Say PONG'}],
-                max_tokens=20,
+                max_tokens=256,
                 timeout=30.0,
             )
         except Exception as exc:
             print(f'LLM config check failed: {exc}', file=sys.stderr)
             return 5
         text = (getattr(result, 'text', '') or '').strip()
+        if re.search(r'\bPONG\b', text, flags=re.IGNORECASE) is None:
+            print(json.dumps({
+                'ok': False,
+                'model': llm.model,
+                'response': text,
+                'error': 'LLM response did not contain PONG',
+            }, indent=2))
+            return 5
         print(json.dumps({'ok': True, 'model': llm.model, 'response': text}, indent=2))
         return 0
 
@@ -1252,20 +1286,33 @@ def _cmd_integrations(args: argparse.Namespace) -> int:
     from agentdebug.integrations import (
         OpenHandsMicroagentContract,
         build_debug_skill_bundle,
-        build_skill_bundle,
         write_debug_skill_bundle,
-        write_skill_bundle,
     )
 
+    if args.int_command == 'capture':
+        from agentdebug.cli.commands.capture import run as run_capture
+
+        return run_capture(args)
     if args.int_command == 'skill':
-        if args.platform == 'claude':
-            bundle = build_skill_bundle(name=args.name)
-            path = write_skill_bundle(bundle, target_dir=Path(args.target))
-        else:
-            bundle = build_debug_skill_bundle(platform=args.platform, name=args.name)
-            path = write_debug_skill_bundle(bundle, target_dir=Path(args.target))
+        from agentdebug.integrations.management import DEFAULT_ROOTS
+        bundle = build_debug_skill_bundle(platform=args.platform, name=args.name)
+        path = write_debug_skill_bundle(bundle, target_dir=Path(args.target or DEFAULT_ROOTS[args.platform]))
         print(f'wrote {args.platform} skill -> {path}')
         return 0
+    if args.int_command in {'install', 'status'}:
+        import json as _json
+        from agentdebug.integrations.management import install_skill, integration_status
+        try:
+            payload = (
+                install_skill(args.platform, target=args.target, name=args.name, force=args.force)
+                if args.int_command == 'install'
+                else integration_status(args.platform, target=args.target, name=args.name, run_root=args.run_root)
+            )
+        except (OSError, ValueError) as exc:
+            print(f'integrations {args.int_command} failed: {exc}', file=sys.stderr)
+            return 2
+        print(_json.dumps(payload) if args.json else f"{args.platform}: {payload.get('status', 'ready' if payload.get('ready') else 'not ready')} -> {payload['path']}")
+        return 0 if args.int_command == 'install' or payload['ready'] else 3
     if args.int_command == 'openhands-microagent':
         contract = OpenHandsMicroagentContract(name=args.name)
         path = contract.write(Path(args.target))

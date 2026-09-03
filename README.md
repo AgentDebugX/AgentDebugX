@@ -137,6 +137,35 @@ The package is installed as `agentdebugx` and imported as `agentdebug`:
 import agentdebug
 ```
 
+## Claude Code and Codex Plugins
+
+AgentDebugX ships native plugins for Claude Code and Codex so an agent can
+debug its own session. The plugin bundles capture hooks and the AgentDebug
+skill, which keeps two boundaries explicit:
+
+- **Capture is automatic** once a project opts in. Sessions are normalized into
+  AgentDebugX trajectories locally and silently.
+- **Diagnosis is explicit.** Ask AgentDebug in-session and the skill diagnoses
+  that exact captured trajectory with `agentdebug run --current --profile deep`.
+  Re-running or repairing the agent's work stays a separately authorized step.
+
+Follow the [capture quickstart](CAPTURE_QUICKSTART.md) to install a plugin,
+enable project capture, diagnose a session, and turn capture off again.
+
+The plugin bundles live in this repository:
+
+| Plugin | Bundle | Documentation |
+| --- | --- | --- |
+| Claude Code | `integrations/claude-code/plugins/agentdebug` | [Claude Code plugin](integrations/claude-code/README.md) |
+| Codex | `integrations/codex/plugins/agentdebug` | [Codex plugin](integrations/codex/README.md) |
+
+Each plugin's documentation covers its hooks, install scope, the capture
+consent step, and lazy session creation. See
+[`src/agentdebug/capture/README.md`](src/agentdebug/capture/README.md) for the
+stored `.agentdebug/` layout and
+[`src/agentdebug/workbench/README.md`](src/agentdebug/workbench/README.md) for
+`agentdebug run` profiles and run manifests.
+
 ## DeepSeek Harness Plugin
 
 AgentDebugX is also available as the
@@ -204,7 +233,7 @@ agentdebug ingest raw_trace.json --format auto --out trace.json
 
 Use `--format` when the source is known, for example `messages`,
 `openai_agents_spans`, `crewai_events`, `langgraph_callbacks`, `claude_code`,
-or `osworld`.
+`codex`, or `osworld`.
 
 Process a directory of independent JSON files or every non-empty line in a
 JSONL dataset:
@@ -410,8 +439,14 @@ agentdebug hub push <trace-id> \
 Generate a debugging skill for a supported host runtime:
 
 ```bash
-agentdebug integrations skill --platform claude --target .claude/skills
+agentdebug integrations install --platform claude
+agentdebug integrations install --platform codex
+agentdebug integrations status --platform codex --json
 ```
+
+Generated Hermes and OpenClaw skills remain available through
+`agentdebug integrations skill --platform hermes|openclaw`. Refresh generated
+skills after upgrading so they use the shared `agentdebug run` contract.
 
 ### Optional: launch the local console
 
@@ -425,10 +460,45 @@ agentdebug serve \
   --port 7777
 ```
 
+For the integrated single-run path, AgentDebugX can manage the loopback server
+and return a readiness-checked deep link without opening a browser:
+
+```bash
+agentdebug run trace.json --profile standard --ui --json
+agentdebug ui ensure --run-id <run-id> --json
+agentdebug ui status --json
+```
+
+For a multi-record AgentErrorBench JSONL collection, either select one record
+or run the same durable workflow for every independent record:
+
+```bash
+agentdebug run trajectories.jsonl --trajectory-id <trajectory-id> --json
+agentdebug run trajectories.jsonl --batch --profile standard --json
+```
+
+`--batch` also accepts directories and recursively discovers independent JSON
+files. Each item receives its own run, trajectory, and report identity.
+Failures are isolated; a partial batch exits with code 3. A directly supplied
+JSONL file is split by row, so use `--batch` only when each row is a complete
+trajectory, not when the file is one event stream.
+
+For GUI RCA batches, continue using `python -m agentdebug.gui`; its OSWorld
+classification, failure filtering, parallel workers, memory, and output layout
+are intentionally separate from the generic `run --batch` contract.
+
+The run manifest, normalized trajectory, selected report, inline JSON, and
+`/runs/<run-id>` page retain the same `run_id`, `trace_id`, and `report_id`.
+The `deep` and `gui` profiles are explicitly LLM-backed; `quick` and
+`standard` never escalate to an LLM implicitly. UI startup failure is reported
+separately and does not change a completed diagnosis into a failed run.
+
 ## CLI Reference
 
 | Command | Purpose |
 | --- | --- |
+| `agentdebug run` | Create durable trajectory/report runs for one input or an explicit batch |
+| `agentdebug ui ensure` / `status` | Start, reuse, or inspect the readiness-checked local UI |
 | `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |
 | `agentdebug batch ingest` | Normalize every JSON file or independent JSONL record |
@@ -438,7 +508,7 @@ agentdebug serve \
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
 | `agentdebug config` | Manage and test LLM endpoints and persistent HTTP runners |
 | `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
-| `agentdebug integrations` | Generate external runtime integration assets |
+| `agentdebug integrations` | Generate, install, and validate host integration assets |
 | `agentdebug act` | Compatibility namespace for Hub and integration actions |
 | `agentdebug serve` / `agentdebug inspect` | Launch the optional local web console |
 | `agentdebug doctor` | Report optional dependency and configuration status |

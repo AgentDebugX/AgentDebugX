@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from agentdebug.cli import main
 from agentdebug.inspect.ui import routes
 from agentdebug.diagnose.detect import HeuristicAnalyzer
 from agentdebug.inspect.ui.branch_store import (
@@ -28,6 +29,9 @@ from agentdebug.schema import (
     Modality,
     model_to_json,
 )
+from agentdebug.workbench.models import DebugRun, RunArtifactRefs, RunInput
+from agentdebug.workbench.profiles import resolve_pipeline
+from agentdebug.workbench.registry import RunRegistry
 
 
 fastapi = pytest.importorskip('fastapi')
@@ -63,6 +67,62 @@ def test_health_trace_and_taxonomy_routes(ui_client: TestClient) -> None:
 
     assert ui_client.get('/api/v1/traces/missing').status_code == 404
     assert ui_client.get('/api/v1/taxonomy').json()['modes']
+
+
+def test_run_route_resolves_exact_stored_report(tmp_path, failed_trajectory) -> None:
+    store = SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    selected = DiagnosticReport(report_id='selected', trace_id=failed_trajectory.trace_id, summary='selected report')
+    newer = DiagnosticReport(report_id='newer', trace_id=failed_trajectory.trace_id, summary='must not substitute')
+    store.save_report(selected)
+    store.save_report(newer)
+    registry = RunRegistry(str(tmp_path / 'state'))
+    run = DebugRun(
+        status='completed', input=RunInput(reference='fixture'), requested_profile='quick',
+        resolved_pipeline=resolve_pipeline('quick'),
+        artifacts=RunArtifactRefs(trace_id=failed_trajectory.trace_id, report_id='selected', store_type='sqlite', store_path=str(tmp_path / 'traces.sqlite')),
+    )
+    registry.create_run(run)
+    client = TestClient(routes.build_app(store, run_registry=registry))
+    payload = client.get(f'/api/v1/runs/{run.run_id}').json()
+    assert payload['artifacts']['report_id'] == 'selected'
+    assert payload['artifacts_consistent'] is True
+    page = client.get(f'/runs/{run.run_id}')
+    assert page.status_code == 200
+    assert 'selected report' in page.text
+    with store._connect() as conn:
+        conn.execute('DELETE FROM diagnostic_reports WHERE report_id = ?', ('selected',))
+    assert client.get(f'/runs/{run.run_id}').status_code == 409
+
+
+def test_run_cli_result_resolves_the_same_report_in_ui(
+    tmp_path, capsys, failed_trajectory,
+) -> None:
+    source = tmp_path / 'trajectory.json'
+    source.write_text(model_to_json(failed_trajectory), encoding='utf-8')
+    store_path = tmp_path / 'traces.sqlite'
+    run_root = tmp_path / 'state'
+
+    exit_code = main([
+        'run', str(source), '--profile', 'quick', '--json',
+        '--run-root', str(run_root), '--store-sqlite', str(store_path),
+    ])
+    cli_result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    registry = RunRegistry(str(run_root))
+    client = TestClient(routes.build_app(
+        SQLiteTraceStore(str(store_path)), run_registry=registry,
+    ))
+    api_result = client.get(f"/api/v1/runs/{cli_result['run_id']}")
+    assert api_result.status_code == 200
+    artifacts = api_result.json()['artifacts']
+    assert artifacts['trace_id'] == cli_result['trace_id']
+    assert artifacts['report_id'] == cli_result['report_id']
+    assert api_result.json()['artifacts_consistent'] is True
+    page = client.get(f"/runs/{cli_result['run_id']}")
+    assert page.status_code == 200
+    assert cli_result['report_id'] in page.text
 
 
 def test_trace_without_stored_report_is_explicitly_not_diagnosed(

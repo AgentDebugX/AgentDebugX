@@ -1,19 +1,36 @@
 ---
 name: agentdebug
-description: Debug failed or unclear LLM agent trajectories with AgentDebugX. Use for root-cause analysis, trajectory diagnosis, tool failures, repeated loops, wrong final answers, or cross-agent debugging.
+description: Use AgentDebugX for trajectory diagnosis only when the user explicitly asks to use AgentDebug, AgentDebugX, or the agentdebug skill. Do not invoke for generic debugging, diagnosis, inspection, or trajectory-review requests.
 ---
 
 # AgentDebugX Debug Skill
 
-Drive the locally installed `agentdebug` CLI to debug failed or unclear LLM
-agent trajectories. This same workflow applies whether the agent is debugging
-its own run or a trajectory exported from another runtime.
+Use the locally installed `agentdebug` CLI to diagnose the current captured
+host session or an explicitly supplied trajectory. Prefer DeepDebug: it is the
+advocated AgentDebugX workflow and combines LLM-backed global analysis,
+structure-guided localization, candidate adjudication, and fix guidance.
+
+For the current session, run:
+
+```bash
+agentdebug run --current --profile deep --json
+```
+
+For a supplied trajectory or stored trace ID, run:
+
+```bash
+agentdebug run <input> --profile deep --json
+```
+
+Deep mode requires configured LLM credentials. Use `quick` only when the user
+asks for a fast deterministic check or LLM access is unavailable; use
+`standard` when the user explicitly prefers local attribution and guidance.
 
 Read references as needed:
 
 - `references/setup.md` before first use, when `agentdebug` is missing, or
   when LLM-backed diagnosis fails due to missing credentials.
-- `references/cli_reference.md` for exact `agentdebug` command forms,
+- `references/cli_reference.md` for batch processing, lower-level commands,
   output files, exit codes, LLM configuration, and store usage.
 - `references/formats.md` before converting a raw host export or when the
   input format is unclear.
@@ -24,64 +41,70 @@ Read references as needed:
 
 ## When To Use
 
-Use AgentDebugX when the user asks to debug, diagnose, inspect, explain, or
-find the root cause of an LLM agent trajectory or failed agent run.
+Use this skill only when the user explicitly asks for AgentDebug, AgentDebugX,
+or the `$agentdebug` skill. Handle generic debugging requests normally.
 
-Common triggers:
+## Select The Target
 
-- failed agent run
-- unclear or wrong final answer
-- tool failure, timeout, missing file, permission denial, or bad tool args
-- repeated loop or repeated failed tool call
-- self-debugging or cross-agent debugging
+- Use `--current` for this agent's current, latest, or just-completed captured
+  session. Never substitute the newest trace from the store.
+- If `--current` fails because capture is inactive, fall back to the host's own
+  transcript instead of stopping. `run` ingests them directly:
+  - Codex: the rollout named by `$CODEX_THREAD_ID` under
+    `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-*-$CODEX_THREAD_ID.jsonl`. This
+    identifies the session exactly.
+  - Claude Code: `~/.claude/projects/<cwd with each / and . replaced by ->/`,
+    which holds one `<session-id>.jsonl` per session for this project. The
+    current session is not identified there, so pick the most recently modified
+    file, say which file you chose, and ask the user to confirm when more than
+    one was written recently.
+  Then run `agentdebug run <transcript>.jsonl --profile deep --json`. Say that
+  the target came from the transcript rather than a captured trace, and note
+  that the in-flight turn may not be flushed yet. Mention that enabling capture
+  makes `--current` exact, but do not enable it yourself.
+- Use an explicit path or trace ID when supplied. Read `references/formats.md`
+  if its format is unclear.
+- If a past session is ambiguous, present candidates and ask the user to choose.
+- Read `references/cli_reference.md` before processing a collection. A JSONL
+  event stream may be one trajectory, so do not infer batch mode from its suffix.
+- Use `--profile gui --format osworld` for one OSWorld trajectory. GUI RCA
+  collections use the separate `python -m agentdebug.gui` workflow.
 
-## Inputs
+Invoke one primary `agentdebug run`. Preserve explicit format, profile,
+diagnoser, attributor, or recovery choices. Add `--ui` only when the user asks
+for interactive inspection.
 
-Accept any of:
+## Read The Result
 
-- AgentDebugX `AgentTrajectory` JSON
-- Hermes session export JSON/JSONL
-- OpenClaw session JSONL
-- OpenHands event export or AgentDebugX-normalized trajectory
-- AgentDebugX JSONL or SQLite trace store
+Read `status`, run/trace/report IDs, `resolved_pipeline`,
+`candidate_root_cause`, `top_evidence`, `warnings`, and `errors`. Report them
+compactly, then interpret the evidence for the user's objective:
 
-If the user has not provided a trajectory/export path, ask for one. Do not
-silently inspect host-local private state to find traces.
+```text
+Status: <status>
+Run: <run_id>
+Trace: <trace_id>
+Report: <report_id>
+Candidate root cause: <summary or unavailable>
+Evidence: <top evidence or unavailable>
+Warnings/errors: <only when present>
+```
 
-## Procedure
+Do not dump the full report JSON unless the user asks. Preserve the distinction
+between trajectory facts, deterministic findings, LLM conclusions, recovery
+proposals, and externally supplied labels.
 
-1. Run `agentdebug doctor` if availability is uncertain. If `agentdebug` is
-   missing or LLM setup fails, read `references/setup.md`.
-2. Create `.agentdebug/` if needed and write generated outputs there unless
-   the user gave a different output directory.
-3. If the input is a raw host export, normalize it:
-   `agentdebug ingest <input> --format auto --out .agentdebug/<name>.trajectory.json`.
-4. Prefer explicit formats when known:
-   `--format hermes`, `--format openclaw`, or future `--format openhands_events`.
-5. Verify the normalized trajectory exists and has events before diagnosing.
-6. Run the deterministic pass first:
-   `agentdebug diagnose <trajectory.json> --mode heuristic --attributor none --recovery none --traceback --no-color`.
-7. If the user wants recovery guidance, rerun or run JSON output with an
-   explicit recovery mode such as:
-   `agentdebug diagnose <trajectory.json> --mode heuristic --attributor heuristic --recovery reflexion --out .agentdebug/<name>.report.json`.
-8. If deterministic evidence is weak and LLM credentials are configured, escalate with
-   `agentdebug diagnose <trajectory.json> --mode judge --attributor all-at-once --recovery critic`.
-9. If the failure is multi-step, ambiguous, or judge output is weak, use
-   `agentdebug diagnose <trajectory.json> --mode deepdebug`.
-   DeepDebug performs attribution and fix guidance internally; the two `none`
-   values are required only by the current CLI compatibility contract.
-10. Report the candidate root cause, step/event id, evidence, failure mode,
-   and suggested fix. Include confidence only when the LLM Judge emitted it.
+For a current-session target, frame the diagnosis as self-reflection: identify
+what this agent should change in its reasoning, verification, or next attempt.
+Do not assume an AgentDebugX or host-framework code defect. For an external or
+custom-agent target, connect findings to the relevant agent code, prompt,
+skill, tool, or runtime only when the evidence supports that connection.
 
-## Ground Rules
+## Boundaries
 
-- Do not manually inspect raw trajectory JSON when an AgentDebugX importer can
-  parse it. Use the CLI.
-- Do not make trajectory acquisition the default workflow; assume the user has
-  provided an exported trajectory or ask for one.
-- Do not apply fixes, rerun tools, or mutate a workspace unless the user
-  explicitly approves.
-- Recovery output is a proposal. Treat it as next-run guidance unless the user
-  separately asks to implement or apply a fix.
+- Let `agentdebug run` own ingest, diagnosis, and persistence. Do not invoke
+  `ingest` or `diagnose` again after a successful run.
+- Do not treat a diagnosis-only request as authorization to retry, patch, or
+  mutate. Recovery output is a proposal unless the user asks to apply it.
 - Always say "candidate root cause" or "likely" rather than claiming ground
   truth. Heuristic and DeepDebug reports intentionally omit confidence.
