@@ -68,6 +68,7 @@ import agentdebug.schema as _schema_pkg
 
 from agentdebug.diagnose.actions import (
     AllAtOnceAttributor,
+    ReferenceAttributor,
     AttributionBudget,
     AttributionResult,
     Attributor,
@@ -185,6 +186,7 @@ __all__ = [
     'AgentEvent',
     'AgentTrajectory',
     'AllAtOnceAttributor',
+    'ReferenceAttributor',
     'Artifact',
     'AttributionBudget',
     'AttributionResult',

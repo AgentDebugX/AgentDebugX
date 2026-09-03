@@ -149,6 +149,8 @@ class OpenAICompatClient:
         on_usage: Optional[Any] = None,
         max_retries: int = 0,
         retry_base_delay: float = 1.0,
+        default_headers: Optional[Dict[str, str]] = None,
+
     ) -> None:
         self.base_url = base_url.rstrip('/')
         #: Retries on 429, 5xx and transport errors. Off by default so an existing
@@ -164,6 +166,23 @@ class OpenAICompatClient:
         self.default_max_tokens = default_max_tokens
         self.timeout = timeout
         self.extra_body = extra_body
+        #: Headers added to every request this client makes. Defaulted to None, so existing
+        #: callers and third-party subclasses are unaffected.
+        #:
+        #: WHY THIS IS NEEDED. A gateway that fronts a pool of upstream keys load-balances each
+        #: request independently, so the second call of a conversation usually lands on a
+        #: different key and re-prefills the entire prompt. Such gateways expose a session
+        #: header to pin one conversation to one key.
+        #:
+        #: Attribution is the worst case for that. The trajectory is a long shared prefix, and
+        #: a bisecting or ensemble attributor sends it several times; without a way to set the
+        #: header, every call after the first misses the cache. The effect is large and
+        #: invisible from the outside -- one gateway operator measured 4-5% cache hit rate on a
+        #: 9-key channel without the header against 82-96% with it.
+        #:
+        #: `Authorization` and `Content-Type` are applied AFTER this mapping and therefore
+        #: cannot be overridden by it, so a caller cannot accidentally break authentication.
+        self.default_headers = dict(default_headers or {})
         # USD per 1M tokens. Optional: token counts are accumulated regardless, so a
         # gateway that bills opaquely still yields usable usage data.
         self.price_in = price_in
@@ -220,6 +239,7 @@ class OpenAICompatClient:
             body.update(self.extra_body)
         url = f'{self.base_url}/chat/completions'
         headers = {
+            **self.default_headers,
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
         }
@@ -349,6 +369,7 @@ class OpenAICompatClient:
             body.update(self.extra_body)
         url = f'{self.base_url}/chat/completions'
         headers = {
+            **self.default_headers,
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
         }
@@ -387,6 +408,7 @@ class OpenAICompatClient:
             return []
         url = f'{self.base_url}/embeddings'
         headers = {
+            **self.default_headers,
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
         }

@@ -71,6 +71,18 @@ def test_sqlite_store_saves_and_filters_reports(
     assert len(store.list_reports()) == 2
 
 
+@pytest.mark.parametrize('store_kind', ['jsonl', 'sqlite'])
+def test_report_exact_lookup(tmp_path, diagnostic_report, store_kind) -> None:
+    store = (
+        JsonlTraceStore(str(tmp_path / 'traces.jsonl'))
+        if store_kind == 'jsonl'
+        else SQLiteTraceStore(str(tmp_path / 'traces.sqlite'))
+    )
+    store.save_report(diagnostic_report)
+    assert store.load_report(diagnostic_report.trace_id, diagnostic_report.report_id) == diagnostic_report
+    assert store.load_report(diagnostic_report.trace_id, 'missing') is None
+
+
 def test_empty_stores_return_no_results(tmp_path) -> None:
     jsonl = JsonlTraceStore(str(tmp_path / 'missing.jsonl'))
     sqlite = SQLiteTraceStore(str(tmp_path / 'empty.sqlite'))

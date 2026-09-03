@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from agentdebug.ingest import convert_payload
 from agentdebug.inspect.ui.llm_convert import LLMConversionError, convert_with_llm
-from agentdebug.runtime.storage import _trajectory_from_jsonl_line
+from agentdebug.runtime.storage import trajectory_from_jsonl_record
 from agentdebug.schema import AgentTrajectory
 
 
@@ -69,7 +69,7 @@ def convert_upload_payload(
         or isinstance(payload.get('full_trajectory'), str)
     ):
         try:
-            return _trajectory_from_jsonl_line(json.dumps(payload), index), 'native'
+            return trajectory_from_jsonl_record(json.dumps(payload), index), 'native'
         except Exception as exc:  # fall through to the shared adapters
             deterministic_error = exc
 
@@ -102,7 +102,7 @@ def import_upload_text(
     store: Any,
     text: str,
     *,
-    allow_llm: bool = True,
+    allow_llm: bool = False,
     base_url: str = '',
     api_key: str = '',
     model: str = '',

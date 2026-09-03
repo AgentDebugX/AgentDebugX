@@ -30,6 +30,7 @@ from agentdebug.diagnose.profiles.deepdebug import (
 
 __all__ = [
     'AllAtOnceAttributor',
+    'ReferenceAttributor',
     'AttributionBudget',
     'AttributionResult',
     'Attributor',
@@ -48,3 +49,4 @@ __all__ = [
     'attribute_many_async',
     'supports_native_async',
 ]
+from .reference import ReferenceAttributor  # noqa: E402,F401

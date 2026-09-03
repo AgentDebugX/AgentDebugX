@@ -11,6 +11,8 @@ benchmark harness, or CI job.
 
 Primary commands:
 
+- `agentdebug run` is the unified debug command: it resolves a profile,
+  ingests one input, diagnoses it, and persists a durable run manifest.
 - `agentdebug diagnose` runs the Diagnose workflow.
 - `agentdebug ingest` imports traces from external formats.
 - `agentdebug batch ingest` imports directories or independent JSONL records.
@@ -19,9 +21,31 @@ Primary commands:
 - `agentdebug runner serve` exposes an application-owned Agent callback through
   the persistent live Rerun HTTP protocol.
 - `agentdebug hub` manages Error Hub bundles.
-- `agentdebug integrations` generates integration assets.
+- `agentdebug integrations` generates assets and manages opt-in host capture.
 - `agentdebug serve` starts the inspection API or UI.
 - `agentdebug doctor` checks local configuration.
+
+## Run option contract
+
+`agentdebug run` is the entry point most users and host integrations should
+use. It takes one input — a stored trace ID, a trajectory or export file, a
+directory, or one selected record of a dataset JSONL — and a `--profile` of
+`quick`, `standard` (default), `deep`, or `gui`. Individual `--diagnoser`,
+`--attributor`, `--recovery`, and `--format` values override profile slots and
+are recorded as overrides. `--plan` resolves the pipeline without diagnosing,
+and `--batch` runs each independent record as its own isolated run.
+
+`--current` replaces the input with the exact trajectory captured for the
+calling Claude Code or Codex session. It reads the session context that the
+host plugin wrote, so it must run inside that session and only after the
+session has a completed captured trace; it fails rather than falling back to
+the newest trace in the store. It cannot be combined with an explicit input,
+`--batch`, `--trajectory-id`, a JSONL store, or a `--store-sqlite` path other
+than the one capture configured. A bare `agentdebug run` with no input behaves
+the same way.
+
+See [`workbench/README.md`](../workbench/README.md) for profiles, run
+manifests, and run storage.
 
 ## Diagnose option contract
 

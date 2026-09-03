@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/bin/agentdebug-hook\" --platform codex",
+            "commandWindows": "cmd.exe /d /s /c call \"%PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" codex",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/bin/agentdebug-hook\" --platform codex",
+            "commandWindows": "cmd.exe /d /s /c call \"%PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" codex",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/bin/agentdebug-hook\" --platform codex",
+            "commandWindows": "cmd.exe /d /s /c call \"%PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" codex",
+            "timeout": 10,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${PLUGIN_ROOT}/bin/agentdebug-hook\" --platform codex",
+            "commandWindows": "cmd.exe /d /s /c call \"%PLUGIN_ROOT%\\bin\\agentdebug-hook.cmd\" codex",
+            "timeout": 3,
+            "statusMessage": "agentdebug-capture"
+          }
+        ]
+      }
+    ]
+  }
+}

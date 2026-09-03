@@ -475,7 +475,9 @@ class SelfRefineLoop:
         llm: object,
         *,
         max_iters: int = 1,
-        max_tokens: int = 512,
+        # See AllAtOnceAttributor (diagnose/attribute/attribution.py): thinking
+        # models can burn the whole budget on reasoning before emitting text.
+        max_tokens: int = 16000,
     ) -> None:
         # llm is duck-typed to LLMClient (avoid circular import); it must have
         # a `.complete(messages=..., max_tokens=...)` returning .text.
@@ -574,7 +576,10 @@ class SelfRefineLoop:
         )
 
     def _call(self, *, system: str, user: str, field: str) -> str:
-        retry_budget = min(max(self.max_tokens * 4, self.max_tokens + 512), 8192)
+        # Ceiling raised 8192 -> 64000: with max_tokens now defaulting to
+        # 16000 (see __init__), the old 8192 cap made the "retry with more
+        # room" budget *smaller* than the first attempt's.
+        retry_budget = min(max(self.max_tokens * 4, self.max_tokens + 512), 64000)
         budgets = (self.max_tokens, retry_budget)
         for attempt, token_budget in enumerate(budgets):
             retry_note = (
@@ -687,7 +692,10 @@ class AutoManualRules:
         llm: Optional[object] = None,
         manual_dir: Optional[str] = None,
         project: str = 'default',
-        max_tokens: int = 256,
+        # See SelfRefineLoop above: thinking models can burn the whole budget
+        # on reasoning before emitting text (only matters when llm is
+        # provided; otherwise this recoverer never calls out).
+        max_tokens: int = 16000,
     ) -> None:
         # llm is optional — if absent, we synthesize a rule from the finding's
         # suggestion template rather than calling out.

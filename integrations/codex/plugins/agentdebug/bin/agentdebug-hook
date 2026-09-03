@@ -1,0 +1,57 @@
+#!/bin/sh
+# Entry point for the AgentDebugX capture hooks. Runs under any POSIX shell,
+# including the Git-Bash environment Claude Code provides on Windows. Hooks
+# started by a Windows-native host use the .cmd and .ps1 launchers instead.
+#
+# Capture is a passive sensor. This launcher must never block, delay, or report
+# an error to a host session that did not opt in, so every path exits 0 and
+# nothing is written to stdout or stderr.
+
+set -u
+
+PLATFORM=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --platform) PLATFORM="${2:-}"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+[ "$PLATFORM" = "claude" ] || [ "$PLATFORM" = "codex" ] || exit 0
+
+# A project that never consented must cost nothing. Resolve the CLI before
+# reading stdin so an environment without AgentDebugX installed - a different
+# virtualenv, conda environment, or machine - exits without starting Python.
+CLI="${AGENTDEBUG_HOOK_CLI:-}"
+if [ -z "$CLI" ]; then
+    CLI=$(command -v agentdebug 2>/dev/null) || exit 0
+fi
+[ -n "$CLI" ] || exit 0
+[ -x "$CLI" ] || exit 0
+
+PAYLOAD=$(cat) || exit 0
+[ -n "$PAYLOAD" ] || exit 0
+
+# Consent lives in <project>/.agentdebug/capture.json. Checking it here with
+# the standard library keeps an unconsented session away from the full CLI
+# import, which pulls in the analyzer and HTTP stacks it would never use.
+PRECHECK="$(dirname "$0")/precheck.py"
+if [ -f "$PRECHECK" ]; then
+    PYTHON=$(sed -n '1s/^#!//p' "$CLI" 2>/dev/null | cut -d' ' -f1)
+    if [ -z "${PYTHON:-}" ] || [ ! -x "$PYTHON" ]; then
+        PYTHON=$(command -v python3 2>/dev/null) || PYTHON=""
+    fi
+    if [ -n "$PYTHON" ] && [ -x "$PYTHON" ]; then
+        printf '%s' "$PAYLOAD" | "$PYTHON" "$PRECHECK" "$PLATFORM" >/dev/null 2>&1
+        # Only a deliberate "skip" (1) suppresses dispatch. Any other status
+        # means the probe did not run - a non-Python CLI wrapper, for example -
+        # so fall through and let the CLI make the authoritative decision.
+        [ "$?" -eq 1 ] && exit 0
+    fi
+fi
+
+printf '%s' "$PAYLOAD" |
+    "$CLI" integrations capture dispatch --platform "$PLATFORM" \
+    >/dev/null 2>&1 || exit 0
+
+exit 0

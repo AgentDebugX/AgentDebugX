@@ -6,5 +6,6 @@
         store: !!js "process.env.AGENTDEBUGX_STORE || '.agentdebug/agentdebug.sqlite'"
         dashboardUrl: !!js "process.env.AGENTDEBUGX_DASHBOARD_URL || 'http://127.0.0.1:7777'"
         traceRoots: !!js "process.env.AGENTDEBUGX_TRACE_ROOTS ? process.env.AGENTDEBUGX_TRACE_ROOTS.split(process.platform === 'win32' ? ';' : ':') : [process.cwd()]"
-        autoOpen: !!js "process.env.AGENTDEBUGX_AUTO_OPEN || 'turn'"
+        autoCapture: !!js "process.env.AGENTDEBUGX_AUTO_CAPTURE === 'true'"
+        autoOpen: !!js "process.env.AGENTDEBUGX_AUTO_OPEN || 'off'"
         timeoutMs: 120000

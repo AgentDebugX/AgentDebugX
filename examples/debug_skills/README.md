@@ -5,7 +5,6 @@ integration. It is the public-facing companion to the generated skill code: the
 files here should help another developer understand the layout, the integration
 methodology, and the current stage of the demo.
 
-For the polished demo narrative and current-stage status, read `docs/DEMO_STORY.md`.
 For commands and prompts to run the demo, read `docs/USER_GUIDE.md`.
 
 ## Layout
@@ -13,7 +12,6 @@ For commands and prompts to run the demo, read `docs/USER_GUIDE.md`.
 ```text
 examples/debug_skills/
   README.md
-  DEMO_STORY.md
   USER_GUIDE.md
   scripts/
     run_recorded_demo.sh

@@ -7,6 +7,7 @@
 **A local-first debugging framework for agentic AI systems: diagnose failures, attribute root causes, recover with evidence, and validate fixes through reruns.**
 
 <a href="https://www.agentdebugx.com"><img src="https://img.shields.io/badge/WEBSITE-208B57?style=for-the-badge&logo=googlechrome&logoColor=white" alt="AgentDebugX website"></a>
+<a href="https://docs.agentdebugx.com/"><img src="https://img.shields.io/badge/DOCS-176B45?style=for-the-badge&logo=materialformkdocs&logoColor=white" alt="AgentDebugX documentation"></a>
 <a href="https://github.com/AgentDebugX/AgentDebugX"><img src="https://img.shields.io/badge/GITHUB-24292F?style=for-the-badge&logo=github&logoColor=white" alt="AgentDebugX GitHub repository"></a>
 <a href="https://youtu.be/ztni6w0o_l8"><img src="https://img.shields.io/badge/DEMO_VIDEO-EA4335?style=for-the-badge&logo=youtube&logoColor=white" alt="AgentDebugX demo video"></a>
 
@@ -32,6 +33,24 @@ agents: multi-agent systems, tool-using agents, computer-use agents, benchmark
 runners, and local agent development workflows. AgentDebugX is local-first by
 default: traces stay on your machine, sharing is opt-in, and recovery proposals
 carry explicit policy and approval metadata into the Rerun boundary.
+
+## 📰 News
+
+- 🔌 **2026-08-25** — Released
+  [`dsh-agentdebugx` v0.1.0](https://www.npmjs.com/package/dsh-agentdebugx),
+  the AgentDebugX plugin for DeepSeek Harness.
+- 📄 **2026-07-31** — Released
+  [CUADebug](https://arxiv.org/abs/2608.02643), our framework for diagnosing
+  and repairing computer-use agent failures.
+- 📄 **2026-07-21** — Released the
+  [AgentDebugX paper](https://arxiv.org/abs/2607.18754), presenting our
+  open-source toolkit for failure observability, attribution, recovery, and
+  rerun in LLM agents.
+- 📦 **2026-05-16** — Released AgentDebugX on
+  [PyPI](https://pypi.org/project/agentdebugx/).
+- 📄 **2025-09-29** — Released
+  [Where LLM Agents Fail and How They Can Learn From Failures](https://arxiv.org/abs/2509.25370),
+  introducing AgentErrorTaxonomy, AgentErrorBench, and AgentDebug.
 
 ## System Overview
 
@@ -80,7 +99,8 @@ agentic skill.
 - **Rerun**: three explicit modes for plan/export only, labeled simulation, or
   observed execution in an application-owned process or persistent HTTP runner.
 - **Local inspection UI**: no-build FastAPI dashboard for traces, reports,
-  CUA screenshots, saved cases, debug branches, and rerun-from-event workflows.
+  before/after CUA visuals, debugger discussions, saved cases, debug branches,
+  and rerun-from-event workflows.
 - **Error Hub**: scrubbed, shareable failure bundles for regression tests,
   benchmark corpora, and team debugging memory.
 - **Agent integrations**: generate host-runtime assets such as debugging skills
@@ -116,6 +136,50 @@ The package is installed as `agentdebugx` and imported as `agentdebug`:
 ```python
 import agentdebug
 ```
+
+## Claude Code and Codex Plugins
+
+AgentDebugX ships native plugins for Claude Code and Codex so an agent can
+debug its own session. The plugin bundles capture hooks and the AgentDebug
+skill, which keeps two boundaries explicit:
+
+- **Capture is automatic** once a project opts in. Sessions are normalized into
+  AgentDebugX trajectories locally and silently.
+- **Diagnosis is explicit.** Ask AgentDebug in-session and the skill diagnoses
+  that exact captured trajectory with `agentdebug run --current --profile deep`.
+  Re-running or repairing the agent's work stays a separately authorized step.
+
+Follow the [capture quickstart](CAPTURE_QUICKSTART.md) to install a plugin,
+enable project capture, diagnose a session, and turn capture off again.
+
+The plugin bundles live in this repository:
+
+| Plugin | Bundle | Documentation |
+| --- | --- | --- |
+| Claude Code | `integrations/claude-code/plugins/agentdebug` | [Claude Code plugin](integrations/claude-code/README.md) |
+| Codex | `integrations/codex/plugins/agentdebug` | [Codex plugin](integrations/codex/README.md) |
+
+Each plugin's documentation covers its hooks, install scope, the capture
+consent step, and lazy session creation. See
+[`src/agentdebug/capture/README.md`](src/agentdebug/capture/README.md) for the
+stored `.agentdebug/` layout and
+[`src/agentdebug/workbench/README.md`](src/agentdebug/workbench/README.md) for
+`agentdebug run` profiles and run manifests.
+
+## DeepSeek Harness Plugin
+
+AgentDebugX is also available as the
+[`dsh-agentdebugx`](https://www.npmjs.com/package/dsh-agentdebugx) plugin for
+DeepSeek Harness. It diagnoses current and saved Harness trajectories and
+starts the Python bridge and local dashboard only when they are needed.
+
+```bash
+pip install "agentdebugx[ui]>=0.3.1,<0.4"
+dsh plugin --profile web add dsh-agentdebugx
+```
+
+See the [plugin documentation](integrations/dsh-agentdebugx/README.md) for
+configuration, commands, saved-session discovery, and deep diagnosis.
 
 ## Quick Start: Python API
 
@@ -169,7 +233,7 @@ agentdebug ingest raw_trace.json --format auto --out trace.json
 
 Use `--format` when the source is known, for example `messages`,
 `openai_agents_spans`, `crewai_events`, `langgraph_callbacks`, `claude_code`,
-or `osworld`.
+`codex`, or `osworld`.
 
 Process a directory of independent JSON files or every non-empty line in a
 JSONL dataset:
@@ -375,8 +439,14 @@ agentdebug hub push <trace-id> \
 Generate a debugging skill for a supported host runtime:
 
 ```bash
-agentdebug integrations skill --platform claude --target .claude/skills
+agentdebug integrations install --platform claude
+agentdebug integrations install --platform codex
+agentdebug integrations status --platform codex --json
 ```
+
+Generated Hermes and OpenClaw skills remain available through
+`agentdebug integrations skill --platform hermes|openclaw`. Refresh generated
+skills after upgrading so they use the shared `agentdebug run` contract.
 
 ### Optional: launch the local console
 
@@ -390,10 +460,45 @@ agentdebug serve \
   --port 7777
 ```
 
+For the integrated single-run path, AgentDebugX can manage the loopback server
+and return a readiness-checked deep link without opening a browser:
+
+```bash
+agentdebug run trace.json --profile standard --ui --json
+agentdebug ui ensure --run-id <run-id> --json
+agentdebug ui status --json
+```
+
+For a multi-record AgentErrorBench JSONL collection, either select one record
+or run the same durable workflow for every independent record:
+
+```bash
+agentdebug run trajectories.jsonl --trajectory-id <trajectory-id> --json
+agentdebug run trajectories.jsonl --batch --profile standard --json
+```
+
+`--batch` also accepts directories and recursively discovers independent JSON
+files. Each item receives its own run, trajectory, and report identity.
+Failures are isolated; a partial batch exits with code 3. A directly supplied
+JSONL file is split by row, so use `--batch` only when each row is a complete
+trajectory, not when the file is one event stream.
+
+For GUI RCA batches, continue using `python -m agentdebug.gui`; its OSWorld
+classification, failure filtering, parallel workers, memory, and output layout
+are intentionally separate from the generic `run --batch` contract.
+
+The run manifest, normalized trajectory, selected report, inline JSON, and
+`/runs/<run-id>` page retain the same `run_id`, `trace_id`, and `report_id`.
+The `deep` and `gui` profiles are explicitly LLM-backed; `quick` and
+`standard` never escalate to an LLM implicitly. UI startup failure is reported
+separately and does not change a completed diagnosis into a failed run.
+
 ## CLI Reference
 
 | Command | Purpose |
 | --- | --- |
+| `agentdebug run` | Create durable trajectory/report runs for one input or an explicit batch |
+| `agentdebug ui ensure` / `status` | Start, reuse, or inspect the readiness-checked local UI |
 | `agentdebug ingest` | Normalize an external trace export into AgentDebugX schema |
 | `agentdebug diagnose` | Run detection, attribution, and recovery planning |
 | `agentdebug batch ingest` | Normalize every JSON file or independent JSONL record |
@@ -403,7 +508,7 @@ agentdebug serve \
 | `agentdebug list` / `agentdebug show` | Inspect traces in a local store |
 | `agentdebug config` | Manage and test LLM endpoints and persistent HTTP runners |
 | `agentdebug hub` | Package, scrub, push, and pull Error Hub bundles |
-| `agentdebug integrations` | Generate external runtime integration assets |
+| `agentdebug integrations` | Generate, install, and validate host integration assets |
 | `agentdebug act` | Compatibility namespace for Hub and integration actions |
 | `agentdebug serve` / `agentdebug inspect` | Launch the optional local web console |
 | `agentdebug doctor` | Report optional dependency and configuration status |
@@ -489,6 +594,10 @@ Open [http://127.0.0.1:7777](http://127.0.0.1:7777) in a browser. For a JSONL
 store, replace `--store-sqlite` with
 `--store-jsonl .agentdebug/traces.jsonl`. Keep the default loopback host unless
 the UI is deployed behind appropriate authentication and transport security.
+Place native trajectory and diagnostic-report JSON files under
+`.agentdebug/imports/`, then use **Sync imports** in the workspace to import
+new or changed files. Set `AGENTDEBUG_IMPORT_DIR` to use another server-owned
+directory.
 
 ![AgentDebugX local inspection UI](docs/assets/UI.png)
 
@@ -597,6 +706,18 @@ test suite, quality checks, and pull request expectations.
       archivePrefix={arXiv},
       primaryClass={cs.AI},
       url={https://arxiv.org/abs/2607.18754}, 
+}
+```
+
+```bibtex
+@misc{zhang2026cuadebugdiagnosingrepairingcomputeruse,
+      title={CUADebug: Diagnosing and Repairing Computer-Use Agent Failures},
+      author={Weijia Zhang and Kunlun Zhu and Zeyi Liu and Yinting Chen and Tianyi Ma and Jiateng Liu and Jiaxun Zhang and Bingxuan Li and Xiangru Tang and Heng Ji and Jiaxuan You},
+      year={2026},
+      eprint={2608.02643},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2608.02643},
 }
 ```
 

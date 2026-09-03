@@ -22,8 +22,9 @@ def render_page(
     view: str,
     trace_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    report_id: Optional[str] = None,
 ) -> str:
-    bootstrap = _build_bootstrap(store, view=view, trace_id=trace_id, event_id=event_id)
+    bootstrap = _build_bootstrap(store, view=view, trace_id=trace_id, event_id=event_id, report_id=report_id)
     payload = json.dumps(bootstrap).replace('</', '<\\/')
     html = _INDEX_HTML.replace('__BOOTSTRAP_JSON__', payload)
     overview_panel = _build_overview_panel(bootstrap['overview']) if view == 'overview' else ''
@@ -36,6 +37,7 @@ def _build_bootstrap(
     view: str,
     trace_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    report_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     trace_ids = store.list_traces()
     bootstrap: Dict[str, Any] = {
@@ -49,12 +51,13 @@ def _build_bootstrap(
     if view in {'trace', 'event'} and trace_id is not None:
         trajectory = store.load_trajectory(trace_id)
         if trajectory is not None:
-            analysis = _resolve_trace_analysis(store, trajectory)
+            analysis = _resolve_trace_analysis(store, trajectory, report_id=report_id)
             report = analysis['report']
             bootstrap['selected'] = {
                 'trajectory': _to_dict(trajectory),
-                'report': _to_dict(report),
+                'report': _to_dict(report) if report is not None else None,
                 'report_source': analysis['report_source'],
+                'report_error': analysis['report_error'],
                 'reports': analysis['reports'],
                 'visual_capability': build_visual_capability(trajectory),
             }
@@ -98,7 +101,7 @@ def _space_project_card(item: Dict[str, Any], idx: int) -> str:
     title = _space_project_title(item, idx)
     findings = int(item.get('finding_count') or item.get('error_count') or 0)
     events = int(item.get('event_count') or 0)
-    status = 'failed' if findings else 'passed'
+    status = str(item.get('status') or ('failed' if findings else 'passed'))
     heartbeat = min(99, max(0, findings))
     updated = _space_updated_label(idx)
     env = _space_short_label(item.get('task_type') or item.get('framework') or item.get('dataset_type') or 'trace')
@@ -370,6 +373,7 @@ _SPACE_HTML = """<!doctype html>
       </div>
       <div class="top-actions">
         <a class="icon-btn" href="/overview" title="Open overview">▣</a>
+        <button class="icon-btn" type="button" title="Sync imports" id="sync-imports-btn">⇅</button>
         <button class="icon-btn" type="button" title="Refresh" id="refresh-btn">↯</button>
         <div class="top-avatar">AD</div>
       </div>
@@ -466,6 +470,21 @@ document.querySelectorAll('.project-more').forEach(button => {
   });
 });
 document.getElementById('create-btn').addEventListener('click', () => notify('当前首页只读取本地 trace store'));
+document.getElementById('sync-imports-btn').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/v1/imports/sync', { method: 'POST' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'sync failed');
+    notify(`Sync complete: ${payload.imported} imported, ${payload.updated} updated, ${payload.skipped} skipped, ${payload.failed} failed`);
+    window.setTimeout(() => window.location.reload(), 700);
+  } catch (error) {
+    notify(`Sync failed: ${error.message || error}`);
+  } finally {
+    button.disabled = false;
+  }
+});
 document.getElementById('refresh-btn').addEventListener('click', () => window.location.reload());
 document.querySelectorAll('[data-placeholder]').forEach(button => {
   button.addEventListener('click', () => notify('设置页先占位，现有配置仍在原 UI 中'));
@@ -4943,9 +4962,8 @@ function familyClass(family) {
   if (family === 'memory' || family === 'multiagent') return 'cyan';
   return 'good';
 }
-function eventProblem(ev) {
-  const payload = (fmt(ev.error) + ' ' + fmt(ev.output) + ' ' + fmt(ev.metadata)).toLowerCase();
-  return Boolean(ev.error || payload.includes('missing context') || payload.includes('premature') || payload.includes('loop') || payload.includes('handoff'));
+function recordedEventError(ev) {
+  return Boolean(ev?.error);
 }
 async function loadTraceList(selectFirst) {
   const data = await api('/api/v1/traces');
@@ -5250,14 +5268,19 @@ function renderTraceList(traceIds, selectedId) {
     const tid = item.trace_id;
     const li = document.createElement('li');
     li.className = 'run' + (CURRENT_VIEW === 'trace' && tid === selectedId ? ' active' : '');
-    const statusClass = Number(item.finding_count || 0) ? 'bad' : 'good';
-    const statusLabel = Number(item.finding_count || 0) ? 'Failed' : 'Passed';
+    const notRun = item.status === 'not_run';
+    const parseError = item.status === 'parse_error';
+    const statusClass = notRun ? '' : (parseError ? 'warn' : (Number(item.finding_count || 0) ? 'bad' : 'good'));
+    const statusLabel = notRun ? 'Not diagnosed' : (parseError ? 'Parse error' : (Number(item.finding_count || 0) ? 'Failed' : 'Passed'));
+    const errorSummary = notRun
+      ? 'debugger not run'
+      : (parseError ? 'report could not be parsed' : (item.finding_count || 0) + ' findings');
     const dataset = shortDatasetLabel(item.task_type || item.dataset_type || item.framework || 'trace');
-    li.title = tid + '\\n' + dataset + ' · ' + shortModelLabel(item.model || item.framework || 'model') + '\\n' + (item.event_count || 0) + ' steps · ' + (item.error_count || item.finding_count || 0) + ' errors';
+    li.title = tid + '\\n' + dataset + ' · ' + shortModelLabel(item.model || item.framework || 'model') + '\\n' + (item.event_count || 0) + ' steps · ' + errorSummary;
     li.innerHTML = '<button class="run-save-case" type="button" data-save-case aria-label="Save ' + escapeHtml(tid) + ' as case" title="Save this trace as case"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"></path></svg></button>' +
       '<div class="run-id">' + escapeHtml(runCardTitle(item)) + '</div>' +
       '<div class="run-meta"><span>' + escapeHtml(dataset) + '</span><span>•</span><span>' + escapeHtml(shortModelLabel(item.model || item.framework || 'model')) + '</span><span class="chip ' + statusClass + '">' + statusLabel + '</span></div>' +
-      '<div class="run-meta"><span>' + escapeHtml(item.event_count || 0) + ' steps</span><span>•</span><span>' + escapeHtml(item.error_count || item.finding_count || 0) + ' errors</span></div>';
+      '<div class="run-meta"><span>' + escapeHtml(item.event_count || 0) + ' steps</span><span>•</span><span>' + escapeHtml(errorSummary) + '</span></div>';
     const saveCaseButton = li.querySelector('[data-save-case]');
     saveCaseButton.dataset.traceId = tid;
     saveCaseButton.onclick = event => {
@@ -5318,7 +5341,7 @@ function traceMatchesFilter(item) {
   const text = ((item.trace_id || '') + ' ' + (item.framework || '') + ' ' + (item.dataset_type || '') + ' ' + (item.top_family || '')).toLowerCase();
   if (ACTIVE_TRACE_FILTER === 'all') return true;
   if (ACTIVE_TRACE_FILTER === 'error') return Number(item.finding_count || 0) > 0;
-  if (ACTIVE_TRACE_FILTER === 'clean') return Number(item.finding_count || 0) === 0;
+  if (ACTIVE_TRACE_FILTER === 'clean') return item.status === 'passed';
   if (ACTIVE_TRACE_FILTER === 'root-early') return Number(item.first_error_step || item.root_cause_step_index || 9999) <= 5;
   return text.includes(ACTIVE_TRACE_FILTER);
 }
@@ -5358,9 +5381,13 @@ function durationLabel(ms) {
   return (value / 1000).toFixed(value < 10000 ? 1 : 0) + 's';
 }
 function statusLabel(item) {
+  if (item.status === 'not_run') return 'Not diagnosed';
+  if (item.status === 'parse_error') return 'Parse error';
   return Number(item.finding_count || 0) ? 'Failed' : 'Passed';
 }
 function statusClassForItem(item) {
+  if (item.status === 'not_run') return 'not-run';
+  if (item.status === 'parse_error') return 'parse-error';
   return Number(item.finding_count || 0) ? 'failed' : 'passed';
 }
 async function selectTrace(tid, li, reportId) {
@@ -5424,6 +5451,7 @@ function renderTraceViewToggle(traceId, capability, mode) {
     '</div>';
 }
 function renderTrace(traj, report) {
+  report = report || {};
   document.body.classList.add('trace-editor-mode');
   document.body.classList.remove('hub-mode', 'overview-mode', 'cases-mode');
   setRailMode('trace');
@@ -5454,10 +5482,16 @@ function renderTrace(traj, report) {
   const branches = getDebugBranches(traj.trace_id || '');
   const visualCapability = CURRENT_TRACE_DATA?.visual_capability || {enabled: false, events: {}};
   const viewMode = traceViewMode(traj.trace_id || '', visualCapability);
+  const reportSource = CURRENT_TRACE_DATA?.report_source || 'not_run';
+  const hasReport = reportSource === 'stored' && Boolean(report.report_id);
+  const hasReportParseError = reportSource === 'parse_error';
+  const diagnosisStatus = hasReport
+    ? ((findings.length ? 'Failed' : 'Passed') + ' · ' + findings.length + ' findings')
+    : (hasReportParseError ? 'Report parse error' : 'Not diagnosed · debugger not run');
   document.getElementById('trace-count').textContent =
     shortDatasetLabel((traj.metadata || {}).task_type || traj.framework || 'trace') + ' · ' +
     shortModelLabel((traj.metadata || {}).llm_model || traj.framework || 'model') + ' · ' +
-    (findings.length ? 'Failed' : 'Passed') + ' · ' + events.length + ' events · ' + findings.length + ' errors';
+    diagnosisStatus + ' · ' + events.length + ' events';
   let html = '';
   html += '<div class="editor-workbench">';
   html += '<main class="editor-main">';
@@ -5467,10 +5501,12 @@ function renderTrace(traj, report) {
   html += renderTraceViewToggle(traj.trace_id || '', visualCapability, viewMode);
   if (selectedEvent) {
     html += '<span class="chip">' + escapeHtml(events.length) + ' steps</span>';
-    html += '<span class="chip warn">' + escapeHtml(findings.length) + ' errors</span>';
-    html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected>Prepare Rerun</button>';
-    html += '<button class="timeline-tool" id="diagnose-pipeline-btn" type="button" data-open-diagnose>Diagnose Pipeline</button>';
-    html += '<button class="timeline-tool" id="discussion-btn" type="button" aria-expanded="false" aria-controls="discussion-drawer">Discuss with Debugger</button>';
+    html += hasReport
+      ? '<span class="chip warn">' + escapeHtml(findings.length) + ' findings</span>'
+      : (hasReportParseError ? '<span class="chip warn">Report parse error</span>' : '<span class="chip">Not diagnosed</span>');
+    html += '<button class="timeline-tool debug-resume-btn" id="debug-from-event-btn" type="button" data-debug-from-selected ' + (hasReport ? '' : 'disabled title="Run Debugger first"') + '>Prepare Rerun</button>';
+    html += '<button class="timeline-tool" id="diagnose-pipeline-btn" type="button" data-open-diagnose>Run Debugger</button>';
+    html += '<button class="timeline-tool" id="discussion-btn" type="button" aria-expanded="false" aria-controls="discussion-drawer" ' + (hasReport ? '' : 'disabled title="Run Debugger first"') + '>Discuss with Debugger</button>';
     const reportOptions = Array.isArray(CURRENT_TRACE_DATA?.reports) ? CURRENT_TRACE_DATA.reports : [];
     const storedReportOptions = reportOptions.filter(item => item?.source === 'stored');
     if (storedReportOptions.length) {
@@ -5478,9 +5514,7 @@ function renderTrace(traj, report) {
         storedReportOptions.map(item => '<option value="' + escapeHtml(item.report_id || '') + '" ' + (item.report_id === report.report_id ? 'selected' : '') + '>' + escapeHtml(reportOptionLabel(item)) + '</option>').join('') +
         '</select>';
     }
-    if (reportOptions.length) {
-      html += '<span class="chip cyan">' + escapeHtml(CURRENT_TRACE_DATA?.report_source === 'stored' ? 'stored report' : 'heuristic fallback') + '</span>';
-    }
+    html += '<span class="chip cyan">' + escapeHtml(hasReport ? 'stored report' : (hasReportParseError ? 'report unavailable' : 'debugger not run')) + '</span>';
   }
   html += '</div></div>';
   html += '<div class="editor-stage-body">';
@@ -5491,7 +5525,7 @@ function renderTrace(traj, report) {
     : '<div class="editor-empty"><div><strong>No event selected</strong><span>Choose a clip from the timeline.</span></div></div>';
   html += '</div></section>';
   html += '</main>';
-  html += renderDiagnosisPanel(report, findings, selectedEvent, selectableEvents);
+  html += renderDiagnosisPanel(report, findings, selectedEvent, selectableEvents, hasReport);
   html += '</div>';
   html += '<section class="timeline-dock" id="timeline"><div class="panel-head"><div><div class="panel-title">Timeline</div><div class="panel-hint">Scrub events first; rerun attempts are grouped below as branches.</div></div><div class="timeline-toolbar timeline-toolbar-quiet"><button class="timeline-tool timeline-tool-primary" data-open-sessions type="button">Sessions ' + branches.length + '</button><button class="timeline-tool timeline-tool-primary" data-error-nav="-1" type="button">← Prev Error</button><button class="timeline-tool timeline-tool-primary" data-error-nav="1" type="button">Next Error →</button><span class="timeline-tool-group"><button class="timeline-tool" data-timeline-fit type="button">Fit</button><button class="timeline-tool" data-timeline-zoom="-1" type="button">−</button><button class="timeline-tool" data-timeline-zoom="1" type="button">＋</button></span><span class="chip cyan">' + alignmentEvents.length + ' clips</span></div></div><div class="panel-body">';
   html += renderStepExplorer(traj, alignmentEvents, findings, rootId, CURRENT_EXPANDED_EVENT_ID);
@@ -6225,6 +6259,7 @@ function rootCauseCoverage(catalog) {
   return Math.round((found / failed.length) * 100);
 }
 function severityLabel(item) {
+  if (item.status === 'not_run') return 'Not diagnosed';
   const findings = Number(item.finding_count || item.error_count || 0);
   if (findings >= 20) return 'Critical';
   if (findings >= 10) return 'High';
@@ -6392,11 +6427,11 @@ function renderRunsTable(catalog) {
     .slice()
     .sort((a, b) => criticalScore(b) - criticalScore(a))
     .map(item => {
-      const failed = Number(item.finding_count || 0) > 0;
+      const statusClass = statusClassForItem(item);
       const env = shortDatasetLabel(item.task_type || item.dataset_type || item.framework || '-');
       const primaryMode = item.top_error_type || item.top_family || '-';
-      return '<tr data-trace-id="' + escapeHtml(item.trace_id || '') + '" data-status="' + (failed ? 'failed' : 'passed') + '" data-search="' + escapeHtml(((item.trace_id || '') + ' ' + readableTaskName(item) + ' ' + env + ' ' + (item.model || '') + ' ' + primaryMode).toLowerCase()) + '" data-tooltip="' + escapeHtml(caseTooltipHtml(item)) + '">' +
-        '<td><span class="status-dot ' + (failed ? 'failed' : 'passed') + '">' + escapeHtml(statusLabel(item)) + '</span></td>' +
+      return '<tr data-trace-id="' + escapeHtml(item.trace_id || '') + '" data-status="' + escapeHtml(statusClass) + '" data-search="' + escapeHtml(((item.trace_id || '') + ' ' + readableTaskName(item) + ' ' + env + ' ' + (item.model || '') + ' ' + primaryMode).toLowerCase()) + '" data-tooltip="' + escapeHtml(caseTooltipHtml(item)) + '">' +
+        '<td><span class="status-dot ' + escapeHtml(statusClass) + '">' + escapeHtml(statusLabel(item)) + '</span></td>' +
         '<td><strong>' + escapeHtml(readableTaskName(item)) + '</strong><div class="event-type mono">' + escapeHtml(truncate(item.trace_id || '', 36)) + '</div></td>' +
         '<td>' + escapeHtml(env) + '</td>' +
         '<td>' + escapeHtml(shortModelLabel(item.model || item.framework || '-')) + '</td>' +
@@ -6662,21 +6697,24 @@ function findingForEvent(findings, eventId) {
   return (findings || []).find(f => f.event_id === eventId) || null;
 }
 function eventStateClass(ev, finding) {
-  if (finding || eventProblem(ev)) return 'error';
-  return 'clean';
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return 'unknown';
+  return finding ? 'error' : 'context';
 }
 function eventAccentLabel(ev, finding, isRoot) {
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return 'not diagnosed';
   if (isRoot) return 'root';
   if (finding?.failure_mode?.mode_id) return finding.failure_mode.mode_id;
-  if (eventProblem(ev)) return 'signal';
-  return 'clean';
+  return 'no finding';
 }
 function timelineStatus(ev, finding) {
-  return (finding || eventProblem(ev)) ? 'error' : 'ok';
+  if (CURRENT_TRACE_DATA?.report_source !== 'stored') return 'unknown';
+  return finding ? 'error' : 'context';
 }
 function timelineTooltip(ev, finding, isRoot, ordinal) {
   const status = timelineStatus(ev, finding);
-  const mode = finding?.failure_mode?.mode_id || finding?.failure_mode?.family || (eventProblem(ev) ? 'signal' : 'clean step');
+  const mode = status === 'unknown'
+    ? 'debugger not run'
+    : (finding?.failure_mode?.mode_id || finding?.failure_mode?.family || 'no analyzer finding');
   const rootText = isRoot ? ' · root cause' : '';
   return 'event ' + (ordinal ?? '-') + ' · recorded step ' + (ev.step_index ?? '-') + ' · ' + status + rootText + ' · ' + mode;
 }
@@ -6696,13 +6734,11 @@ function nativeTrace(ev) {
 function errorTrace(ev, finding) {
   const meta = ev.metadata || {};
   const findingMeta = finding?.metadata || {};
-  const overlay = meta.error_trace || {};
-  const mode = overlay.failure_mode || finding?.failure_mode?.mode_id || (eventProblem(ev) ? 'unclassified.signal' : 'context');
-  const title = overlay.title || finding?.failure_mode?.name || (eventProblem(ev) ? 'Failure signal detected' : 'Context event');
-  const body = overlay.human_readout || finding?.suggestion || (eventProblem(ev)
-    ? 'AgentDebugX keeps this event in the failure trace because it contains an error, lost-context signal, or invalid state transition.'
-    : 'No local failure signal; shown to preserve the causal path for the reviewer.');
-  const severity = overlay.severity || (finding ? 'high' : (eventProblem(ev) ? 'medium' : 'context'));
+  const overlay = finding ? (meta.error_trace || {}) : {};
+  const mode = overlay.failure_mode || finding?.failure_mode?.mode_id || 'context';
+  const title = overlay.title || finding?.failure_mode?.name || 'No analyzer finding';
+  const body = overlay.human_readout || finding?.suggestion || 'The stored debugger report does not attach a finding to this event.';
+  const severity = overlay.severity || (finding ? 'high' : 'context');
   const repair = overlay.repair || finding?.suggestion || '';
   return {
     mode,
@@ -6729,13 +6765,13 @@ function renderEvent(ev, isRoot, finding) {
   const inputValue = fmt(ev.input);
   const outputValue = fmt(ev.output);
   const errorValue = fmt(ev.error);
-  const primaryLabel = ev.error ? 'Error' : (outputValue ? 'Output' : (inputValue ? 'Input' : 'Event payload'));
-  const primaryValue = ev.error || outputValue || inputValue || 'No payload recorded.';
+  const primaryLabel = outputValue ? 'Output' : (inputValue ? 'Input' : (errorValue ? 'Recorded error' : 'Event payload'));
+  const primaryValue = outputValue || inputValue || errorValue || 'No payload recorded.';
   let html = '<div class="event focused ' + (isRoot ? 'root' : '') + '">';
   html += '<div class="step-index">' + escapeHtml(ev.step_index ?? '-') + '</div>';
   html += '<div><div class="event-title"><div class="event-identity"><span class="event-agent">' + escapeHtml(ev.agent_name || 'agent') + '</span>';
   html += '<span class="event-type">' + escapeHtml(ev.event_type || '') + ' / ' + escapeHtml(ev.module || 'module') + '</span><span class="event-id-small">' + escapeHtml(ev.event_id || '-') + '</span></div>';
-  html += isRoot ? '<span class="chip warn">root candidate</span>' : (eventProblem(ev) ? '<span class="chip bad">signal</span>' : '<span class="chip good">ok</span>');
+  html += isRoot ? '<span class="chip warn">root candidate</span>' : (finding ? '<span class="chip bad">finding</span>' : '<span class="chip">no finding</span>');
   html += '</div>';
   html += renderEventReadout(ev, finding, primaryLabel, primaryValue, inputValue, outputValue, errorValue, debug);
   html += '</div></div>';
@@ -6746,8 +6782,8 @@ function renderInlineEventDetail(ev, finding) {
   const inputValue = fmt(ev.input);
   const outputValue = fmt(ev.output);
   const errorValue = fmt(ev.error);
-  const primaryLabel = ev.error ? 'Error' : (outputValue ? 'Output' : (inputValue ? 'Input' : 'Event payload'));
-  const primaryValue = ev.error || outputValue || inputValue || 'No payload recorded.';
+  const primaryLabel = outputValue ? 'Output' : (inputValue ? 'Input' : (errorValue ? 'Recorded error' : 'Event payload'));
+  const primaryValue = outputValue || inputValue || errorValue || 'No payload recorded.';
   let html = '<div class="event-inline-detail">';
   html += renderEventReadout(ev, finding, primaryLabel, primaryValue, inputValue, outputValue, errorValue, debug);
   html += '</div>';
@@ -6758,14 +6794,14 @@ function renderEditorStageEvent(ev, isRoot, finding, ordinal) {
   const inputValue = fmt(ev.input);
   const outputValue = fmt(ev.output);
   const errorValue = fmt(ev.error);
-  const primaryLabel = ev.error ? 'Error' : (outputValue ? 'Output' : (inputValue ? 'Input' : 'Event payload'));
-  const primaryValue = ev.error || outputValue || inputValue || 'No payload recorded.';
+  const primaryLabel = outputValue ? 'Output' : (inputValue ? 'Input' : (errorValue ? 'Recorded error' : 'Event payload'));
+  const primaryValue = outputValue || inputValue || errorValue || 'No payload recorded.';
   let html = '<div class="editor-event-hero ' + (isRoot ? 'root' : '') + '">';
   html += '<div class="editor-event-index">' + escapeHtml(ordinal ?? ev.step_index ?? '-') + '</div>';
   html += '<div><div class="editor-event-name">' + escapeHtml(ev.agent_name || 'agent') + '</div>';
   html += '<div class="editor-event-sub">' + escapeHtml(ev.event_type || 'event') + ' / ' + escapeHtml(ev.module || 'module') + ' / ' + escapeHtml(ev.event_id || '-') + '</div></div>';
   html += '<div class="lane-meta" style="margin-top:0; justify-content:flex-end;">';
-  html += isRoot ? '<span class="chip warn">root</span>' : '<span class="chip ' + (timelineStatus(ev, finding) === 'error' ? 'bad' : 'good') + '">' + escapeHtml(timelineStatus(ev, finding)) + '</span>';
+  html += isRoot ? '<span class="chip warn">root</span>' : '<span class="chip ' + (timelineStatus(ev, finding) === 'error' ? 'bad' : '') + '">' + escapeHtml(timelineStatus(ev, finding)) + '</span>';
   if (debug.rulePack) html += '<span class="chip cyan">' + escapeHtml(debug.rulePack) + '</span>';
   html += '</div></div>';
   html += renderEventReadout(ev, finding, primaryLabel, primaryValue, inputValue, outputValue, errorValue, debug);
@@ -6838,7 +6874,7 @@ function renderVisualInspector(ev, isRoot, finding, ordinal, events, report, cap
   const correction = finding?.suggestion || summary?.correction || summary?.suggested_correction || 'No correction recorded.';
   let html = '<div class="visual-inspector" data-visual-capability="enabled">';
   html += '<div class="visual-nav"><div class="lane-meta" style="margin-top:0;"><span class="chip cyan">CUA Visual</span><span class="chip">step ' + escapeHtml(ordinal ?? ev.step_index ?? '-') + ' / ' + escapeHtml(events.length) + '</span>';
-  html += '<span class="chip ' + (isRoot ? 'warn' : (finding || ev.error ? 'bad' : 'good')) + '">' + escapeHtml(isRoot ? 'root cause' : (finding || ev.error ? 'error' : 'clean')) + '</span></div>';
+  html += '<span class="chip ' + (isRoot ? 'warn' : (finding ? 'bad' : '')) + '">' + escapeHtml(isRoot ? 'root cause' : (finding ? 'finding' : 'no finding')) + '</span></div>';
   html += '<div class="lane-meta" style="margin-top:0;"><div class="trace-visual-toggle visual-layout-toggle" aria-label="Screenshot layout"><button type="button" data-visual-layout="single" class="' + (layoutMode === 'single' ? 'active' : '') + '">Single</button><button type="button" data-visual-layout="compare" class="' + (layoutMode === 'compare' ? 'active' : '') + '">Compare</button></div><button class="timeline-tool" type="button" data-nav-event="-1" ' + (index <= 0 ? 'disabled' : '') + '>← Previous</button><button class="timeline-tool" type="button" data-nav-event="1" ' + (index >= events.length - 1 ? 'disabled' : '') + '>Next →</button></div></div>';
   if (layoutMode === 'single') {
     html += renderVisualPane('Selected screenshot', 'single', comparison.after, null, false);
@@ -6921,17 +6957,17 @@ function renderEventInspector(ev, isRoot, finding, ordinal, events, findings) {
   const inputValue = fmt(ev.input);
   const outputValue = fmt(ev.output);
   const errorValue = fmt(ev.error);
-  const primaryValue = ev.error || outputValue || inputValue || 'No payload recorded.';
+  const primaryValue = outputValue || inputValue || errorValue || 'No payload recorded.';
   const context = localContext(events, ev.event_id);
   const status = isRoot ? 'root' : timelineStatus(ev, finding);
-  const hasDetectorSignal = Boolean(finding || isRoot || eventProblem(ev));
+  const hasDetectorSignal = Boolean(finding || isRoot);
   let html = '<div class="event-inspector">';
   html += '<div class="event-inspector-summary ' + (isRoot ? 'root' : '') + ' status-' + escapeHtml(status) + '">';
-  html += '<div class="event-head-left"><div class="event-alert-dot">' + (status === 'ok' ? '✓' : '!') + '</div>';
+  html += '<div class="event-head-left"><div class="event-alert-dot">' + (status === 'root' || status === 'error' ? '!' : '·') + '</div>';
   html += '<div><div class="event-inspector-title"><button class="event-number" type="button" data-copy-event-number style="border:0; background:transparent; padding:0; cursor:pointer;">#' + escapeHtml(ordinal ?? ev.step_index ?? '-') + '</button><span>' + escapeHtml(titleCase(agentRoleLabel(ev))) + ' Step</span><span class="event-chevron">›</span><span>' + escapeHtml(titleCase(ev.module || 'module')) + '</span></div>';
   html += '<div class="event-inspector-sub">' + escapeHtml((ev.event_type || 'event') + '  ›  ' + (ev.module || 'module') + '  ›  ' + truncate(primaryValue, 54)) + '</div></div></div>';
   html += '<div class="event-head-right">';
-  html += '<button class="chip ' + (status === 'error' ? 'bad' : (status === 'root' ? 'warn' : 'good')) + '" type="button" data-info-popover="Status: ' + escapeHtml(status === 'root' ? 'root cause candidate' : status) + ' event.">' + escapeHtml(status === 'root' ? 'Root' : titleCase(status)) + '</button>';
+  html += '<button class="chip ' + (status === 'error' ? 'bad' : (status === 'root' ? 'warn' : '')) + '" type="button" data-info-popover="Status: ' + escapeHtml(status === 'root' ? 'root cause candidate' : status) + ' event.">' + escapeHtml(status === 'root' ? 'Root' : titleCase(status)) + '</button>';
   html += '</div></div>';
   html += '<div class="inspector-tabs" role="tablist">';
   html += inspectorTab('summary', 'Summary', true);
@@ -6972,11 +7008,11 @@ function renderEventInspector(ev, isRoot, finding, ordinal, events, findings) {
   html += '</div></details></div>';
   if (hasDetectorSignal) {
     html += '<div class="inspector-pane" data-pane="detector"><div class="inspector-grid">';
-    html += inspectorCard('Detector', debug.mode || (eventProblem(ev) ? 'event.error' : 'No detector signal'));
+    html += inspectorCard('Detector', debug.mode || 'No detector finding');
     html += inspectorCard('Rule Pack', debug.rulePack || 'n/a');
     html += inspectorCard('Rule ID', debug.ruleId || 'n/a');
-    html += inspectorCard('Severity', debug.severity || (eventProblem(ev) ? 'medium' : 'context'));
-    html += inspectorCard('Evidence', debug.triggerReason || debug.whyReported || debug.confidenceBasis || (finding?.evidence || []).join('; ') || eventProblem(ev) || 'No detector evidence.', 'wide');
+    html += inspectorCard('Severity', debug.severity || 'context');
+    html += inspectorCard('Evidence', debug.triggerReason || debug.whyReported || debug.confidenceBasis || (finding?.evidence || []).join('; ') || 'No detector evidence.', 'wide');
     html += '</div></div>';
   }
   html += '</div>';
@@ -7005,22 +7041,39 @@ function localContext(events, eventId) {
 function eventShort(ev) {
   return (ev.agent_name || 'agent') + ' / ' + (ev.event_type || 'event') + '\\n' + truncate(ev.error || ev.output || ev.input || 'No payload recorded.', 180);
 }
-function renderDiagnosisPanel(report, findings, selectedEvent, events) {
+function renderDiagnosisPanel(report, findings, selectedEvent, events, hasReport) {
+  if (!hasReport) {
+    const parseError = CURRENT_TRACE_DATA?.report_source === 'parse_error';
+    const title = parseError ? 'Report unavailable' : 'Not diagnosed';
+    const badge = parseError ? 'parse error' : 'not run';
+    const message = parseError
+      ? 'A stored debugger report exists but could not be parsed. No diagnosis can be shown until the report is repaired or the debugger is run again.'
+      : 'The debugger has not been run for this trace. No error step or root cause is known.';
+    let html = '<aside class="diagnosis-panel compact-clean">';
+    html += '<div class="diagnosis-section diagnosis-hero"><div class="diagnosis-hero-head"><div class="diagnosis-hero-copy"><div class="diagnosis-label">Diagnosis</div><div class="diagnosis-title">' + escapeHtml(title) + '</div></div>';
+    html += '<button class="workspace-launcher" id="hub-btn" type="button" aria-label="Open Error Hub panel" title="Open Error Hub panel" aria-expanded="false" aria-controls="hub-drawer"><span>Error Hub</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button></div>';
+    html += '<div class="lane-meta"><span class="chip ' + (parseError ? 'warn' : '') + '">' + escapeHtml(badge) + '</span></div></div>';
+    html += '<div class="diagnosis-section diagnosis-next-step"><div class="diagnosis-label">Debugger status</div><div class="diagnosis-copy">' + escapeHtml(message) + '</div>';
+    if (parseError && CURRENT_TRACE_DATA?.report_error) html += '<div class="diagnosis-copy mono">' + escapeHtml(CURRENT_TRACE_DATA.report_error) + '</div>';
+    html += '<button class="button primary" type="button" data-open-diagnose>Run Debugger</button></div>';
+    html += '</aside>';
+    return html;
+  }
   const selectedFinding = selectedEvent ? findingForEvent(findings, selectedEvent.event_id) : null;
-  const primary = selectedFinding || (selectedEvent?.event_id === report.root_cause_event_id ? (findings || [])[0] : null);
+  const primary = selectedFinding;
+  const isReportRoot = selectedEvent?.event_id === report.root_cause_event_id;
   const debug = selectedEvent ? errorTrace(selectedEvent, primary) : null;
-  const hasEventSignal = Boolean(selectedEvent && eventProblem(selectedEvent));
   const issue = primary?.failure_mode?.name
-    || (selectedEvent?.event_id === report.root_cause_event_id ? 'Root cause candidate' : '')
-    || (hasEventSignal ? debug?.title || 'Event error signal' : 'No issue detected');
+    || (isReportRoot ? 'Root cause candidate' : '')
+    || 'No finding for this event';
   const related = relatedEvents(report, findings, selectedEvent, events);
   const ordinal = selectedEvent ? Math.max(1, (events || []).findIndex(ev => ev.event_id === selectedEvent.event_id) + 1) : '-';
-  const hasIssue = Boolean(primary || hasEventSignal || selectedEvent?.event_id === report.root_cause_event_id);
+  const hasIssue = Boolean(primary || isReportRoot);
   let html = '<aside class="diagnosis-panel ' + (hasIssue ? 'has-issue' : 'compact-clean') + '">';
   html += '<div class="diagnosis-section diagnosis-hero"><div class="diagnosis-hero-head"><div class="diagnosis-hero-copy"><div class="diagnosis-label">Diagnosis</div><div class="diagnosis-title">' + escapeHtml(issue) + '</div></div>';
   html += '<button class="workspace-launcher" id="hub-btn" type="button" aria-label="Open Error Hub panel" title="Open Error Hub panel" aria-expanded="false" aria-controls="hub-drawer"><span>Error Hub</span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button></div>';
-  html += '<div class="lane-meta"><span class="chip ' + (primary || hasEventSignal ? 'bad' : 'good') + '">' + escapeHtml(primary ? (debug?.severity || 'high') : (hasEventSignal ? 'event signal' : 'clean')) + '</span>';
-  if (selectedEvent?.event_id === report.root_cause_event_id) html += '<span class="chip warn">root cause</span>';
+  html += '<div class="lane-meta"><span class="chip ' + (primary ? 'bad' : (isReportRoot ? 'warn' : '')) + '">' + escapeHtml(primary ? (debug?.severity || 'high') : (isReportRoot ? 'report root' : 'no finding')) + '</span>';
+  if (isReportRoot) html += '<span class="chip warn">root cause</span>';
   html += '<span class="chip cyan">event #' + escapeHtml(ordinal) + '</span></div></div>';
   html += '<div class="diagnosis-section diagnosis-facts">';
   html += miniCompact('Agent', selectedEvent?.agent_name || 'agent');
@@ -7028,20 +7081,20 @@ function renderDiagnosisPanel(report, findings, selectedEvent, events) {
   html += miniCompact('Event', selectedEvent?.event_type || 'event');
   html += '</div>';
   if (!hasIssue) {
-    html += '<div class="diagnosis-section diagnosis-next-step"><div class="diagnosis-label">Next useful action</div><div class="diagnosis-copy">No local detector signal here. Continue along the timeline, or jump to the next error/root event before opening raw details.</div></div>';
+    html += '<div class="diagnosis-section diagnosis-next-step"><div class="diagnosis-label">Debugger status</div><div class="diagnosis-copy">The stored debugger report attaches no finding to this event. Raw error-like text is preserved in Details, but AgentDebugX does not treat it as a diagnosis.</div></div>';
     html += '</aside>';
     return html;
   }
-  html += '<div class="diagnosis-section"><div class="diagnosis-label">Why It Matters</div><div class="diagnosis-copy">' + escapeHtml(primary ? (debug?.body || primary.suggestion || report.summary || 'Detector flagged this event.') : (hasEventSignal ? (debug?.body || eventProblem(selectedEvent)) : 'This event did not trigger any detector. Use Context to inspect nearby steps.')) + '</div></div>';
+  html += '<div class="diagnosis-section"><div class="diagnosis-label">Why It Matters</div><div class="diagnosis-copy">' + escapeHtml(primary ? (debug?.body || primary.suggestion || report.summary || 'Detector flagged this event.') : 'The debugger report selected this event as its root-cause candidate.') + '</div></div>';
   html += '<div class="diagnosis-section"><div class="diagnosis-label">Evidence</div><ul class="evidence-list">';
-  const evidence = primary ? diagnosisEvidence(primary, debug) : (hasEventSignal ? [eventProblem(selectedEvent), 'The event payload itself carries the signal; no analyzer finding is attached.'] : ['No local detector signal for this event.']);
+  const evidence = primary ? diagnosisEvidence(primary, debug) : ['The stored debugger report names this event as its root cause.'];
   evidence.forEach(item => { html += '<li>' + escapeHtml(item) + '</li>'; });
   html += '</ul></div>';
   html += '<div class="diagnosis-section"><div class="diagnosis-label">Related Events</div><div class="related-chain">';
   related.forEach(item => { html += '<button type="button" class="related-link" data-event-id="' + escapeHtml(item.event_id || '') + '">#' + escapeHtml(item.ordinal) + '</button>'; });
   if (!related.length) html += '<span class="diagnosis-copy">No nearby issue.</span>';
   html += '</div></div>';
-  html += '<div class="diagnosis-section"><div class="diagnosis-label">Suggested Fix</div><button class="related-link" type="button" data-info-popover="Suggested Fix: detector-generated remediation hint for the selected event.">Explain</button><div class="diagnosis-copy">' + escapeHtml(primary?.suggestion || debug?.repair || (hasEventSignal ? 'Inspect the raw event payload and compare adjacent state before applying a fix.' : 'Continue inspecting adjacent events and state delta before applying a fix.')) + '</div></div>';
+  html += '<div class="diagnosis-section"><div class="diagnosis-label">Suggested Fix</div><button class="related-link" type="button" data-info-popover="Suggested Fix: detector-generated remediation hint for the selected event.">Explain</button><div class="diagnosis-copy">' + escapeHtml(primary?.suggestion || debug?.repair || 'No suggested fix was recorded by the debugger.') + '</div></div>';
   html += '<div class="diagnosis-section"><div class="diagnosis-label">Rule</div><button class="related-link" type="button" data-info-popover="Rule: deterministic detector rule that produced this finding.">Explain</button><div class="diagnosis-copy mono">' + escapeHtml(primary?.metadata?.rule_id || debug?.ruleId || 'n/a') + '</div></div>';
   html += '</aside>';
   return html;
@@ -7066,10 +7119,16 @@ function relatedEvents(report, findings, selectedEvent, events) {
     .slice(0, 8);
 }
 function renderEventReadout(ev, finding, primaryLabel, primaryValue, inputValue, outputValue, errorValue, debug) {
-  const evidence = debug.triggerReason || debug.whyReported || debug.confidenceBasis || (finding?.evidence || []).join('; ') || 'No explicit evidence beyond the recorded event payload.';
+  const hasFinding = Boolean(finding);
+  const noFindingMessage = CURRENT_TRACE_DATA?.report_source === 'stored'
+    ? 'The stored debugger report does not attach a finding to this event.'
+    : 'The debugger has not been run, so no diagnosis is available for this event.';
+  const evidence = hasFinding
+    ? (debug.triggerReason || debug.whyReported || debug.confidenceBasis || (finding?.evidence || []).join('; ') || 'The debugger recorded a finding without additional evidence text.')
+    : noFindingMessage;
   let html = '<div class="event-readout">';
   html += '<div class="readout-card primary"><div class="readout-label">What happened</div><div class="readout-value">' + escapeHtml(primaryValue || 'No payload recorded.') + '</div><div class="lane-meta"><span class="chip cyan">' + escapeHtml(primaryLabel) + '</span></div></div>';
-  html += '<div class="readout-card warn"><div class="readout-label">Why suspicious</div><div class="readout-value">' + escapeHtml(debug.title + ': ' + debug.body) + '</div><div class="lane-meta"><span class="chip ' + severityClass(debug.severity) + '">' + escapeHtml(debug.severity) + '</span><span class="chip ' + (finding ? 'bad' : 'good') + '">' + escapeHtml(timelineStatus(ev, finding)) + '</span></div></div>';
+  html += '<div class="readout-card ' + (hasFinding ? 'warn' : '') + '"><div class="readout-label">' + escapeHtml(hasFinding ? 'Why it matters' : 'Diagnostic status') + '</div><div class="readout-value">' + escapeHtml(hasFinding ? (debug.title + ': ' + debug.body) : noFindingMessage) + '</div><div class="lane-meta"><span class="chip ' + (hasFinding ? severityClass(debug.severity) : '') + '">' + escapeHtml(hasFinding ? debug.severity : timelineStatus(ev, finding)) + '</span></div></div>';
   html += '<div class="readout-card"><div class="readout-label">Evidence</div><div class="readout-value">' + escapeHtml(evidence) + '</div>';
   if (debug.rulePack || debug.ruleId) html += '<div class="lane-meta">' + ruleMeta(debug.rulePack, debug.ruleId) + '</div>';
   html += '</div></div>';
@@ -7086,7 +7145,7 @@ function renderTimelineRow(traj, ev, isRoot, finding) {
   let html = '<div class="timeline-row ' + (isRoot ? 'root' : '') + '">';
   html += '<div class="timeline-step">' + escapeHtml(ev.step_index ?? '-') + '</div>';
   html += '<div class="timeline-main"><div class="timeline-head"><div class="event-agent">' + escapeHtml(ev.agent_name || 'agent') + '</div><div class="event-type">' + escapeHtml(ev.event_type || '') + ' / ' + escapeHtml(ev.module || 'module') + '</div>';
-  html += '<span class="chip ' + (status === 'error' ? 'bad' : 'good') + '">' + escapeHtml(status) + '</span>';
+  html += '<span class="chip ' + (status === 'error' ? 'bad' : '') + '">' + escapeHtml(status) + '</span>';
   if (isRoot) html += '<span class="chip warn">root</span>';
   html += '</div>';
   html += '<div class="timeline-summary">' + escapeHtml(summary) + '</div></div>';
@@ -7147,7 +7206,7 @@ function renderTimelineTrackInner(getLabel, events, findings, rootId, expandedId
     const status = isRoot ? 'root' : timelineStatus(ev, finding);
     const rawLabel = getLabel(ev, idx) || '';
     const labelText = rawLabel || (advanced ? '' : '#' + (idx + 1));
-    const tooltip = (isRoot || finding || eventProblem(ev))
+    const tooltip = (isRoot || finding)
       ? timelineMistakeTooltipHtml(ev, finding, isRoot, idx + 1)
       : timelineTooltipHtml(ev, finding, isRoot, idx + 1);
     html += '<button type="button" class="track-clip ' + escapeHtml(status === 'ok' ? 'ok' : status) + (isActive ? ' active' : '') + '" data-event-id="' + escapeHtml(ev.event_id || '') + '" data-tooltip="' + escapeHtml(tooltip) + '" title="' + escapeHtml(timelineTooltip(ev, finding, isRoot, idx + 1)) + '">' + escapeHtml(labelText) + '</button>';
@@ -7183,11 +7242,9 @@ function renderDebugBranchTree(branches, events, expandedId) {
     generated.forEach((ev, idx) => {
       const ordinal = startIndex + idx + 1;
       const eventId = ev?.event_id || ((branch.branch_id || 'branch') + '_evt_' + (idx + 1));
-      const state = ev?.error ? 'error' : 'ok';
+      const state = 'context';
       const isActive = eventId === expandedId;
-      const tip = ev?.error
-        ? timelineMistakeTooltipHtml(ev, null, false, ordinal)
-        : timelineTooltipHtml(ev, null, false, ordinal);
+      const tip = timelineTooltipHtml(ev, null, false, ordinal);
       html += '<button type="button" class="track-clip debug-branch-track-clip mode-' + escapeHtml(mode.key) + ' ' + escapeHtml(state) + (isActive ? ' active' : '') + '" data-debug-branch-id="' + escapeHtml(branch.branch_id || '') + '" data-event-id="' + escapeHtml(eventId) + '" data-branch-parent-event-id="' + escapeHtml(branch.parent_event_id || branch.event_id || '') + '" data-tooltip="' + escapeHtml(tip) + '" title="' + escapeHtml(mode.label + ' · ' + (branch.label || 'rerun branch') + ' · #' + ordinal) + '">' + escapeHtml(mode.clipPrefix + ' #' + ordinal) + '</button>';
     });
     html += '</div>';
@@ -7219,7 +7276,7 @@ function renderClipButton(ev, isRoot, finding, isActive, ordinal, stateClass, sh
   let html = '<div class="timeline-clip-node">';
   if (showConnector) html += '<span class="timeline-link"></span>';
   html += '<button type="button" class="timeline-clip ' + escapeHtml(klass) + (isActive ? ' active' : '') + '" data-event-id="' + escapeHtml(ev.event_id || '') + '">' +
-    '<div class="timeline-clip-top"><span class="timeline-clip-num">#' + escapeHtml(ordinal ?? '-') + '</span><span class="chip ' + (status === 'root' ? 'warn' : (status === 'error' ? 'bad' : 'good')) + '" style="height:18px; padding:0 6px; font-size:9px;">' + escapeHtml(status) + '</span></div>' +
+    '<div class="timeline-clip-top"><span class="timeline-clip-num">#' + escapeHtml(ordinal ?? '-') + '</span><span class="chip ' + (status === 'root' ? 'warn' : (status === 'error' ? 'bad' : '')) + '" style="height:18px; padding:0 6px; font-size:9px;">' + escapeHtml(status) + '</span></div>' +
     '<div class="timeline-clip-role">' + escapeHtml(agentRoleLabel(ev)) + '</div>' +
     '<div class="timeline-clip-foot">' + escapeHtml(ev.event_type || ev.module || 'event') + '</div>';
   html += '</button></div>';
@@ -7227,12 +7284,12 @@ function renderClipButton(ev, isRoot, finding, isActive, ordinal, stateClass, sh
 }
 function eventMarkerLabel(ev, findings, rootId) {
   if (ev.event_id === rootId) return 'ROOT';
-  if (findingForEvent(findings, ev.event_id) || eventProblem(ev)) return 'ERR';
+  if (findingForEvent(findings, ev.event_id)) return 'ERR';
   return '';
 }
 function mistakeClipLabel(ev, findings, rootId) {
   if (ev.event_id === rootId) return 'ROOT';
-  if (findingForEvent(findings, ev.event_id) || eventProblem(ev)) return 'ERR';
+  if (findingForEvent(findings, ev.event_id)) return 'ERR';
   return '';
 }
 function mainSequenceLabel(ev) {
@@ -7263,8 +7320,8 @@ function observationClipLabel(ev) {
   return agentRoleLabel(ev) === 'reader' ? 'obs' : '';
 }
 function stateDeltaLabel(ev, findings) {
-  if (findingForEvent(findings, ev.event_id) || eventProblem(ev)) return 'weak';
-  return 'ok';
+  if (findingForEvent(findings, ev.event_id)) return 'weak';
+  return 'context';
 }
 function detectorClipLabel(ev, findings) {
   const finding = findingForEvent(findings, ev.event_id);
@@ -7272,8 +7329,8 @@ function detectorClipLabel(ev, findings) {
 }
 function signalClipLabel(ev, findings, rootId) {
   if (ev.event_id === rootId) return 'root';
-  if (findingForEvent(findings, ev.event_id) || eventProblem(ev)) return 'hit';
-  return 'clean';
+  if (findingForEvent(findings, ev.event_id)) return 'hit';
+  return 'none';
 }
 function timelineRulerTicks(count) {
   const total = Math.max(1, Number(count || 0));
@@ -7295,7 +7352,7 @@ function timelineMistakeTooltipHtml(ev, finding, isRoot, ordinal) {
   const status = isRoot ? 'root' : timelineStatus(ev, finding);
   const mode = finding?.failure_mode || {};
   const title = isRoot ? 'Root cause candidate' : (mode.mode_id || mode.name || 'Detected mistake');
-  const evidence = finding?.evidence || finding?.message || eventProblem(ev) || eventShort(ev) || 'No detector evidence recorded.';
+  const evidence = finding?.evidence || finding?.message || eventShort(ev) || 'No detector evidence recorded.';
   const severity = finding?.severity || finding?.confidence_label || (status === 'root' ? 'root' : 'error');
   return '<div class="timeline-tooltip timeline-error-tooltip">' +
     '<div class="timeline-tooltip-main"><div class="timeline-tooltip-index">#' + escapeHtml(ordinal ?? '-') + '</div>' +
@@ -7344,19 +7401,19 @@ function branchSessionId(branch) {
 function localBranchEvaluation(branch) {
   if (branch?.evaluation && typeof branch.evaluation === 'object') return branch.evaluation;
   const generated = Array.isArray(branch?.generated_events) ? branch.generated_events : [];
-  const generatedErrors = generated.filter(ev => eventProblem(ev)).length;
-  const result = generated.length ? (generatedErrors ? 'unknown' : 'improved') : 'unknown';
+  const generatedErrors = generated.filter(ev => recordedEventError(ev)).length;
+  const result = 'unknown';
   return {
     result,
-    score_before: 0,
-    score_after: generated.length && !generatedErrors ? 1 : 0,
+    score_before: null,
+    score_after: null,
     error_count_before: null,
     error_count_after: generatedErrors,
     generated_event_count: generated.length,
-    root_cause_fixed: false,
-    new_error_introduced: generatedErrors > 0,
+    root_cause_fixed: null,
+    new_error_introduced: null,
     reason: generated.length
-      ? (generatedErrors ? 'Generated branch has local error signals; needs manual review.' : 'Generated branch has no local error signals.')
+      ? ('No evaluator result is attached. ' + generatedErrors + ' generated event(s) contain a recorded error payload, but no outcome is inferred.')
       : 'No generated rerun events are attached to this session yet.',
     compare_summary: {
       rerun_from_ordinal: branch?.checkpoint_ordinal || null,
@@ -7506,8 +7563,8 @@ function renderCompareColumn(title, events, startOrdinal) {
     return html;
   }
   events.slice(0, 12).forEach((ev, idx) => {
-    const status = eventProblem(ev) ? 'error' : 'ok';
-    html += '<div class="compare-event ' + escapeHtml(status) + '"><div class="compare-event-title"><span>#' + escapeHtml(startOrdinal + idx) + ' ' + escapeHtml(agentRoleLabel(ev)) + '</span><span class="chip ' + (status === 'error' ? 'bad' : 'good') + '">' + escapeHtml(status) + '</span></div><div class="compare-event-copy">' + escapeHtml(truncate(ev.error || ev.output || ev.input || 'No payload recorded.', 180)) + '</div></div>';
+    const status = recordedEventError(ev) ? 'recorded error' : 'unreviewed';
+    html += '<div class="compare-event"><div class="compare-event-title"><span>#' + escapeHtml(startOrdinal + idx) + ' ' + escapeHtml(agentRoleLabel(ev)) + '</span><span class="chip">' + escapeHtml(status) + '</span></div><div class="compare-event-copy">' + escapeHtml(truncate(ev.output || ev.input || ev.error || 'No payload recorded.', 180)) + '</div></div>';
   });
   html += '</div>';
   return html;
@@ -7574,7 +7631,7 @@ function renderTrajectoryEvent(ev, isRoot, finding, isOpen, ordinal) {
   html += '<div class="trajectory-title"><span>' + escapeHtml(ev.agent_name || 'agent') + '</span><span class="event-type">' + escapeHtml(ev.event_type || '') + ' / ' + escapeHtml(ev.module || 'module') + '</span></div>';
   html += '<div class="trajectory-copy">' + escapeHtml(summary) + '</div>';
   html += '</div>';
-  html += '<div class="lane-meta" style="margin-top:0; justify-content:flex-end;"><span class="chip ' + (status === 'error' ? 'bad' : 'good') + '">' + escapeHtml(status) + '</span>';
+  html += '<div class="lane-meta" style="margin-top:0; justify-content:flex-end;"><span class="chip ' + (status === 'error' ? 'bad' : '') + '">' + escapeHtml(status) + '</span>';
   if (isRoot) html += '<span class="chip warn">root</span>';
   html += '<span class="chip ' + (isOpen ? 'cyan' : '') + '">' + (isOpen ? 'expanded' : 'open') + '</span></div>';
   html += '</button>';
@@ -7781,7 +7838,7 @@ function moveSelectedEvent(delta, errorsOnly) {
   if (!events.length) return;
   let idx = events.findIndex(ev => ev.event_id === CURRENT_EXPANDED_EVENT_ID);
   if (idx < 0) idx = 0;
-  const isError = ev => findingForEvent(report.findings || [], ev.event_id) || eventProblem(ev) || ev.event_id === report.root_cause_event_id;
+  const isError = ev => findingForEvent(report.findings || [], ev.event_id) || ev.event_id === report.root_cause_event_id;
   let next = idx;
   do {
     next += delta;
@@ -8744,7 +8801,7 @@ function showUploadModal() {
       '<div class="continuation-head"><div><div class="continuation-kicker">Local Ingest</div><div class="continuation-title">Upload trajectories</div><div class="continuation-sub">JSON, JSONL, message logs, framework exports, and AgentErrorBench rows</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
       '<div class="workflow-modal-body">' +
         '<label class="upload-drop" id="upload-drop"><span><strong>Choose or drop a file</strong><br><span class="workflow-copy">Maximum 25 MB. Imported traces stay in the active local store.</span></span><input id="upload-file" type="file" accept=".json,.jsonl,application/json" hidden></label>' +
-        '<label class="composer-check"><input type="checkbox" id="upload-allow-llm" checked> Use LLM fallback when deterministic adapters cannot recognize the format</label>' +
+        '<label class="composer-check"><input type="checkbox" id="upload-allow-llm"> Use LLM-assisted conversion when deterministic parsing fails</label>' +
         '<details><summary class="workflow-copy">Optional LLM override</summary><div class="workflow-grid">' +
           '<input class="composer-input wide" id="upload-base-url" placeholder="Base URL (otherwise AGENTDEBUG_LLM_BASE_URL)">' +
           passwordField('upload-api-key', 'API key from LLM Settings', '') +
@@ -8792,13 +8849,14 @@ async function uploadTrajectoryFile(file) {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail || 'upload failed'));
-    if (status) status.textContent = 'Imported ' + payload.count + ' trace(s): ' + (payload.imported || []).join(', ');
+    const parseErrors = Array.isArray(payload.errors) ? payload.errors : [];
+    if (status) status.textContent = 'Imported ' + payload.count + ' trace(s)' + (parseErrors.length ? '; ' + parseErrors.length + ' item(s) failed to parse: ' + parseErrors.map(item => item.error || 'unknown parse error').join(' | ') : ': ' + (payload.imported || []).join(', '));
     const overview = await api('/api/v1/overview');
     BOOTSTRAP.overview = overview;
     BOOTSTRAP.traces = overview.traces || (payload.imported || []);
     TRACE_CATALOG = (overview.trace_catalog || []).map(item => ({...item, error_count: Number(item.error_count || item.finding_count || 0)}));
     renderTraceList(BOOTSTRAP.traces, CURRENT_TRACE_ID);
-    notify('Imported ' + payload.count + ' trace' + (payload.count === 1 ? '' : 's'));
+    notify('Imported ' + payload.count + ' trace' + (payload.count === 1 ? '' : 's') + (parseErrors.length ? '; parse errors: ' + parseErrors.length : ''));
     const first = (payload.imported || [])[0];
     if (first) {
       window.setTimeout(async () => {
@@ -8833,6 +8891,8 @@ async function showDiagnosePipelineModal() {
   } catch (error) {
     notify('Using built-in Diagnose options: ' + (error.message || error));
   }
+  const sourceFormat = String(CURRENT_TRACE_DATA?.trajectory?.metadata?.source_format || '').toLowerCase();
+  const preferredMode = ['osworld', 'cua'].includes(sourceFormat) ? 'gui-rca' : 'deep';
   let modal = document.getElementById('diagnose-pipeline-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -8844,10 +8904,10 @@ async function showDiagnosePipelineModal() {
     '<div class="continuation-shell workflow-modal-shell" role="dialog" aria-modal="true" aria-label="Diagnose Pipeline">' +
       '<div class="continuation-head"><div><div class="continuation-kicker">Detect → Attribute → Recover</div><div class="continuation-title">Diagnose Pipeline</div><div class="continuation-sub">' + escapeHtml(CURRENT_TRACE_ID) + '</div></div><button class="continuation-close" type="button" data-close-workflow aria-label="Close">×</button></div>' +
       '<div class="workflow-modal-body"><div class="workflow-grid">' +
-        pipelineSelect('diagnose-mode', 'Detect', diagnoseOptionPairs(options.modes, 'heuristic')) +
-        pipelineSelect('diagnose-attributor', 'Attribute', diagnoseOptionPairs(options.attributors, 'heuristic')) +
-        pipelineSelect('diagnose-recovery', 'Recover', diagnoseOptionPairs(options.recoveries, 'none')) +
-        pipelineSelect('diagnose-rule-pack', 'Rule pack', diagnoseOptionPairs(options.rule_packs, 'auto')) +
+        pipelineSelect('diagnose-mode', 'Detect', diagnoseOptionPairs(options.modes, preferredMode)) +
+        pipelineSelect('diagnose-attributor', 'Attribute', diagnoseOptionPairs(options.attributors, 'none')) +
+        pipelineSelect('diagnose-recovery', 'Recover', diagnoseOptionPairs(options.recoveries, preferredMode === 'deep' ? 'deepdebug' : 'none')) +
+        pipelineSelect('diagnose-rule-pack', 'Rule pack', diagnoseOptionPairs(options.rule_packs, preferredMode === 'gui-rca' ? 'gui' : 'auto')) +
         '<input class="composer-input wide" id="diagnose-base-url" placeholder="LLM Base URL (optional for heuristic)">' +
         passwordField('diagnose-api-key', 'API key from LLM Settings', '') +
         '<input class="composer-input" id="diagnose-model" placeholder="Model">' +
@@ -8883,10 +8943,13 @@ function bindDiagnoseChoiceConstraints() {
   if (!mode || !attributor || !recovery) return;
   const apply = () => {
     const deep = mode.value === 'deep';
-    Array.from(attributor.options).forEach(option => { option.disabled = deep && option.value !== 'none'; });
+    const ownsAttribution = deep || mode.value === 'gui-rca';
+    Array.from(attributor.options).forEach(option => { option.disabled = ownsAttribution && option.value !== 'none'; });
     Array.from(recovery.options).forEach(option => { option.disabled = deep && !['none', 'deepdebug'].includes(option.value); });
-    if (deep) {
+    if (ownsAttribution) {
       attributor.value = 'none';
+    }
+    if (deep) {
       if (recovery.value !== 'none') recovery.value = 'deepdebug';
     }
   };

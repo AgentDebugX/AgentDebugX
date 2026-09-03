@@ -49,6 +49,21 @@ def test_convert_common_formats(
     assert all(event.trace_id == trajectory.trace_id for event in trajectory.events)
 
 
+def test_conversation_observation_does_not_infer_error_from_text() -> None:
+    trajectory = convert_payload(
+        {
+            'conversations': [
+                {'from': 'human', 'value': 'Nothing happens.'},
+            ],
+        },
+        format='conversations',
+        trace_id='trace-observation',
+    )
+
+    assert trajectory.events[0].output == 'Nothing happens.'
+    assert trajectory.events[0].error is None
+
+
 def test_convert_claude_code_tool_pair() -> None:
     payload = [
         {
@@ -138,3 +153,36 @@ def test_invalid_payloads_raise_conversion_error(payload) -> None:
 def test_unknown_format_is_rejected() -> None:
     with pytest.raises(ConversionError, match='unsupported format'):
         convert_payload({}, format='unknown')
+
+
+def test_host_transcripts_are_redacted_but_other_formats_stay_faithful() -> None:
+    """A transcript read straight from a host log must never persist secrets.
+
+    Automatic capture scrubs before storing. Reading the same session file
+    through `ingest` - the fallback used when capture is not enabled - has to
+    match, or the simpler path would leak what the captured path removes.
+    """
+    from agentdebug.ingest.adapters.importers import convert_payload
+
+    secret = 'AKIA' + 'B' * 16
+
+    claude = convert_payload(
+        [{
+            'type': 'user', 'sessionId': 's', 'uuid': 'u1',
+            'message': {'role': 'user', 'content': f'key {secret}'},
+        }],
+        format='claude_code',
+    )
+    body = str([(event.input, event.output) for event in claude.events])
+    assert secret not in body
+    assert claude.metadata['ingest_redactions']
+    assert claude.metadata['ingest_scrubber_version']
+
+    # User-supplied exports are not host logs; they stay byte-faithful.
+    other = convert_payload(
+        {'messages': [{'role': 'user', 'content': f'key {secret}'}]},
+        format='messages',
+    )
+    body = str([(event.input, event.output) for event in other.events])
+    assert secret in body
+    assert 'ingest_redactions' not in other.metadata
