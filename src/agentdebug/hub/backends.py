@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from agentdebug.hub.backend_base import HubBackend, HubSpec, parse_spec
-from agentdebug.hub.bundle import Bundle, pack_bundle, unpack_bundle
+from agentdebug.hub.bundle import Bundle, pack_bundle
 
 LOG = logging.getLogger('agentdebug.hub')
 

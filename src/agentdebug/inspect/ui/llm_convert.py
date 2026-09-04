@@ -270,7 +270,7 @@ def convert_with_llm(
     # times before giving up so a transient blank doesn't fail the upload.
     parsed = None
     last_reason = 'LLM converter returned no usable JSON'
-    for attempt in range(3):
+    for _attempt in range(3):
         try:
             result = client.complete(
                 messages=[

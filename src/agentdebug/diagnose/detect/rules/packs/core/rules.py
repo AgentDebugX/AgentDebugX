@@ -518,8 +518,8 @@ def _finding(
     enriched = dict(metadata)
     enriched.update(
         {
-            'rule_pack': getattr(rule, 'rule_pack'),
-            'rule_id': getattr(rule, 'rule_id'),
+            'rule_pack': rule.rule_pack,
+            'rule_id': rule.rule_id,
             'confidence_basis': confidence_basis,
             'analysis_layer': 'cross_event_rule',
             'finding_source_label': 'Cross-event rule',
@@ -527,7 +527,7 @@ def _finding(
             'trigger_reason': confidence_basis,
             'why_reported': (
                 f'This finding was emitted by deterministic rule '
-                f'{getattr(rule, "rule_id")} after analyzing multiple events together.'
+                f'{rule.rule_id} after analyzing multiple events together.'
             ),
         }
     )

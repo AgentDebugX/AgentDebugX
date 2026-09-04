@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 from agentdebug.rerun.executors.base import LIVE_EXECUTION, RerunResult
 from agentdebug.rerun.live_validation import parse_live_result

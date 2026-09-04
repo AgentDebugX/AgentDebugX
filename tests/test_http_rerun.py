@@ -60,7 +60,7 @@ def test_http_runner_service_executes_real_callback(
     failed_trajectory: AgentTrajectory,
     diagnostic_report,
 ) -> None:
-    fastapi = pytest.importorskip('fastapi')
+    pytest.importorskip('fastapi')
     TestClient = pytest.importorskip('fastapi.testclient').TestClient
     calls = []
 

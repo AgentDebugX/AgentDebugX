@@ -1,6 +1,5 @@
-"""Core AgentDebugX primitives."""
-
-"""Backward-compatible aggregate import path for schema/runtime APIs."""
+"""Core AgentDebugX primitives: the backward-compatible aggregate import path for the
+schema and runtime APIs."""
 
 from agentdebug.runtime.events import DEFAULT_BUS, BusEvent, EventBus, EventSubscription
 from agentdebug.runtime.llm import (
