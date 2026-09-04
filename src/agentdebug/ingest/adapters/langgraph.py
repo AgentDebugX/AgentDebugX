@@ -43,7 +43,7 @@ class LangChainCallbackAdapter:
     """
 
     framework = 'langgraph'
-    
+
     _debugger: AgentDebug
     _trajectory: AgentTrajectory
     _step_counter: int

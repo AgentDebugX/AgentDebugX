@@ -80,7 +80,7 @@ def load_event_rules(rule_packs: Iterable[str]) -> List[EventRule]:
     rules: List[EventRule] = []
     for pack in rule_packs:
         module = _load_rule_pack_module(pack)
-        build_event_rules = getattr(module, 'build_event_rules')
+        build_event_rules = module.build_event_rules
         rules.extend(cast(List[EventRule], build_event_rules()))
     return sorted(rules, key=lambda rule: rule.priority)
 
@@ -89,7 +89,7 @@ def load_trajectory_rules(rule_packs: Iterable[str]) -> List[TrajectoryRule]:
     rules: List[TrajectoryRule] = []
     for pack in rule_packs:
         module = _load_rule_pack_module(pack)
-        build_trajectory_rules = getattr(module, 'build_trajectory_rules')
+        build_trajectory_rules = module.build_trajectory_rules
         rules.extend(cast(List[TrajectoryRule], build_trajectory_rules()))
     return sorted(rules, key=lambda rule: rule.priority)
 

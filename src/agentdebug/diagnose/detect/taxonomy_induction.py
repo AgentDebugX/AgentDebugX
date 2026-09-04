@@ -34,7 +34,6 @@ reviewed ones.
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections.abc import Sequence

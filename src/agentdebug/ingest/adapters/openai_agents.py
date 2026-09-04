@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from types import TracebackType
-from typing import Any, List, Literal, Optional, Type
+from typing import Any, Literal, Optional, Type
 
 from agentdebug.ingest.adapters.base import AdapterStatus, FrameworkAdapter
 from agentdebug.schema import AgentTrajectory, EventType
