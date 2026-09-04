@@ -121,8 +121,15 @@ def convert_payload(
     task_id: Optional[str] = None,
     goal: Optional[str] = None,
     framework: Optional[str] = None,
+    strict_native: bool = False,
 ) -> AgentTrajectory:
     """Convert an offline trace payload into ``AgentTrajectory``.
+
+    ``strict_native=True`` refuses a ``messages`` export whose native tool-calling
+    envelope is inconsistent (an assistant ``tool_calls`` id not answered exactly
+    once, an orphan ``tool`` message, a missing or duplicate call id); see
+    :mod:`agentdebug.ingest.native_protocol`. The default stays lenient because
+    text-protocol transcripts carry no envelope at all.
 
     ``format='auto'`` is intended for CLI use and common exported logs. Pass an
     explicit format when a payload is ambiguous, for example a list of objects
@@ -148,6 +155,15 @@ def convert_payload(
         return traj
     if fmt in {'messages', 'message_list'}:
         messages = payload.get('messages') if isinstance(payload, dict) else payload
+        if strict_native:
+            from agentdebug.ingest.native_protocol import native_tool_message_violations
+
+            violations = native_tool_message_violations(
+                cast(Sequence[Any], messages), trace_uid=trace_id)
+            if violations:
+                reasons = sorted({str(v['reason']) for v in violations})
+                raise ConversionError(
+                    'native tool-calling envelope is inconsistent: ' + '; '.join(reasons))
         return _convert_messages_payload(
             payload if isinstance(payload, dict) else {'messages': messages},
             cast(Sequence[Dict[str, Any]], messages),

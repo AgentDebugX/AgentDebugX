@@ -8,9 +8,15 @@ from agentdebug.ingest.importers import (
     detect_payload_format,
     write_converted_trajectory,
 )
+from agentdebug.ingest.native_protocol import (
+    native_tool_message_violations,
+    native_tool_protocol_violations,
+)
 from agentdebug.ingest.recorder import AgentDebug, TraceSession
 
 __all__ = [
+    'native_tool_message_violations',
+    'native_tool_protocol_violations',
     'AgentDebug',
     'AdapterStatus',
     'ConversionError',
