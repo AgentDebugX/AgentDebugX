@@ -19,6 +19,11 @@ from pathlib import Path
 
 import pytest
 
+import pydantic
+
+if str(getattr(pydantic, 'VERSION', '2')).startswith('1'):
+    pytest.skip('the GUI package is pydantic v2 only', allow_module_level=True)
+
 from agentdebug.diagnose.gui_rca import GuiRcaAnalyzer
 from agentdebug.ingest.adapters.osworld import convert_osworld_dir
 from agentdebug.schema import Modality

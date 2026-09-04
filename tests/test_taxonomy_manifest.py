@@ -6,6 +6,7 @@ import pytest
 
 from agentdebug.schema.taxonomy import SEED_FAILURE_MODES
 from agentdebug.taxonomy_manifest import (
+    _model_dict,
     ABSTAIN_REASONS,
     ClassificationRequest,
     cohens_kappa,
@@ -29,9 +30,11 @@ def test_manifest_is_deterministic_and_covers_every_family() -> None:
 
 def test_fingerprint_changes_when_a_definition_changes() -> None:
     base = taxonomy_manifest()
-    modes = {k: v.model_copy() for k, v in SEED_FAILURE_MODES.items()}
+    modes = dict(SEED_FAILURE_MODES)
     key = next(iter(modes))
-    modes[key] = modes[key].model_copy(update={'description': modes[key].description + ' (edited)'})
+    edited = _model_dict(modes[key])
+    edited['description'] += ' (edited)'
+    modes[key] = type(modes[key])(**edited)
     assert taxonomy_manifest(modes).fingerprint != base.fingerprint
     # a pure reordering of the input does not
     reordered = dict(reversed(list(SEED_FAILURE_MODES.items())))

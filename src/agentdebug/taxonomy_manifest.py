@@ -47,6 +47,15 @@ ABSTAIN_REASONS = (
 )
 
 
+def _model_dict(model: Any) -> Dict[str, Any]:
+    """`model_dump()` on pydantic v2, `dict()` on v1, a plain dict copied as is."""
+    if hasattr(model, 'model_dump'):
+        return dict(model.model_dump())
+    if hasattr(model, 'dict'):
+        return dict(model.dict())
+    return dict(model)
+
+
 class ManifestMode(BaseModel):
     """One leaf mode as the labeller sees it."""
 
@@ -78,7 +87,7 @@ class TaxonomyManifest(BaseModel):
         return None
 
     def to_dict(self) -> Dict[str, Any]:
-        return dict(self.model_dump())
+        return _model_dict(self)
 
 
 def _canonical_json(value: Any) -> str:
@@ -86,7 +95,7 @@ def _canonical_json(value: Any) -> str:
 
 
 def _fingerprint(modes: Sequence[ManifestMode]) -> str:
-    payload = [mode.model_dump() for mode in sorted(modes, key=lambda m: m.mode_id)]
+    payload = [_model_dict(mode) for mode in sorted(modes, key=lambda m: m.mode_id)]
     return hashlib.sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
@@ -109,7 +118,7 @@ def taxonomy_manifest(
     listed: List[ManifestMode] = []
     seen: Set[str] = set()
     for key, mode in raw.items():
-        data = mode.model_dump() if hasattr(mode, 'model_dump') else dict(mode)
+        data = _model_dict(mode)
         mode_id = data.get('mode_id') or key
         if mode_id in seen:
             raise ValueError(f'duplicate mode id in taxonomy: {mode_id!r}')
