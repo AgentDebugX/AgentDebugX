@@ -39,7 +39,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from agentdebug.schema import (
     AgentEvent,
@@ -341,7 +351,7 @@ def annotate_quote_verification(
     return annotated
 
 
-def quote_verification_summary(findings: Iterable[FailureFinding]) -> dict:
+def quote_verification_summary(findings: Iterable[FailureFinding]) -> Dict[str, int]:
     """Counts by verification state, for reporting a detector's grounding rate.
 
     The ratio of ``verified`` to ``verified + unsupported`` is a measurable
@@ -384,8 +394,17 @@ def quote_verification_summary(findings: Iterable[FailureFinding]) -> dict:
 # of a real event are different defects with different fixes.
 #
 # Nothing below changes what :func:`verify_finding_quotes` accepts. The
-# ``normalized`` rung applies the same normalisation, so a quote that verifies
-# also locates; the extra information is *where*.
+# ``normalized`` rung applies the same normalisation first, so a quote that
+# verifies also locates; the extra information is *where*. It then goes one
+# step wider than verification -- quotation marks are dropped on both sides
+# (see :func:`_canon`) -- so a quote may locate without verifying. Measured on
+# 1,500 evidence quotes from a consumer's debug corpus (AgentErrorData,
+# ``scripts/evidence_region_vs_upstream.py``), 402 quotes the consumer's own
+# rung ladder anchored were not grounded here; 337 of them differed from the
+# stored field in nothing but a renderer's role label (``Observation: ...``,
+# ``step 8 action: ...``) and 11 more in nothing but the kind of quotation
+# mark, which is why both are treated as framing rather than content. After
+# this change 54 remain, and those are real edits or two-field composites.
 # ---------------------------------------------------------------------------
 
 #: Rungs, strictest first. A quote is credited to the first rung that locates it.
@@ -393,7 +412,10 @@ def quote_verification_summary(findings: Iterable[FailureFinding]) -> dict:
 #: ``normalized`` -- substring after the normalisation ``verify_finding_quotes``
 #: applies (JSON escapes, whitespace, a trailing truncation marker) and after
 #: removing the framing a renderer puts around an event -- ``[step 3]``,
-#: ``event_id=evt_...``, ``output=`` -- which a model copying a line copies too.
+#: ``event_id=evt_...``, ``output=``, ``Observation:`` -- which a model copying
+#: a line copies too; failing that, with quotation marks dropped on both
+#: sides, since a stored ``repr`` and a model's JSON re-quoting of it differ
+#: in nothing else.
 #: ``anchored`` -- the text was found nowhere, but the quote (or the caller)
 #: named an event id that exists. A pointer, not a transcription.
 #: ``unresolvable`` -- neither the text nor an anchor places it.
@@ -427,20 +449,38 @@ ANCHOR_ELSEWHERE = 'elsewhere'
 
 _EVENT_FIELDS = ('input', 'output', 'error')
 
+#: The label a renderer prints in front of an event's text (``Thought:``,
+#: ``Action:``, ``Observation:``, ``Feedback:``), and the ones models add
+#: themselves when reproducing a line (``env:``, ``error:``, ``solver:``,
+#: ``verifier signal:``). A renderer that folds the error field into the
+#: label -- ``Observation (tool error: unknown_carrier): Rejected.`` -- is
+#: covered by the optional parenthetical. The label is framing; the text
+#: after the colon must still match a stored field.
+_ROLE_LABEL = (
+    r'(?:thought|action|observation|feedback|env|error|solver|signal|user|executor'
+    r'|verifier[ _]signal|verification|verifier)(?:\s*\([^)]*\))?\s*:'
+)
+#: The event-id forms the built-in renderers print (``event_id=evt_x``) and
+#: the ones models write when asked to cite (``evt_x: ...``, ``(evt_x) ...``,
+#: ``[evt_x][agent][kind] ...``).
+_EVENT_REF = (
+    r'\[(?P<bracket>evt_\w+)\](?:\[[^\]]*\]){0,2}'
+    r'|\((?P<paren>evt_\w+)\)'
+    r'|event_id\s*=\s*(?P<kw>[^\s,;:]+)'
+    r'|(?P<colon>evt_\w+)\s*[:\-]'
+)
 #: Framing a renderer puts around an event, or a model adds when reproducing a
 #: line. Anchored on the start of the quote, so only a leading frame is
-#: removed and the quoted content itself must still match. The event-id forms
-#: are the ones the built-in renderers print (``event_id=evt_x``) and the ones
-#: models write when asked to cite (``evt_x: ...``, ``(evt_x) ...``,
-#: ``[evt_x][agent][kind] ...``).
+#: removed and the quoted content itself must still match. A bare ``step 3``
+#: (no colon) counts as framing only when an event reference or a role label
+#: follows it, so ``step 3 of the plan`` keeps its first two words.
 _FRAME = re.compile(
     r'^\s*'
-    r'(?:\[step\s+\d+\]|step\s+\d+\s*[:\-])?\s*'
-    r'(?:\[(?P<bracket>evt_\w+)\](?:\[[^\]]*\]){0,2}'
-    r'|\((?P<paren>evt_\w+)\)'
-    r'|event_id=(?P<kw>[^\s,;:]+)'
-    r'|(?P<colon>evt_\w+)\s*[:\-])?\s*'
+    r'(?:\[step\s+\d+\]|step\s+\d+\s*[:\-]'
+    r'|step\s+\d+(?=\s+(?:[\[(]?evt_|event_id\s*=|' + _ROLE_LABEL + r')))?\s*'
+    r'(?:' + _EVENT_REF + r')?\s*'
     r'(?:(?:type|agent)=\S+\s*)*'
+    r'(?:' + _ROLE_LABEL + r')?\s*'
     r'(?:(?:input|output|error|metadata)\s*[:=])?\s*',
     re.IGNORECASE,
 )
@@ -497,6 +537,13 @@ def _norm_with_map(text: str) -> Tuple[str, List[Tuple[int, int]]]:
     spans = [(i, i + 1) for i in range(len(text))]
     for seq, char in _ESCAPES:
         chars, spans = _replace_with_map(chars, spans, seq, char)
+    return _collapse_ws_with_map(chars, spans)
+
+
+def _collapse_ws_with_map(
+    chars: Sequence[str], spans: Sequence[Tuple[int, int]]
+) -> Tuple[str, List[Tuple[int, int]]]:
+    """``_WS.sub(' ', text).strip()`` over a character list, spans carried along."""
     out_chars: List[str] = []
     out_spans: List[Tuple[int, int]] = []
     i = 0
@@ -519,6 +566,42 @@ def _norm_with_map(text: str) -> Tuple[str, List[Tuple[int, int]]]:
         out_chars.pop()
         out_spans.pop()
     return ''.join(out_chars), out_spans
+
+
+#: Quotation marks, straight and typographic. A stored tool call is a Python
+#: ``repr`` with single quotes; a model re-quotes it as JSON with double
+#: quotes, or a chat surface curls them. Measured on the consumer corpus
+#: above, 11 quotes located only once these were dropped. Case, wording and
+#: punctuation are still not normalised.
+_QUOTE_MARKS = '"\'`\u2018\u2019\u201c\u201d'
+_QUOTE_CHARS = re.compile('[' + re.escape(_QUOTE_MARKS) + ']')
+
+
+def _canon(text: str) -> str:
+    """:func:`_norm`, then quotation marks dropped and whitespace re-collapsed.
+
+    Dropping a mark can leave two spaces adjacent (``a ' b``) or one at an
+    end (``'x'``), so the collapse runs again; both sides go through the same
+    function, so what matters is only that it is deterministic.
+    """
+    return _WS.sub(' ', _QUOTE_CHARS.sub('', _norm(text))).strip()
+
+
+def _canon_quote(text: str) -> str:
+    """:func:`_canon` of a model-supplied quote, truncation marker removed first."""
+    return _canon(_norm_quote(text))
+
+
+def _canon_with_map(text: str) -> Tuple[str, List[Tuple[int, int]]]:
+    """:func:`_canon`, plus the offset map :func:`_norm_with_map` provides.
+
+    Built on the ``_norm`` map, so the two stay equivalent by construction:
+    the mapped characters are filtered and re-collapsed exactly as ``_canon``
+    filters and re-collapses the string.
+    """
+    mapped, spans = _norm_with_map(text)
+    kept = [(c, span) for c, span in zip(mapped, spans) if c not in _QUOTE_MARKS]
+    return _collapse_ws_with_map([c for c, _ in kept], [span for _, span in kept])
 
 
 def _replace_with_map(
@@ -675,50 +758,28 @@ def locate_quote(
     if anchor_event is not None:
         order.sort(key=lambda i: events[i] is not anchor_event)
 
-    # Rung 1: the quote as given, verbatim.
-    exact = quote
-    for i in order:
-        found = _find_in_event(events[i], i, exact, shown, normalized=False)
-        if found is not None:
-            return finish(found)
-    if trajectory.goal and exact in trajectory.goal:
-        start = trajectory.goal.index(exact)
-        return finish(QuoteLocation(
-            rung=RUNG_EXACT, region=REGION_GOAL, span=(start, start + len(exact)),
-            text=exact,
-        ))
-    if inner and inner != exact:
-        for i in order:
-            found = _find_in_event(events[i], i, inner, shown, normalized=False)
-            if found is not None:
-                return finish(found)
-        if trajectory.goal and inner in trajectory.goal:
-            start = trajectory.goal.index(inner)
-            return finish(QuoteLocation(
-                rung=RUNG_EXACT, region=REGION_GOAL, span=(start, start + len(inner)),
-                text=inner,
-            ))
-
-    # Rung 2: after the normalisation `verify_finding_quotes` applies, with the
-    # quote's own framing removed. The unframed form is tried first so that a
-    # quote copied from a rendering that includes the frame still resolves
-    # against `shown`.
-    needles: List[str] = []
-    for candidate in (_norm_quote(quote), _norm_quote(inner)):
-        if candidate and candidate not in needles:
-            needles.append(candidate)
-    for needle in needles:
-        for i in order:
-            found = _find_in_event(events[i], i, needle, shown, normalized=True)
-            if found is not None:
-                return finish(found)
-        if trajectory.goal:
-            span = _find_normalized(needle, trajectory.goal)
-            if span is not None:
-                return finish(QuoteLocation(
-                    rung=RUNG_NORMALIZED, region=REGION_GOAL, span=span,
-                    text=trajectory.goal[span[0]:span[1]],
-                ))
+    # Rung 1: the quote as given, verbatim, then with its own framing removed.
+    # Rung 2: after the normalisation `verify_finding_quotes` applies, then --
+    # wider than verification -- with quotation marks dropped. At every step
+    # the framed form is tried before the unframed one, so that a quote copied
+    # from a rendering that includes the frame still resolves against `shown`.
+    for rung, prepare, finder in _LADDER:
+        needles: List[str] = []
+        for candidate in (prepare(quote), prepare(inner)):
+            if candidate and candidate not in needles:
+                needles.append(candidate)
+        for needle in needles:
+            for i in order:
+                found = _find_in_event(events[i], i, needle, shown, rung, finder)
+                if found is not None:
+                    return finish(found)
+            if trajectory.goal:
+                span = finder(needle, trajectory.goal)
+                if span is not None:
+                    return finish(QuoteLocation(
+                        rung=rung, region=REGION_GOAL, span=span,
+                        text=trajectory.goal[span[0]:span[1]],
+                    ))
 
     # Rung 3: no text located; a real anchor still places the claim at an event.
     if anchor_event is not None:
@@ -732,20 +793,56 @@ def locate_quote(
     return finish(QuoteLocation(rung=RUNG_UNRESOLVABLE, region=REGION_NONE))
 
 
-def _find_normalized(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
-    """Span of ``needle`` in ``haystack`` after ``_norm``, mapped back to raw offsets.
+_Finder = Callable[[str, str], Optional[Tuple[int, int]]]
+_Mapper = Callable[[str], Tuple[str, List[Tuple[int, int]]]]
 
-    The regex-based ``_norm`` is the fast pre-check; the offset map is built
-    only for a haystack that contains the needle.
+
+def _find_mapped(
+    needle: str, haystack: str, canonical: Callable[[str], str], with_map: _Mapper
+) -> Optional[Tuple[int, int]]:
+    """Span of an already-canonical ``needle`` in ``haystack``, in raw offsets.
+
+    The regex-based ``canonical`` is the fast pre-check; the offset map is
+    built only for a haystack that contains the needle.
     """
-    if not needle or needle not in _norm(haystack):
+    if not needle or needle not in canonical(haystack):
         return None
-    mapped, spans = _norm_with_map(haystack)
+    mapped, spans = with_map(haystack)
     start = mapped.find(needle)
-    if start < 0:  # pragma: no cover - the map is equivalent to _norm by construction
+    if start < 0:  # pragma: no cover - the map is equivalent by construction
         return None
     end = start + len(needle)
     return spans[start][0], spans[end - 1][1]
+
+
+def _find_normalized(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
+    """Span of ``needle`` in ``haystack`` after ``_norm``, mapped back to raw offsets."""
+    return _find_mapped(needle, haystack, _norm, _norm_with_map)
+
+
+def _find_canon(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
+    """Span of ``needle`` in ``haystack`` after ``_canon``, mapped back to raw offsets."""
+    return _find_mapped(needle, haystack, _canon, _canon_with_map)
+
+
+def _find_exact(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
+    start = haystack.find(needle)
+    if start < 0:
+        return None
+    return start, start + len(needle)
+
+
+def _verbatim(text: str) -> str:
+    return text
+
+
+#: The rungs :func:`locate_quote` climbs, strictest first: how the quote is
+#: prepared, and how a haystack is searched for it.
+_LADDER: Tuple[Tuple[str, Callable[[str], str], _Finder], ...] = (
+    (RUNG_EXACT, _verbatim, _find_exact),
+    (RUNG_NORMALIZED, _norm_quote, _find_normalized),
+    (RUNG_NORMALIZED, _canon_quote, _find_canon),
+)
 
 
 def _find_in_event(
@@ -753,14 +850,14 @@ def _find_in_event(
     index: int,
     needle: str,
     shown: Optional[Mapping[str, str]],
-    normalized: bool,
+    rung: str,
+    finder: _Finder,
 ) -> Optional[QuoteLocation]:
-    rung = RUNG_NORMALIZED if normalized else RUNG_EXACT
     for field in _EVENT_FIELDS:
         text = _field_text(event, field)
         if not text:
             continue
-        span = _find_normalized(needle, text) if normalized else _find_exact(needle, text)
+        span = finder(needle, text)
         if span is not None:
             return QuoteLocation(
                 rung=rung, region=REGION_EVENT, event_id=event.event_id,
@@ -770,7 +867,7 @@ def _find_in_event(
             )
     rendered = (shown or {}).get(event.event_id)
     if rendered:
-        span = _find_normalized(needle, rendered) if normalized else _find_exact(needle, rendered)
+        span = finder(needle, rendered)
         if span is not None:
             return QuoteLocation(
                 rung=rung, region=REGION_SHOWN, event_id=event.event_id,
@@ -779,13 +876,6 @@ def _find_in_event(
                 text=rendered[span[0]:span[1]],
             )
     return None
-
-
-def _find_exact(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
-    start = haystack.find(needle)
-    if start < 0:
-        return None
-    return start, start + len(needle)
 
 
 @dataclass(frozen=True)

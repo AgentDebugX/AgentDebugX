@@ -25,6 +25,8 @@ from agentdebug.diagnose.detect.evidence import (
     RUNG_EXACT,
     RUNG_NORMALIZED,
     RUNG_UNRESOLVABLE,
+    _canon,
+    _canon_with_map,
     _norm,
     _norm_with_map,
     annotate_evidence_regions,
@@ -265,6 +267,173 @@ class TestJsonEscapedSource:
         assert grounding.grounded is True
 
 
+class TestRendererFrames:
+    """A model copying a rendered line copies the renderer's label with it.
+
+    ``Observation: ...``, ``step 8 action: ...``, ``Step 4 [evt_x] env: ...``
+    are what consumers' renderers print and what models write back. Measured
+    on 1,500 evidence quotes from one such consumer, 402 quotes that its own
+    checker anchored were not grounded here, and 337 of them differed from a
+    stored field in nothing but such a label. The label is framing; the text
+    after it must still match.
+    """
+
+    @pytest.fixture
+    def fridge(self) -> AgentTrajectory:
+        traj = AgentTrajectory(trace_id='t6')
+        traj.add_event(AgentEvent(
+            event_id='evt_call', trace_id='t6', event_type=EventType.TOOL_CALL,
+            step_index=0, input={'tool': 'open', 'target': 'fridge 1'},
+        ))
+        traj.add_event(AgentEvent(
+            event_id='evt_res', trace_id='t6', event_type=EventType.TOOL_RESULT,
+            step_index=0, output='Rejected. No carrier latam. Available: atlas.',
+            error='unknown_carrier',
+        ))
+        return traj
+
+    def test_a_role_label_is_framing_and_the_text_is_exact(
+        self, trajectory: AgentTrajectory
+    ) -> None:
+        loc = locate_quote(trajectory, f'Observation: {DESK}')
+        assert loc.rung == RUNG_EXACT
+        assert (loc.event_id, loc.field, loc.span) == ('evt_desk', 'output', (0, len(DESK)))
+        assert loc.text == DESK
+
+    def test_an_action_label_over_a_repr_input(self, fridge: AgentTrajectory) -> None:
+        """A tool call is stored as a dict; the renderer prints its ``repr``."""
+        loc = locate_quote(fridge, "Action: {'tool': 'open', 'target': 'fridge 1'}")
+        assert (loc.rung, loc.event_id, loc.field) == (RUNG_EXACT, 'evt_call', 'input')
+        assert loc.text == repr({'tool': 'open', 'target': 'fridge 1'})
+
+    def test_a_label_that_folds_in_the_error_field(self, fridge: AgentTrajectory) -> None:
+        """``Observation (tool error: x): y`` is one rendered line over two fields."""
+        loc = locate_quote(
+            fridge, 'Observation (tool error: unknown_carrier): Rejected. No carrier latam.'
+        )
+        assert (loc.rung, loc.event_id, loc.field) == (RUNG_EXACT, 'evt_res', 'output')
+        assert loc.text == 'Rejected. No carrier latam.'
+
+    @pytest.mark.parametrize('quote', [
+        'step 1 observation: you see a cd 3',
+        'Step 1 Observation: you see a cd 3',
+        '[step 1] env: you see a cd 3',
+        'step 1: env: you see a cd 3',
+    ])
+    def test_a_step_number_before_a_label_needs_no_colon(
+        self, trajectory: AgentTrajectory, quote: str
+    ) -> None:
+        loc = locate_quote(trajectory, quote)
+        assert (loc.rung, loc.event_id) == (RUNG_EXACT, 'evt_desk')
+        assert loc.anchor_status == ANCHOR_NOT_DECLARED
+
+    def test_a_step_number_before_an_event_reference_and_a_label(
+        self, trajectory: AgentTrajectory
+    ) -> None:
+        loc = locate_quote(trajectory, 'Step 1 [evt_desk] env: you see a cd 3')
+        assert (loc.rung, loc.event_id) == (RUNG_EXACT, 'evt_desk')
+        assert (loc.anchor, loc.anchor_status) == ('evt_desk', ANCHOR_RESOLVED)
+
+    def test_a_bare_step_number_is_not_framing(self) -> None:
+        """``step 3 of the plan`` is prose; its first two words are content."""
+        traj = AgentTrajectory(trace_id='t7')
+        traj.add_event(AgentEvent(
+            event_id='evt_a', trace_id='t7', event_type=EventType.AGENT_STEP,
+            step_index=3, output='of the plan was executed',
+        ))
+        assert locate_quote(traj, 'step 3 of the plan was executed').rung == RUNG_UNRESOLVABLE
+        assert locate_quote(traj, 'step 3').rung == RUNG_UNRESOLVABLE
+
+    def test_the_label_alone_locates_nothing(self, trajectory: AgentTrajectory) -> None:
+        assert locate_quote(trajectory, 'Observation:').rung == RUNG_UNRESOLVABLE
+
+
+class TestQuotationMarks:
+    """A stored ``repr`` uses single quotes; a model re-quotes it as JSON.
+
+    Measured on the same 1,500 quotes, 11 located only once quotation marks
+    were dropped. They locate under ``normalized``, with a span into the raw
+    field, and they still do not *verify*: the ``quote_verified`` contract is
+    untouched.
+    """
+
+    @pytest.fixture
+    def fridge(self) -> AgentTrajectory:
+        traj = AgentTrajectory(trace_id='t8')
+        traj.add_event(AgentEvent(
+            event_id='evt_call', trace_id='t8', event_type=EventType.TOOL_CALL,
+            step_index=0, input={'tool': 'open', 'target': 'fridge 1'},
+            error="PermissionError: 'fridge 1' is locked",
+        ))
+        return traj
+
+    def test_json_quotes_locate_a_repr_input(self, fridge: AgentTrajectory) -> None:
+        quote = '{"tool": "open", "target": "fridge 1"}'
+        loc = locate_quote(fridge, quote)
+        assert (loc.rung, loc.event_id, loc.field) == (RUNG_NORMALIZED, 'evt_call', 'input')
+        raw = repr({'tool': 'open', 'target': 'fridge 1'})
+        assert loc.span is not None and raw[loc.span[0]:loc.span[1]] == loc.text == raw
+        assert _canon(loc.text) == _canon(quote)
+
+    def test_typographic_quotes_locate_straight_ones(self, fridge: AgentTrajectory) -> None:
+        loc = locate_quote(fridge, 'PermissionError: \u201cfridge 1\u201d is locked')
+        assert (loc.rung, loc.field) == (RUNG_NORMALIZED, 'error')
+        assert loc.text == "PermissionError: 'fridge 1' is locked"
+
+    def test_a_frame_and_re_quoting_together(self, fridge: AgentTrajectory) -> None:
+        loc = locate_quote(fridge, 'step 0 action: {"tool": "open", "target": "fridge 1"}')
+        assert (loc.rung, loc.field) == (RUNG_NORMALIZED, 'input')
+
+    def test_marks_are_ignored_not_matched_across(self, fridge: AgentTrajectory) -> None:
+        """Dropping marks must not let ``fridge 1`` bridge two fields or invent text."""
+        assert locate_quote(fridge, '{"tool": "open", "target": "fridge 2"}').rung == (
+            RUNG_UNRESOLVABLE
+        )
+
+    def test_verification_is_unchanged(self, fridge: AgentTrajectory) -> None:
+        """Locates, and does not verify: the wider rung is location-only."""
+        quote = '{"tool": "open", "target": "fridge 1"}'
+        assert locate_quote(fridge, quote).grounded
+        finding = FailureFinding(
+            failure_mode=MODE, event_id='evt_call', step_index=0,
+            wrong_content_quote=quote,
+        )
+        assert verify_finding_quotes(finding, fridge) is False
+
+
+class TestWhatStillDoesNotLocate:
+    """Widening the normalisation must not start crediting non-quotes.
+
+    Prose, statistics, step pointers and absence claims are not transcriptions
+    of anything, and a consumer that rejects them must be able to keep doing
+    so after routing through :func:`locate_quote`. Measured on the consumer
+    corpus, spans its checker files under a not-a-quote rung and this
+    function grounds went from 54 to 60, and all six newcomers are verbatim
+    text: five quote the run-end verifier signal behind a ``Verifier
+    signal:`` label, one differs in a curly apostrophe. No statistic, step
+    pointer or absence claim crossed.
+    """
+
+    @pytest.mark.parametrize('quote', [
+        'the agent never looked at the desk',        # absence claim
+        'steps=4 n_tool_calls=1',                     # statistics
+        'step 1',                                     # step pointer
+        'turn 2',                                     # step pointer
+        'the desk holds three items',                 # prose about the event
+        'Observation: the desk holds three items',    # prose behind a label
+        '"the desk holds three items"',               # prose in quotation marks
+    ])
+    def test_not_a_quote_is_unresolvable(
+        self, trajectory: AgentTrajectory, quote: str
+    ) -> None:
+        loc = locate_quote(trajectory, quote)
+        assert loc.rung == RUNG_UNRESOLVABLE
+        assert not loc.grounded
+
+    def test_case_is_still_content(self, trajectory: AgentTrajectory) -> None:
+        assert locate_quote(trajectory, 'You See A CD 3').rung == RUNG_UNRESOLVABLE
+
+
 class TestNormalizationMap:
     @pytest.mark.parametrize('text', [
         'plain',
@@ -285,6 +454,28 @@ class TestNormalizationMap:
             assert 0 <= start < end <= len(text)
             if char != ' ':
                 assert _norm(text[start:end]) == char
+
+    @pytest.mark.parametrize('text', [
+        'plain',
+        '"quoted" text',
+        "it's ' alone '",
+        '\u201ccurly\u201d and \u2018single\u2019 and `back`',
+        'a " b',
+        "'",
+        '\'"\'',
+        '',
+        '  "padded"  ',
+        'escaped \\" mark',
+    ])
+    def test_the_canon_map_reproduces_canon_exactly(self, text: str) -> None:
+        """Same contract as ``_norm``: the mapped text IS ``_canon``."""
+        mapped, spans = _canon_with_map(text)
+        assert mapped == _canon(text)
+        assert len(spans) == len(mapped)
+        for (start, end), char in zip(spans, mapped):
+            assert 0 <= start < end <= len(text)
+            if char != ' ':
+                assert _canon(text[start:end]) == char
 
 
 class TestGroundsTrajectory:
