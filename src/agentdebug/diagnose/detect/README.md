@@ -64,6 +64,64 @@ still fails.
 
 Adapted from TrajDebug Stage B (THU-KEG/TrajDebug, MIT).
 
+### Where a quote came from
+
+`quote_verified` is a boolean, which is what a detector needs to keep or drop
+a finding. A consumer that stores findings needs to know *where* a quote was
+found, because position is evidence too: a verbatim quote of the grader's
+verdict at the last event does not support a diagnosis of step 4.
+
+`locate_quote(trajectory, quote, anchor=None, shown=None)` returns a
+`QuoteLocation`:
+
+- `rung` -- `exact` (verbatim substring of the stored field), `normalized`
+  (after the same normalisation `verify_finding_quotes` applies, plus removal
+  of the renderer's `[step 3] event_id=... output=` framing and one pair of
+  wrapping quotation marks), `anchored` (the text was found nowhere but the
+  quote or the caller named an event id that exists -- a pointer, not a
+  transcription), or `unresolvable`
+- `region` -- `event`, `shown` (the text a detector rendered for an event),
+  `goal`, or `none`; with `event_id`, `event_index`, `step_index`,
+  `event_type` and `field` (`input` / `output` / `error`) for an event
+- `span` and `text` -- character offsets into the stored field (as `str`, or
+  `repr` for a non-string value), the `shown` text, or the goal, and the slice
+  they cover. Offsets are into the raw field even when the match was made after
+  unescaping, so `event.output[start:end]` is the cited text
+- `anchor` and `anchor_status` -- `not_declared`, `resolved`, `unknown_event`
+  (an id the trajectory does not contain), or `elsewhere` (a real id whose
+  event does not contain the text: a mislabelling, not a fabrication)
+- `grounded` -- `rung` is `exact` or `normalized` and `region` is `event` or
+  `shown`. A goal quote is faithful and grounds nothing about the trajectory;
+  a real pointer locates an event but cannot be checked by string search.
+
+Rungs are tried strictest first; within a rung the anchor's event is searched
+before the others, then the remaining events in order, then the goal.
+
+`resolve_anchor(trajectory, event_id)` returns the event an id names, by exact
+match, or `None`.
+
+`grounds_trajectory(findings, trajectory, shown=None)` locates the
+`wrong_content_quote` (anchored on the blamed event) and `reference_quote` of
+each finding and places each relative to the blamed event: `position` is
+`before` / `at` / `after`, and `at_or_before_blame` is the question a consumer
+asks -- was this text in front of the agent when it acted? `FindingGrounding.
+grounded` is `None` for a finding with no quotes (as `quote_verified` is),
+and otherwise requires every quote to be located under a grounding rung, none
+to come from after the blame, and the wrong-content quote to sit at it.
+`annotate_evidence_regions(findings, trajectory)` writes that as JSON into
+`finding.metadata['evidence_regions']`, next to `quote_verified`.
+
+```python
+from agentdebug.diagnose.detect.evidence import locate_quote, grounds_trajectory
+
+loc = locate_quote(trajectory, 'you see a cd 3')
+loc.rung, loc.event_id, loc.field, loc.span   # 'exact', 'evt_...', 'output', (17, 31)
+
+for g in grounds_trajectory(report.findings, trajectory):
+    for q in g.quotes:
+        print(g.finding_id, q.role, q.location.rung, q.position, q.at_or_before_blame)
+```
+
 ## Context budget
 
 Both LLM detectors render the trajectory by clipping each event to a fixed

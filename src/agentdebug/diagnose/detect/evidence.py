@@ -38,7 +38,8 @@ Adapted from the evidence-grounding requirement in TrajDebug
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Mapping, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from agentdebug.schema import (
     AgentEvent,
@@ -52,6 +53,14 @@ __all__ = [
     'verify_finding_quotes',
     'annotate_quote_verification',
     'quote_verification_summary',
+    'QuoteLocation',
+    'QuoteGrounding',
+    'FindingGrounding',
+    'locate_quote',
+    'resolve_anchor',
+    'grounds_trajectory',
+    'annotate_evidence_regions',
+    'GROUNDING_RUNGS',
 ]
 
 _WS = re.compile(r'\s+')
@@ -358,3 +367,574 @@ def quote_verification_summary(findings: Iterable[FailureFinding]) -> dict:
         else:
             summary['unchecked'] += 1
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Region-typed location
+#
+# :func:`verify_finding_quotes` answers "does the quote occur where the finding
+# says it does" with a boolean, which is what a detector needs to keep or drop
+# a finding. A consumer that *stores* findings needs more than the boolean. It
+# needs to know where the quote was found -- which event, which field of it,
+# at which character span -- so that a claim about the trajectory can be
+# checked against the position of its evidence: a verbatim quote of the
+# grader's verdict at the last event does not support a diagnosis of step 4.
+# And when the quote cannot be found it needs to know whether the finding at
+# least pointed at a real event, because an invented event id and a paraphrase
+# of a real event are different defects with different fixes.
+#
+# Nothing below changes what :func:`verify_finding_quotes` accepts. The
+# ``normalized`` rung applies the same normalisation, so a quote that verifies
+# also locates; the extra information is *where*.
+# ---------------------------------------------------------------------------
+
+#: Rungs, strictest first. A quote is credited to the first rung that locates it.
+#: ``exact`` -- verbatim substring of the stored field.
+#: ``normalized`` -- substring after the normalisation ``verify_finding_quotes``
+#: applies (JSON escapes, whitespace, a trailing truncation marker) and after
+#: removing the framing a renderer puts around an event -- ``[step 3]``,
+#: ``event_id=evt_...``, ``output=`` -- which a model copying a line copies too.
+#: ``anchored`` -- the text was found nowhere, but the quote (or the caller)
+#: named an event id that exists. A pointer, not a transcription.
+#: ``unresolvable`` -- neither the text nor an anchor places it.
+RUNG_EXACT = 'exact'
+RUNG_NORMALIZED = 'normalized'
+RUNG_ANCHORED = 'anchored'
+RUNG_UNRESOLVABLE = 'unresolvable'
+#: Rungs under which the quoted text is demonstrably present. ``anchored`` is
+#: deliberately excluded: a real pointer with unverifiable text locates an
+#: event, but it does not let a reader falsify the quote by string search.
+GROUNDING_RUNGS = frozenset({RUNG_EXACT, RUNG_NORMALIZED})
+
+#: Where a quote was found. ``event`` is a stored field of an event; ``shown``
+#: is the text a detector rendered for an event (see ``verify_finding_quotes``
+#: for why that is a permitted, weaker, haystack); ``goal`` is the task
+#: statement, which is not an event and grounds nothing about what the agent
+#: did.
+REGION_EVENT = 'event'
+REGION_SHOWN = 'shown'
+REGION_GOAL = 'goal'
+REGION_NONE = 'none'
+
+#: What the declared anchor turned out to be, relative to where the text was
+#: found. ``resolved`` and ``elsewhere`` both mean the event exists; they
+#: differ in whether the quote is in it. A real id carrying another event's
+#: text is a mislabelling, not a fabrication, and the two need different fixes.
+ANCHOR_NOT_DECLARED = 'not_declared'
+ANCHOR_RESOLVED = 'resolved'
+ANCHOR_UNKNOWN_EVENT = 'unknown_event'
+ANCHOR_ELSEWHERE = 'elsewhere'
+
+_EVENT_FIELDS = ('input', 'output', 'error')
+
+#: Framing a renderer puts around an event, or a model adds when reproducing a
+#: line. Anchored on the start of the quote, so only a leading frame is
+#: removed and the quoted content itself must still match. The event-id forms
+#: are the ones the built-in renderers print (``event_id=evt_x``) and the ones
+#: models write when asked to cite (``evt_x: ...``, ``(evt_x) ...``,
+#: ``[evt_x][agent][kind] ...``).
+_FRAME = re.compile(
+    r'^\s*'
+    r'(?:\[step\s+\d+\]|step\s+\d+\s*[:\-])?\s*'
+    r'(?:\[(?P<bracket>evt_\w+)\](?:\[[^\]]*\]){0,2}'
+    r'|\((?P<paren>evt_\w+)\)'
+    r'|event_id=(?P<kw>[^\s,;:]+)'
+    r'|(?P<colon>evt_\w+)\s*[:\-])?\s*'
+    r'(?:(?:type|agent)=\S+\s*)*'
+    r'(?:(?:input|output|error|metadata)\s*[:=])?\s*',
+    re.IGNORECASE,
+)
+_QUOTE_PAIRS = (('"', '"'), ("'", "'"), ('`', '`'), ('“', '”'), ('‘', '’'))
+
+
+_BARE_ID = re.compile(r'^(?P<id>evt_[A-Za-z0-9_-]+)(?:\s*:\s*(?P<rest>.*))?$', re.S)
+
+
+def _split_frame(quote: str) -> Tuple[Optional[str], str]:
+    """Return ``(declared event id, content)`` for a possibly framed quote.
+
+    One pair of wrapping quotation marks is removed as well, because a model
+    that writes ``step 3: "text"`` has quoted ``text``. Only a matching pair
+    is removed, so a quote that legitimately begins with a quotation mark --
+    a JSON fragment such as ``"answer": 5`` -- keeps it.
+    """
+    match = _FRAME.match(quote)
+    declared: Optional[str] = None
+    inner = quote
+    if match:
+        declared = (
+            match.group('bracket') or match.group('paren')
+            or match.group('kw') or match.group('colon')
+        )
+        inner = quote[match.end():]
+    if declared is None:
+        # `_FRAME` is entirely optional and so always matches; a bare event id
+        # (`evt_x`) or `evt_x: text` that its alternatives do not cover is
+        # still a declared anchor.
+        bare = _BARE_ID.match(inner.strip())
+        if bare:
+            declared = bare.group('id')
+            inner = bare.group('rest') or ''
+    inner = inner.strip()
+    for open_, close in _QUOTE_PAIRS:
+        if len(inner) >= 2 and inner.startswith(open_) and inner.endswith(close):
+            inner = inner[1:-1].strip()
+            break
+    return declared, inner
+
+
+def _norm_with_map(text: str) -> Tuple[str, List[Tuple[int, int]]]:
+    """:func:`_norm`, plus for each output character its ``(start, end)`` in ``text``.
+
+    Kept step-for-step equivalent to ``_norm`` -- the same sequential escape
+    replacements, then whitespace runs collapsed to one space, then a strip --
+    so that a needle found in the mapped text is found by ``_norm`` too. The
+    map is what lets a match made after normalisation report a span into the
+    raw field, which is the only form a span is useful in: a consumer slices
+    the stored value, not our scratch string.
+    """
+    chars = list(text)
+    spans = [(i, i + 1) for i in range(len(text))]
+    for seq, char in _ESCAPES:
+        chars, spans = _replace_with_map(chars, spans, seq, char)
+    out_chars: List[str] = []
+    out_spans: List[Tuple[int, int]] = []
+    i = 0
+    while i < len(chars):
+        if chars[i].isspace():
+            j = i
+            while j < len(chars) and chars[j].isspace():
+                j += 1
+            out_chars.append(' ')
+            out_spans.append((spans[i][0], spans[j - 1][1]))
+            i = j
+        else:
+            out_chars.append(chars[i])
+            out_spans.append(spans[i])
+            i += 1
+    while out_chars and out_chars[0] == ' ':
+        out_chars.pop(0)
+        out_spans.pop(0)
+    while out_chars and out_chars[-1] == ' ':
+        out_chars.pop()
+        out_spans.pop()
+    return ''.join(out_chars), out_spans
+
+
+def _replace_with_map(
+    chars: List[str], spans: List[Tuple[int, int]], seq: str, char: str
+) -> Tuple[List[str], List[Tuple[int, int]]]:
+    """``str.replace`` over a character list, carrying source spans along."""
+    n = len(seq)
+    out_chars: List[str] = []
+    out_spans: List[Tuple[int, int]] = []
+    i = 0
+    while i < len(chars):
+        if chars[i] == seq[0] and ''.join(chars[i:i + n]) == seq:
+            out_chars.append(char)
+            out_spans.append((spans[i][0], spans[i + n - 1][1]))
+            i += n
+        else:
+            out_chars.append(chars[i])
+            out_spans.append(spans[i])
+            i += 1
+    return out_chars, out_spans
+
+
+def _field_text(event: AgentEvent, field: str) -> str:
+    """The string a field is searched as. Mirrors ``_event_text``: non-strings by repr."""
+    value = getattr(event, field, None)
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value
+    return repr(value)
+
+
+def _event_type_value(event: AgentEvent) -> str:
+    return str(getattr(event.event_type, 'value', event.event_type))
+
+
+@dataclass(frozen=True)
+class QuoteLocation:
+    """Where a quote was found, and how.
+
+    ``span`` indexes the text named by ``region`` and ``field``: the stored
+    field (as ``str``, or ``repr`` for a non-string value), the ``shown`` text
+    for that event, or the goal. ``text`` is that slice, so a reader can
+    confirm the span without recomputing anything. Both are ``None`` for the
+    ``anchored`` and ``unresolvable`` rungs, where no text was located.
+    """
+
+    rung: str
+    region: str
+    event_id: Optional[str] = None
+    event_index: Optional[int] = None
+    step_index: Optional[int] = None
+    event_type: Optional[str] = None
+    field: Optional[str] = None
+    span: Optional[Tuple[int, int]] = None
+    text: Optional[str] = None
+    anchor: Optional[str] = None
+    anchor_status: str = ANCHOR_NOT_DECLARED
+
+    @property
+    def grounded(self) -> bool:
+        """Is the text demonstrably present in something the agent produced or saw?
+
+        Both halves matter. A quote located in the goal is faithful and
+        grounds nothing about the trajectory; a real pointer with text found
+        nowhere locates an event but cannot be checked by string search.
+        """
+        return self.rung in GROUNDING_RUNGS and self.region in (REGION_EVENT, REGION_SHOWN)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'rung': self.rung,
+            'region': self.region,
+            'event_id': self.event_id,
+            'event_index': self.event_index,
+            'step_index': self.step_index,
+            'event_type': self.event_type,
+            'field': self.field,
+            'span': list(self.span) if self.span is not None else None,
+            'text': self.text,
+            'anchor': self.anchor,
+            'anchor_status': self.anchor_status,
+            'grounded': self.grounded,
+        }
+
+
+def resolve_anchor(trajectory: AgentTrajectory, event_id: Optional[str]) -> Optional[AgentEvent]:
+    """The event an id names, or ``None``.
+
+    Exact match only. Ids come from the trajectory, and a detector is asked to
+    copy them; an id that differs in any character is one the detector did
+    not copy, which is the case this exists to expose.
+    """
+    if not event_id:
+        return None
+    for event in trajectory.events:
+        if event.event_id == event_id:
+            return event
+    return None
+
+
+def locate_quote(
+    trajectory: AgentTrajectory,
+    quote: str,
+    *,
+    anchor: Optional[str] = None,
+    shown: Optional[Mapping[str, str]] = None,
+) -> QuoteLocation:
+    """Find where ``quote`` occurs in what the detector was given.
+
+    Rungs are tried strictest first, and within a rung the anchor's event is
+    searched before the others, then the remaining events in trajectory
+    order, then the goal. So a quote present in both its anchor and a later
+    event is credited to the anchor, and one present in both an event and the
+    goal is credited to the event.
+
+    ``anchor`` is the event id the caller says the quote came from -- for a
+    ``wrong_content_quote`` that is the blamed event. When the caller passes
+    none, an id embedded in the quote itself (``evt_x: ...``) is used. Either
+    way the outcome is reported in ``anchor_status`` rather than folded into
+    the rung, because "the text is real but the id is wrong" is a different
+    finding from "the text is invented".
+
+    ``shown`` maps event id to the text a detector rendered for that event,
+    exactly as in :func:`verify_finding_quotes`; a quote found only there is
+    reported with ``region='shown'``.
+    """
+    events = list(trajectory.events)
+    declared, inner = _split_frame(quote or '')
+    anchor_id = anchor or declared
+    anchor_event = resolve_anchor(trajectory, anchor_id)
+    if anchor_id and anchor_event is None:
+        anchor_state = ANCHOR_UNKNOWN_EVENT
+    elif anchor_id:
+        anchor_state = ANCHOR_RESOLVED
+    else:
+        anchor_state = ANCHOR_NOT_DECLARED
+
+    def finish(loc: QuoteLocation) -> QuoteLocation:
+        status = anchor_state
+        if anchor_event is not None and loc.event_id != anchor_event.event_id:
+            status = ANCHOR_ELSEWHERE
+        return QuoteLocation(
+            rung=loc.rung, region=loc.region, event_id=loc.event_id,
+            event_index=loc.event_index, step_index=loc.step_index,
+            event_type=loc.event_type, field=loc.field, span=loc.span,
+            text=loc.text, anchor=anchor_id, anchor_status=status,
+        )
+
+    if not (quote or '').strip():
+        return finish(QuoteLocation(rung=RUNG_UNRESOLVABLE, region=REGION_NONE))
+
+    order = list(range(len(events)))
+    if anchor_event is not None:
+        order.sort(key=lambda i: events[i] is not anchor_event)
+
+    # Rung 1: the quote as given, verbatim.
+    exact = quote
+    for i in order:
+        found = _find_in_event(events[i], i, exact, shown, normalized=False)
+        if found is not None:
+            return finish(found)
+    if trajectory.goal and exact in trajectory.goal:
+        start = trajectory.goal.index(exact)
+        return finish(QuoteLocation(
+            rung=RUNG_EXACT, region=REGION_GOAL, span=(start, start + len(exact)),
+            text=exact,
+        ))
+    if inner and inner != exact:
+        for i in order:
+            found = _find_in_event(events[i], i, inner, shown, normalized=False)
+            if found is not None:
+                return finish(found)
+        if trajectory.goal and inner in trajectory.goal:
+            start = trajectory.goal.index(inner)
+            return finish(QuoteLocation(
+                rung=RUNG_EXACT, region=REGION_GOAL, span=(start, start + len(inner)),
+                text=inner,
+            ))
+
+    # Rung 2: after the normalisation `verify_finding_quotes` applies, with the
+    # quote's own framing removed. The unframed form is tried first so that a
+    # quote copied from a rendering that includes the frame still resolves
+    # against `shown`.
+    needles: List[str] = []
+    for candidate in (_norm_quote(quote), _norm_quote(inner)):
+        if candidate and candidate not in needles:
+            needles.append(candidate)
+    for needle in needles:
+        for i in order:
+            found = _find_in_event(events[i], i, needle, shown, normalized=True)
+            if found is not None:
+                return finish(found)
+        if trajectory.goal:
+            span = _find_normalized(needle, trajectory.goal)
+            if span is not None:
+                return finish(QuoteLocation(
+                    rung=RUNG_NORMALIZED, region=REGION_GOAL, span=span,
+                    text=trajectory.goal[span[0]:span[1]],
+                ))
+
+    # Rung 3: no text located; a real anchor still places the claim at an event.
+    if anchor_event is not None:
+        index = events.index(anchor_event)
+        return finish(QuoteLocation(
+            rung=RUNG_ANCHORED, region=REGION_EVENT, event_id=anchor_event.event_id,
+            event_index=index, step_index=anchor_event.step_index,
+            event_type=_event_type_value(anchor_event),
+        ))
+
+    return finish(QuoteLocation(rung=RUNG_UNRESOLVABLE, region=REGION_NONE))
+
+
+def _find_normalized(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
+    """Span of ``needle`` in ``haystack`` after ``_norm``, mapped back to raw offsets.
+
+    The regex-based ``_norm`` is the fast pre-check; the offset map is built
+    only for a haystack that contains the needle.
+    """
+    if not needle or needle not in _norm(haystack):
+        return None
+    mapped, spans = _norm_with_map(haystack)
+    start = mapped.find(needle)
+    if start < 0:  # pragma: no cover - the map is equivalent to _norm by construction
+        return None
+    end = start + len(needle)
+    return spans[start][0], spans[end - 1][1]
+
+
+def _find_in_event(
+    event: AgentEvent,
+    index: int,
+    needle: str,
+    shown: Optional[Mapping[str, str]],
+    normalized: bool,
+) -> Optional[QuoteLocation]:
+    rung = RUNG_NORMALIZED if normalized else RUNG_EXACT
+    for field in _EVENT_FIELDS:
+        text = _field_text(event, field)
+        if not text:
+            continue
+        span = _find_normalized(needle, text) if normalized else _find_exact(needle, text)
+        if span is not None:
+            return QuoteLocation(
+                rung=rung, region=REGION_EVENT, event_id=event.event_id,
+                event_index=index, step_index=event.step_index,
+                event_type=_event_type_value(event), field=field, span=span,
+                text=text[span[0]:span[1]],
+            )
+    rendered = (shown or {}).get(event.event_id)
+    if rendered:
+        span = _find_normalized(needle, rendered) if normalized else _find_exact(needle, rendered)
+        if span is not None:
+            return QuoteLocation(
+                rung=rung, region=REGION_SHOWN, event_id=event.event_id,
+                event_index=index, step_index=event.step_index,
+                event_type=_event_type_value(event), span=span,
+                text=rendered[span[0]:span[1]],
+            )
+    return None
+
+
+def _find_exact(needle: str, haystack: str) -> Optional[Tuple[int, int]]:
+    start = haystack.find(needle)
+    if start < 0:
+        return None
+    return start, start + len(needle)
+
+
+@dataclass(frozen=True)
+class QuoteGrounding:
+    """One quote of a finding, located and placed relative to the blamed event.
+
+    ``position`` is ``before`` / ``at`` / ``after`` the blamed event, or
+    ``None`` when either side is unknown. ``at_or_before_blame`` is the
+    question a consumer of the finding actually asks: was this text in front
+    of the agent when it acted? Evidence from a later event is hindsight, and
+    a diagnosis resting on it is reasoning from the outcome rather than from
+    what was visible.
+    """
+
+    role: str
+    quote: str
+    location: QuoteLocation
+    position: Optional[str] = None
+
+    @property
+    def at_or_before_blame(self) -> Optional[bool]:
+        if self.position is None:
+            return None
+        return self.position in ('before', 'at')
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'role': self.role,
+            'quote': self.quote,
+            'location': self.location.to_dict(),
+            'position': self.position,
+            'at_or_before_blame': self.at_or_before_blame,
+        }
+
+
+@dataclass(frozen=True)
+class FindingGrounding:
+    """Per-finding resolution of its quotes against the trajectory."""
+
+    finding_id: str
+    blamed_event_id: Optional[str]
+    blamed_event_index: Optional[int]
+    blamed_step_index: Optional[int]
+    quotes: Tuple[QuoteGrounding, ...]
+
+    @property
+    def grounded(self) -> Optional[bool]:
+        """``None`` when the finding carries no quotes, matching ``quote_verified``.
+
+        Otherwise every quote must be located under a grounding rung, none may
+        come from after the blamed event, and the wrong-content quote -- the
+        claim about the blamed step itself -- must be in that step.
+        """
+        if not self.quotes:
+            return None
+        for q in self.quotes:
+            if not q.location.grounded or not q.at_or_before_blame:
+                return False
+            if q.role == 'wrong_content' and q.position != 'at':
+                return False
+        return True
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'finding_id': self.finding_id,
+            'blamed_event_id': self.blamed_event_id,
+            'blamed_event_index': self.blamed_event_index,
+            'blamed_step_index': self.blamed_step_index,
+            'quotes': [q.to_dict() for q in self.quotes],
+            'grounded': self.grounded,
+        }
+
+
+def _position(
+    location: QuoteLocation, blamed: Optional[AgentEvent], events: Sequence[AgentEvent]
+) -> Optional[str]:
+    """Where a located quote sits relative to the blamed event.
+
+    Compared by ``step_index`` when both carry one, since several events
+    share a step (the agent's call and the tool's result) and "at the blamed
+    step" has to cover all of them; by position in the trajectory otherwise.
+    """
+    if blamed is None or location.event_index is None:
+        return None
+    located_step = location.step_index
+    if located_step is not None and blamed.step_index is not None:
+        a, b = located_step, blamed.step_index
+    else:
+        a, b = location.event_index, events.index(blamed)
+    if a < b:
+        return 'before'
+    if a == b:
+        return 'at'
+    return 'after'
+
+
+def grounds_trajectory(
+    findings: Iterable[FailureFinding],
+    trajectory: AgentTrajectory,
+    shown: Optional[Mapping[str, str]] = None,
+) -> List[FindingGrounding]:
+    """Locate every quote of every finding and place it relative to the blame.
+
+    The wrong-content quote is located with the blamed event as its anchor,
+    since that is where the finding says it came from; the reference quote
+    carries no anchor unless it embeds one. Findings with neither quote get an
+    empty ``quotes`` tuple and ``grounded=None`` -- the rule packs have no
+    claim to quote, and that is not a failure to ground.
+    """
+    events = list(trajectory.events)
+    out: List[FindingGrounding] = []
+    for finding in findings:
+        blamed = _blamed_event(finding, events)
+        quotes: List[QuoteGrounding] = []
+        for role, quote, anchor in (
+            ('wrong_content', finding.wrong_content_quote,
+             blamed.event_id if blamed is not None else None),
+            ('reference', finding.reference_quote, None),
+        ):
+            if not quote:
+                continue
+            location = locate_quote(trajectory, quote, anchor=anchor, shown=shown)
+            quotes.append(QuoteGrounding(
+                role=role, quote=quote, location=location,
+                position=_position(location, blamed, events),
+            ))
+        out.append(FindingGrounding(
+            finding_id=finding.finding_id,
+            blamed_event_id=blamed.event_id if blamed is not None else None,
+            blamed_event_index=events.index(blamed) if blamed is not None else None,
+            blamed_step_index=blamed.step_index if blamed is not None else None,
+            quotes=tuple(quotes),
+        ))
+    return out
+
+
+def annotate_evidence_regions(
+    findings: Iterable[FailureFinding],
+    trajectory: AgentTrajectory,
+    shown: Optional[Mapping[str, str]] = None,
+) -> List[FailureFinding]:
+    """Record each finding's grounding in ``metadata['evidence_regions']``.
+
+    Sits next to ``quote_verified``: the boolean says whether the quotes
+    resolve, this says where, so a consumer storing the finding can later
+    check that its evidence precedes the step it blames without re-running
+    the detector.
+    """
+    annotated = list(findings)
+    for finding, grounding in zip(annotated, grounds_trajectory(annotated, trajectory, shown)):
+        finding.metadata['evidence_regions'] = grounding.to_dict()
+    return annotated
