@@ -162,6 +162,47 @@ class Attributor(Protocol):
         ...
 
 
+class AttributionUnavailable(RuntimeError):
+    """The model-based attributor produced nothing and the caller refused a substitute.
+
+    Raised by :data:`NO_FALLBACK` where an attributor would otherwise hand the
+    trajectory to its ``fallback``. The message names the attributor and the
+    reason (an LLM error, or a reply with no JSON block), so a corpus can
+    record the attempt as a dropout instead of a heuristic label that looks
+    like a model one.
+    """
+
+
+class NoFallback:
+    """An ``Attributor`` that refuses, for callers who want fail-closed attribution.
+
+    Every model-based attributor defaults to ``fallback or HeuristicAttributor()``:
+    when the model call fails or returns no JSON, a model-free ranking of the
+    detector findings is returned under the *same* result type, and nothing
+    downstream can tell the two apart. Pass ``fallback=NO_FALLBACK`` to make that
+    path raise :class:`AttributionUnavailable` instead. Measured by a consumer
+    on 887 rows: the silent substitute fired on 16.7% of one model's attempts
+    against 0.5% of another's, all labelled as model attributions.
+    """
+
+    id = 'no_fallback'
+    requires_findings = False
+
+    def attribute(
+        self,
+        trajectory: AgentTrajectory,
+        findings: Optional[List[FailureFinding]] = None,
+    ) -> AttributionResult:
+        raise AttributionUnavailable(
+            f'attribution unavailable for trace {trajectory.trace_id!r}: the model-based '
+            'attributor produced no usable result and fallback is disabled (NO_FALLBACK)'
+        )
+
+
+#: Pass as ``fallback=`` to any attributor to disable the heuristic substitute.
+NO_FALLBACK = NoFallback()
+
+
 class HeuristicAttributor:
     """Cheap, model-free fallback that picks the earliest highest-confidence finding.
 
