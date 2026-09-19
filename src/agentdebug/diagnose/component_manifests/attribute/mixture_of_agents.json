@@ -1,0 +1,11 @@
+{
+  "id": "attribute.mixture_of_agents",
+  "stage": "attribute",
+  "name": "Mixture-of-agents attributor",
+  "description": "N proposer attributors run independently on the same trajectory, then a separate summarizer model call turns their sorted proposals into one diagnosis. Keeps every proposal and records whether the summary's decisive step matches any proposer's. Agreement is not a correctness label.",
+  "entrypoint": "agentdebug.diagnose.attribute.moa:MixtureOfAgentsAttributor",
+  "capabilities": ["blame_localization", "llm", "multi_model", "panel", "provenance"],
+  "dependencies": ["llm_client"],
+  "cost_profile": "n_plus_one_llm_calls",
+  "enabled_by_default": false
+}
