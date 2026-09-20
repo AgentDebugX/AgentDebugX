@@ -73,6 +73,51 @@ demotes one.
 
 Adapted from TrajDebug phase C (THU-KEG/TrajDebug, MIT).
 
+## Mixture of agents: N proposers, then a summarizing agent
+
+`attribute.mixture_of_agents` (`moa.py`) runs N proposer attributors on the same
+failed trajectory and then makes ONE more model call, the summarizer, which
+reads their proposals and writes a single diagnosis in the ordinary `Blame`
+schema.
+
+It is not the same thing as either of the multi-reader paths already here:
+
+- `EnsembleAttributor` merges backends with arithmetic in Python (Borda points
+  or a Bayesian combination). No model sees another model's answer.
+- `AaoMoeAttributor` (`moe.py`) is mixture-of-EXPERTS: two structurally
+  different readings plus a tie-break call, with the second expert gated on the
+  trace's structure.
+- `MixtureOfAgentsAttributor` is mixture-of-AGENTS: N interchangeable
+  proposers, usually one method over several models or one model at several
+  seeds, plus a summarizer stage that is a real call. A vote can only return a
+  step somebody named; a summarizer can reject the majority and can name a step
+  no proposer named.
+
+Guarantees worth knowing before using it:
+
+- Proposers never see each other. Each runs against its own attributor and its
+  own client, and the summarizer is the only stage that sees more than one
+  reading.
+- Proposals are sorted by `proposal_sort_key` (decisive step, then descending
+  confidence, then `proposer_id`) before the summarizer prompt is built, so the
+  prompt does not depend on declaration or completion order.
+- Everything is kept: `AttributionResult.raw['mixture_of_agents']` carries each
+  proposal with its proposer id, model, seed, status and rationale, and
+  `hypotheses[1:]` are the proposals themselves behind the summary.
+- `provenance.agrees_with_any_proposer` is False when the summary blames a step
+  no proposer blamed. That is recorded, not repaired.
+- Degradation is labelled. A proposer that errors or returns unparseable text
+  becomes a dropout with a status; a summarizer that fails promotes the
+  most-supported proposal and sets `summary_source` to
+  `degraded_top_proposal`, never `summarizer`.
+- Build proposers with `proposers_from_clients` or `proposers_from_seeds`. Both
+  default to `fallback=NO_FALLBACK`, because the usual heuristic fallback would
+  enter the panel as a vote from a model that never answered.
+
+None of this is a correctness claim. Proposer agreement is not a label and
+neither is the summary; nothing in the engine checks a diagnosis against the
+environment, a gold annotation, or a rerun.
+
 ## Corrected actions vs. recovery
 
 A `Blame` may carry a `CorrectedAction`: the one concrete action that should have replaced

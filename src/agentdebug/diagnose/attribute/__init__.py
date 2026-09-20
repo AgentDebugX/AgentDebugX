@@ -25,6 +25,17 @@ from agentdebug.diagnose.attribute.attribution import (
     SBFLAttributor,
     StepByStepAttributor,
 )
+from agentdebug.diagnose.attribute.moa import (
+    MixtureOfAgentsAttributor,
+    MixtureOfAgentsDiagnosis,
+    Proposal,
+    ProposerSpec,
+    SeededClient,
+    SummaryProvenance,
+    proposal_sort_key,
+    proposers_from_clients,
+    proposers_from_seeds,
+)
 from agentdebug.diagnose.profiles.deepdebug import (
     DeepDebugAnalyzer,
     DeepDebugResult,
@@ -47,12 +58,21 @@ __all__ = [
     'EnsembleAttributor',
     'AttributionUnavailable',
     'HeuristicAttributor',
+    'MixtureOfAgentsAttributor',
+    'MixtureOfAgentsDiagnosis',
     'NO_FALLBACK',
     'NoFallback',
+    'Proposal',
+    'ProposerSpec',
     'SBFLAttributor',
+    'SeededClient',
     'StepByStepAttributor',
+    'SummaryProvenance',
     'attribute_async',
     'attribute_many_async',
+    'proposal_sort_key',
+    'proposers_from_clients',
+    'proposers_from_seeds',
     'supports_native_async',
 ]
 from .reference import ReferenceAttributor  # noqa: E402,F401
