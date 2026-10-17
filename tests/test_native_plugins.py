@@ -142,6 +142,48 @@ def test_precheck_skips_unconsented_projects_without_importing_agentdebug(
     assert probe(tmp_path) == 0, 'an unreadable config defers to the CLI'
 
 
+def test_codex_precheck_inherits_parent_consent_past_claude_only_child(
+    tmp_path: Path,
+) -> None:
+    launcher = (
+        ROOT / 'integrations' / 'codex' / 'plugins' / 'agentdebug'
+        / 'bin' / 'agentdebug-hook'
+    )
+    child = tmp_path / 'child'
+    child.mkdir()
+    for project, platforms in (
+        (tmp_path, {'codex': {'enabled': True, 'capture_events': []}}),
+        (child, {'claude_code': {'enabled': True, 'capture_events': []}}),
+    ):
+        config = project / '.agentdebug' / 'capture.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps({
+            'schema_version': 2,
+            'project_root': str(project),
+            'store_path': str(project / '.agentdebug' / 'agentdebug.sqlite'),
+            'platforms': platforms,
+        }))
+
+    cli = tmp_path / 'fake-agentdebug'
+    cli.write_text('#!/bin/sh\ncat > "$AGENTDEBUG_TEST_CAPTURE"\n')
+    cli.chmod(0o755)
+    captured = tmp_path / 'dispatched.json'
+    payload = json.dumps({'cwd': str(child)})
+    result = subprocess.run(
+        ['sh', str(launcher), '--platform', 'codex'],
+        input=payload,
+        capture_output=True, text=True,
+        env={
+            **os.environ,
+            'AGENTDEBUG_HOOK_CLI': str(cli),
+            'AGENTDEBUG_TEST_CAPTURE': str(captured),
+        },
+    )
+    assert result.returncode == 0
+    assert result.stdout == result.stderr == ''
+    assert captured.read_text() == payload
+
+
 def test_repository_marketplaces_resolve_plugin_roots() -> None:
     claude_marketplace = json.loads(
         (ROOT / '.claude-plugin' / 'marketplace.json').read_text(encoding='utf-8')

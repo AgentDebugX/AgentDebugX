@@ -42,12 +42,11 @@ def main() -> int:
             if isinstance(platforms, dict):
                 settings = platforms.get(host)
                 if isinstance(settings, dict):
-                    return 0 if settings.get('enabled', True) else 1
-                return 1
+                    if settings.get('enabled', True):
+                        return 0
             # Schema v1 stored one platform per file.
-            if data.get('platform') == host:
-                return 0 if data.get('enabled', True) else 1
-            return 1
+            elif data.get('platform') == host and data.get('enabled', True):
+                return 0
         parent = os.path.dirname(directory)
         if parent == directory:
             return 1
