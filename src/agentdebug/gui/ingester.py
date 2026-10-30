@@ -83,6 +83,7 @@ class IngestionResult(BaseModel):
 
         Success criteria:
           - The last step has ``done=True`` **and** ``reward > 0``.
+          - No terminal step error or system-level error was recorded.
 
         Failure criteria (any of the following):
           - System-level errors were recorded (``{"Error": ...}`` lines in JSONL).
@@ -129,8 +130,8 @@ class IngestionResult(BaseModel):
         sys_error = system_errors[0].strip() if system_errors else ""
         combined_error = step_error or sys_error
 
-        # Success requires done=True AND positive reward
-        if last_step.done and last_step.reward > 0:
+        # Explicit failure evidence takes precedence over terminal reward.
+        if last_step.done and last_step.reward > 0 and not combined_error:
             status: Literal["success", "failure"] = "success"
             error_msg = ""
         else:
