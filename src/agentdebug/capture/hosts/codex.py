@@ -55,8 +55,10 @@ class CodexCaptureHost:
         for root in (cwd, *cwd.parents):
             config = load_capture_config(root)
             platform = None if config is None else config.platforms.get(self.host_name)
-            if config is None or platform is None or not platform.enabled:
+            if config is None or platform is None:
                 continue
+            if not platform.enabled:
+                break
             session = CaptureRepository(config.store_path).load_session(
                 self.host_name, session_id
             )

@@ -128,8 +128,8 @@ def _find_enabled_project(cwd: Path, host_name: str) -> Optional[Path]:
     for candidate in (root, *root.parents):
         config = load_capture_config(candidate)
         platform = None if config is None else config.platforms.get(host_name)
-        if platform is not None and platform.enabled:
-            return candidate
+        if platform is not None:
+            return candidate if platform.enabled else None
     return None
 
 
