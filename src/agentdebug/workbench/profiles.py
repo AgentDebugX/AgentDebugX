@@ -16,7 +16,7 @@ LLM_DIAGNOSERS = {'judge', 'deep', 'gui-rca'}
 LLM_ATTRIBUTORS = {'all_at_once', 'step_by_step', 'binary_search', 'counterfactual'}
 LLM_RECOVERIES = {'self_refine'}
 DIAGNOSERS = {'heuristic', 'judge', 'deep', 'gui-rca'}
-ATTRIBUTORS = {'none', 'heuristic', *LLM_ATTRIBUTORS}
+ATTRIBUTORS = {'none', 'heuristic', 'dependency_graph', *LLM_ATTRIBUTORS}
 RECOVERIES = {
     'none', 'deepdebug', 'reflexion', 'critic', 'self_refine',
     'auto_manual', 'saga_rollback',

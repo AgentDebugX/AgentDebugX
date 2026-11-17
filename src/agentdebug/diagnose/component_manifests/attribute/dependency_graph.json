@@ -1,0 +1,11 @@
+{
+  "id": "attribute.dependency_graph",
+  "stage": "attribute",
+  "name": "Dependency-graph attributor",
+  "description": "Model-free attribution that traces the value a finding quotes back to the earlier step that emitted it, following shared identifiers across step inputs and outputs instead of step order.",
+  "entrypoint": "agentdebug.diagnose.attribute.dependency:DependencyGraphAttributor",
+  "capabilities": ["blame_localization", "zero_llm", "dependency_graph", "provenance"],
+  "dependencies": [],
+  "cost_profile": "free",
+  "enabled_by_default": false
+}

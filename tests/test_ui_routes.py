@@ -640,6 +640,7 @@ def test_diagnose_options_follow_cli_registry(ui_client: TestClient) -> None:
     assert payload['attributors'] == [
         'none',
         'heuristic',
+        'dependency_graph',
         'all_at_once',
         'step_by_step',
         'binary_search',

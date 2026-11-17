@@ -14,6 +14,7 @@ Typical attribution methods include:
 - binary search over trajectory segments
 - counterfactual analysis
 - mixture-of-experts localization
+- dependency-guided value-provenance tracing
 
 ## Flow
 
@@ -117,6 +118,59 @@ Guarantees worth knowing before using it:
 None of this is a correctness claim. Proposer agreement is not a label and
 neither is the summary; nothing in the engine checks a diagnosis against the
 environment, a gold annotation, or a rerun.
+
+## Value provenance: blame the step that produced the value
+
+`attribute.dependency_graph` (`dependency.py`, `--attributor dependency-graph`)
+answers the question that usually precedes "which step was decisive": *which
+step produced the value the failing step consumed?*
+
+A malformed argument is rarely invented where it is used. A planner records
+`refund_policy=waived` at step 1, a booking tool is called with that value at
+step 3, and the tool rejects it at step 4. Earliest-step attribution reaches
+step 1 only by accident; a model attributor gets there by reading the whole
+trace. This one gets there deterministically, at zero token cost.
+
+It is not a dataflow analysis. Each event contributes the distinctive tokens of
+its input, output and error -- identifiers, dotted paths, slugs, versions -- with
+ordinary prose filtered out by a small stoplist plus a shape test. A step is
+linked to the most recent earlier step that already carried a token, and each
+detector finding is walked backwards over those links to the producer of the
+value it quotes.
+
+- `sources=['dependency_graph', 'dependency_producer']`, with a verbatim excerpt
+  around the matched value, so the edge can be checked against the trace instead
+  of trusted.
+- `raw['paths']` records the value, both steps and the alternate producers that
+  were not chosen; `raw['graph']` records the edges, capped at `max_edges` with
+  `edges_truncated` saying so.
+- No producer, no guess: the finding's own step is blamed and `sources` says
+  `no_upstream_producer`.
+
+Limits, stated because the output is a `Blame`:
+
+- Two steps that mention the same identifier look connected whether or not one
+  handed it to the other. A producer found this way is a candidate with
+  provenance, not a proof of causation.
+- It re-ranks and re-anchors findings and cannot derive them, so
+  `requires_findings` is True for the same reason as `HeuristicAttributor`;
+  called through `DiagnosePipeline` it always has findings.
+- `chain_membership` is computed only from the tracked values and stays `None`
+  when there were none, so it is never `True` by default. `False` means only
+  that the value never reappears downstream -- the one thing this can check
+  mechanically.
+- With no model call there is nothing to ask what should have been done instead,
+  so no corrected action is emitted (`reason='no_llm'`) -- the same report shape
+  as `HeuristicAttributor`.
+
+`candidate_steps(trajectory, findings)` returns that ranking as step indices,
+producers first (most shared values first) and the findings' own steps after. It
+is sized for `BinarySearchAttributor(always_include_steps=...)`: a bisect can
+elide the middle of a long prefix, and a producer the graph already located
+should not have to depend on the window happening to include it.
+
+Inspired by dependency-guided failure attribution (DeFA / FALAT); this
+implementation is independent and model-free.
 
 ## Corrected actions vs. recovery
 
