@@ -131,43 +131,60 @@ step 3, and the tool rejects it at step 4. Earliest-step attribution reaches
 step 1 only by accident; a model attributor gets there by reading the whole
 trace. This one gets there deterministically, at zero token cost.
 
-It is not a dataflow analysis. Each event contributes the distinctive tokens of
-its input, output and error -- identifiers, dotted paths, slugs, versions -- with
-ordinary prose filtered out by a small stoplist plus a shape test. A step is
-linked to the most recent earlier step that already carried a token, and each
-detector finding is walked backwards over those links to the producer of the
-value it quotes.
+Producer and consumer are separate roles. A step **produces** the distinctive
+tokens in its `output` (and in `error`, when a step reports a malformed value);
+it **consumes** the tokens in its `input`. An edge `producer -> consumer` exists
+only when a token one step produced is a token a later step consumed. A step
+that merely mentions a value -- a consumer echoing an argument it was handed, a
+string of ordinary English shared between steps -- therefore cannot become that
+value's producer. User-origin events (`user_input`, `human.feedback`, or
+`agent_name='user'`) are excluded from the producer role outright: they are
+input to the run, not a link in its dataflow, so a value the user repeats is
+never blamed upstream.
+
+Attribution is then a graph walk, not a text scan. From the finding's step the
+walk follows incoming producer edges on the quoted value and keeps going through
+every earlier relay until it reaches the earliest producer in the chain, so
+`step 1 -> step 2 -> step 3` resolves to step 1 rather than to the relay at step
+2. The finding's fields are read in strict priority order --
+`wrong_content_quote`, then `reference_quote`, then `evidence` -- and the first
+field that reaches an upstream producer wins. The fields are never pooled: a
+passing mention in `evidence` prose must not outrank the verbatim span the
+detector blamed.
 
 - `sources=['dependency_graph', 'dependency_producer']`, with a verbatim excerpt
   around the matched value, so the edge can be checked against the trace instead
   of trusted.
-- `raw['paths']` records the value, both steps and the alternate producers that
-  were not chosen; `raw['graph']` records the edges, capped at `max_edges` with
-  `edges_truncated` saying so.
+- `raw['paths']` records the field that matched, the value, the producer step,
+  the full `chain` of steps on the walk, and the alternate producers that were
+  not chosen; `raw['graph']` records the directed edges (with both step indices)
+  and the `terminal_step`, capped at `max_edges` with `edges_truncated` saying
+  so. Traversal always uses the full graph; only the report is capped.
 - No producer, no guess: the finding's own step is blamed and `sources` says
   `no_upstream_producer`.
 
 Limits, stated because the output is a `Blame`:
 
-- Two steps that mention the same identifier look connected whether or not one
-  handed it to the other. A producer found this way is a candidate with
-  provenance, not a proof of causation.
+- This is not a dataflow analysis. Two steps that pass the same identifier look
+  connected whether or not one handed it to the other. A producer found this way
+  is a candidate with provenance, not a proof of causation.
 - It re-ranks and re-anchors findings and cannot derive them, so
   `requires_findings` is True for the same reason as `HeuristicAttributor`;
   called through `DiagnosePipeline` it always has findings.
-- `chain_membership` is computed only from the tracked values and stays `None`
-  when there were none, so it is never `True` by default. `False` means only
-  that the value never reappears downstream -- the one thing this can check
-  mechanically.
+- `chain_membership` follows the same contract as the other attributors: does
+  the traced value reach the trajectory's *terminal* step, not merely one step
+  later. `None` when there was nothing to track, `False` when the value dies
+  mid-chain -- an isolated intermediate error the run did not ultimately fail on.
 - With no model call there is nothing to ask what should have been done instead,
   so no corrected action is emitted (`reason='no_llm'`) -- the same report shape
   as `HeuristicAttributor`.
 
-`candidate_steps(trajectory, findings)` returns that ranking as step indices,
-producers first (most shared values first) and the findings' own steps after. It
-is sized for `BinarySearchAttributor(always_include_steps=...)`: a bisect can
-elide the middle of a long prefix, and a producer the graph already located
-should not have to depend on the window happening to include it.
+`candidate_steps(trajectory, findings)` runs the same graph walk and returns its
+ranking as step indices: producers first (most shared values first, earliest
+producer at each depth), then the findings' own steps. It is sized for
+`BinarySearchAttributor(always_include_steps=...)`: a bisect can elide the
+middle of a long prefix, and a producer the graph already located should not
+have to depend on the window happening to include it.
 
 Inspired by dependency-guided failure attribution (DeFA / FALAT); this
 implementation is independent and model-free.

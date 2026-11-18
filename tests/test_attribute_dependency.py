@@ -105,7 +105,7 @@ def test_blames_the_step_that_produced_the_value() -> None:
     assert 'waived' in result.raw['paths'][0]['values']
 
 
-def test_chain_membership_is_true_when_the_value_reaches_a_later_step() -> None:
+def test_chain_membership_is_true_when_the_value_reaches_the_terminal_step() -> None:
     trajectory = _trajectory()
     result = DependencyGraphAttributor().attribute(
         trajectory, [_finding(3, 'refund_policy=waived')]
@@ -245,3 +245,288 @@ def test_any_quoted_value_finds_the_producer(quote: str) -> None:
         _trajectory(), [_finding(3, quote)]
     )
     assert result.hypotheses[0].step_index == 1
+
+
+# ---------------------------------------------------------------------------
+# Producer vs. consumer, graph walk, and field precedence
+# ---------------------------------------------------------------------------
+
+
+def _step(
+    event_id: str,
+    step: int,
+    *,
+    agent: str = 'agent',
+    event_type: EventType = EventType.AGENT_STEP,
+    output: object = None,
+    input: object = None,
+    error: object = None,
+) -> AgentEvent:
+    return AgentEvent(
+        event_id=event_id,
+        trace_id='trace_dep',
+        agent_name=agent,
+        event_type=event_type,
+        step_index=step,
+        output=output,
+        input=input,
+        error=error,
+    )
+
+
+def _run(events: list, findings: list):
+    trajectory = AgentTrajectory(trace_id='trace_dep', goal='Book a refundable flight.')
+    for event in events:
+        trajectory.add_event(event)
+    return DependencyGraphAttributor().attribute(trajectory, findings)
+
+
+def test_user_input_is_never_an_upstream_producer() -> None:
+    """A value the user stated is input to the run, not a link in its dataflow."""
+
+    result = _run(
+        [
+            _step(
+                'evt_user',
+                0,
+                agent='user',
+                event_type=EventType.HUMAN_FEEDBACK,
+                output='Use refund_policy=waived for this booking.',
+            ),
+            _step(
+                'evt_book',
+                1,
+                agent='browser',
+                event_type=EventType.TOOL_CALL,
+                input={'tool': 'book_flight', 'args': {'refund_policy': 'waived'}},
+            ),
+        ],
+        [_finding(1, 'refund_policy=waived', event_id='evt_book')],
+    )
+
+    top = result.hypotheses[0]
+    assert top.step_index == 1
+    assert 'no_upstream_producer' in top.sources
+    assert result.raw['paths'][0]['producer_step'] is None
+    assert result.raw['graph']['edges'] == []
+
+
+def test_a_consumer_only_step_is_not_a_producer() -> None:
+    """Appearing in `input` means the step used a value, not that it emitted it."""
+
+    result = _run(
+        [
+            _step(
+                'evt_first',
+                0,
+                event_type=EventType.TOOL_CALL,
+                input={'tool': 'lookup', 'args': {'sku': 'sku_9921'}},
+            ),
+            _step(
+                'evt_second',
+                2,
+                event_type=EventType.TOOL_CALL,
+                input={'tool': 'lookup', 'args': {'sku': 'sku_9921'}},
+            ),
+        ],
+        [_finding(2, 'sku_9921', event_id='evt_second')],
+    )
+
+    top = result.hypotheses[0]
+    assert top.step_index == 2
+    assert 'no_upstream_producer' in top.sources
+    assert result.raw['paths'][0]['producer_step'] is None
+
+
+def test_shared_prose_does_not_create_an_edge() -> None:
+    """Ordinary English shared across steps is not a value dependency."""
+
+    result = _run(
+        [
+            _step(
+                'evt_prose',
+                0,
+                output='You must do this only when it is the same as that.',
+            ),
+            _step(
+                'evt_check',
+                1,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'note': 'must only when it is the same as that'}},
+            ),
+        ],
+        [_finding(1, 'must only when it is the same', event_id='evt_check')],
+    )
+
+    assert result.raw['graph']['edges'] == []
+    top = result.hypotheses[0]
+    assert top.step_index == 1
+    assert 'no_upstream_producer' in top.sources
+
+
+def test_wrong_content_quote_outranks_evidence_strictly() -> None:
+    """The verbatim blamed span wins even when evidence names an earlier value."""
+
+    finding = FailureFinding(
+        failure_mode=MODE,
+        event_id='evt_third',
+        step_index=3,
+        confidence=0.7,
+        wrong_content_quote='beta_value was rejected',
+        evidence=['alpha_code is what the task requires'],
+        conflict_with=ConflictAxis.CONTEXT,
+    )
+    result = _run(
+        [
+            _step('evt_first', 0, output='alpha_code recorded'),
+            _step('evt_second', 1, output='beta_value recorded'),
+            _step(
+                'evt_third',
+                3,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'a': 'alpha_code', 'b': 'beta_value'}},
+            ),
+        ],
+        [finding],
+    )
+
+    top = result.hypotheses[0]
+    # Pooling the fields would reach step 0 (the earliest shared token). Strict
+    # precedence reads `wrong_content_quote` first and stops at step 1.
+    assert top.step_index == 1
+    assert top.span_id == 'evt_second'
+    assert result.raw['paths'][0]['field'] == 'wrong_content_quote'
+    assert 'beta_value' in result.raw['paths'][0]['values']
+
+
+def test_reference_quote_is_only_used_when_wrong_content_has_no_producer() -> None:
+    finding = FailureFinding(
+        failure_mode=MODE,
+        event_id='evt_third',
+        step_index=3,
+        confidence=0.7,
+        wrong_content_quote='sku_4040',
+        reference_quote='refund_policy is required',
+        conflict_with=ConflictAxis.CONTEXT,
+    )
+    result = _run(
+        [
+            _step('evt_plan', 0, output='refund_policy=waived'),
+            _step(
+                'evt_book',
+                3,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'refund_policy': 'waived'}},
+            ),
+        ],
+        [finding],
+    )
+
+    top = result.hypotheses[0]
+    assert top.step_index == 0
+    assert result.raw['paths'][0]['field'] == 'reference_quote'
+
+
+def test_multi_hop_graph_walk_reaches_the_earliest_producer() -> None:
+    """Step 1 -> step 2 -> step 3 must resolve to step 1, not to the relay at 2."""
+
+    result = _run(
+        [
+            _step('evt_plan', 0, output='Use refund_policy=waived for this booking.'),
+            _step(
+                'evt_relay',
+                1,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'refund_policy': 'waived'}},
+                output='Booking confirmed with refund_policy=waived.',
+            ),
+            _step(
+                'evt_final',
+                2,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'refund_policy': 'waived'}},
+            ),
+        ],
+        [_finding(2, 'refund_policy=waived', event_id='evt_final')],
+    )
+
+    top = result.hypotheses[0]
+    assert top.step_index == 0
+    assert top.span_id == 'evt_plan'
+    assert result.raw['paths'][0]['chain'] == [0, 1, 2]
+
+
+def test_chain_membership_follows_propagation_to_the_terminal_step() -> None:
+    """Terminal reachability, not one-step lookahead.
+
+    `chain_membership` answers the repository-wide question "does this error reach the
+    terminal failure?", so a value that survives a relay hop is in-chain and a value that
+    dies in the middle of the run is not.
+    """
+
+    reaches = _run(
+        [
+            _step('evt_plan', 0, output='stale_code=old'),
+            _step(
+                'evt_relay',
+                1,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'code': 'stale_code'}},
+                output='issued token_ok',
+            ),
+            _step(
+                'evt_end',
+                2,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'token': 'token_ok'}},
+            ),
+        ],
+        [_finding(1, 'stale_code', event_id='evt_relay')],
+    )
+    assert reaches.hypotheses[0].step_index == 0
+    assert reaches.hypotheses[0].chain_membership is True
+
+    isolated = _run(
+        [
+            _step('evt_plan', 0, output='stale_code=old'),
+            _step(
+                'evt_relay',
+                1,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'code': 'stale_code'}},
+            ),
+            _step('evt_end', 2, output='done'),
+        ],
+        [_finding(1, 'stale_code', event_id='evt_relay')],
+    )
+    # The value is reused once and then dies: a distraction, not the failure's origin.
+    assert isolated.hypotheses[0].step_index == 0
+    assert isolated.hypotheses[0].chain_membership is False
+
+
+def test_candidate_steps_uses_the_same_graph_walk() -> None:
+    """The pinned window for bisection must inherit multi-hop precision."""
+
+    trajectory = AgentTrajectory(trace_id='trace_dep', goal='Book a refundable flight.')
+    for event in (
+        _step('evt_plan', 0, output='Use refund_policy=waived for this booking.'),
+        _step(
+            'evt_relay',
+            1,
+            event_type=EventType.TOOL_CALL,
+            input={'args': {'refund_policy': 'waived'}},
+            output='Booking confirmed with refund_policy=waived.',
+        ),
+        _step(
+            'evt_final',
+            2,
+            event_type=EventType.TOOL_CALL,
+            input={'args': {'refund_policy': 'waived'}},
+        ),
+    ):
+        trajectory.add_event(event)
+
+    steps = DependencyGraphAttributor().candidate_steps(
+        trajectory, [_finding(2, 'refund_policy=waived', event_id='evt_final')]
+    )
+    assert steps == [0, 2]
