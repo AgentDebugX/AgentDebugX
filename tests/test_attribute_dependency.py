@@ -399,10 +399,44 @@ def test_wrong_content_quote_outranks_evidence_strictly() -> None:
     assert 'beta_value' in result.raw['paths'][0]['values']
 
 
-def test_reference_quote_is_only_used_when_wrong_content_has_no_producer() -> None:
+def test_reference_quote_is_used_when_wrong_content_quote_is_empty() -> None:
     finding = FailureFinding(
         failure_mode=MODE,
-        event_id='evt_third',
+        event_id='evt_book',
+        step_index=3,
+        confidence=0.7,
+        wrong_content_quote=None,
+        reference_quote='refund_policy is required',
+        conflict_with=ConflictAxis.CONTEXT,
+    )
+    result = _run(
+        [
+            _step('evt_plan', 0, output='refund_policy=waived'),
+            _step(
+                'evt_book',
+                3,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'refund_policy': 'waived'}},
+            ),
+        ],
+        [finding],
+    )
+
+    top = result.hypotheses[0]
+    assert top.step_index == 0
+    assert result.raw['paths'][0]['field'] == 'reference_quote'
+
+
+def test_wrong_content_quote_never_falls_back_to_reference_quote() -> None:
+    """A present quote that matches nothing upstream must not blame the constraint.
+
+    `reference_quote` names the *correct* value the step failed to satisfy, so falling back
+    to it would sentence the very step that supplied the right constraint.
+    """
+
+    finding = FailureFinding(
+        failure_mode=MODE,
+        event_id='evt_book',
         step_index=3,
         confidence=0.7,
         wrong_content_quote='sku_4040',
@@ -423,8 +457,11 @@ def test_reference_quote_is_only_used_when_wrong_content_has_no_producer() -> No
     )
 
     top = result.hypotheses[0]
-    assert top.step_index == 0
-    assert result.raw['paths'][0]['field'] == 'reference_quote'
+    assert top.step_index == 3
+    assert top.span_id == 'evt_book'
+    assert 'no_upstream_producer' in top.sources
+    assert result.raw['paths'][0]['field'] is None
+    assert result.raw['paths'][0]['producer_step'] is None
 
 
 def test_multi_hop_graph_walk_reaches_the_earliest_producer() -> None:
@@ -472,13 +509,13 @@ def test_chain_membership_follows_propagation_to_the_terminal_step() -> None:
                 1,
                 event_type=EventType.TOOL_CALL,
                 input={'args': {'code': 'stale_code'}},
-                output='issued token_ok',
+                output='reissued stale_code',
             ),
             _step(
                 'evt_end',
                 2,
                 event_type=EventType.TOOL_CALL,
-                input={'args': {'token': 'token_ok'}},
+                input={'args': {'code': 'stale_code'}},
             ),
         ],
         [_finding(1, 'stale_code', event_id='evt_relay')],
@@ -530,3 +567,56 @@ def test_candidate_steps_uses_the_same_graph_walk() -> None:
         trajectory, [_finding(2, 'refund_policy=waived', event_id='evt_final')]
     )
     assert steps == [0, 2]
+
+
+def test_events_sharing_a_step_index_resolve_to_the_exact_producer() -> None:
+    """Two events at one step: `span_id` must name the event that emitted the value."""
+
+    result = _run(
+        [
+            _step('evt_first', 0, output='Consider sku_1000 options.'),
+            _step('evt_second', 0, output='Use stale_code=old for the run.'),
+            _step(
+                'evt_book',
+                1,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'code': 'stale_code'}},
+            ),
+        ],
+        [_finding(1, 'stale_code', event_id='evt_book')],
+    )
+
+    top = result.hypotheses[0]
+    # Node identity is event position, so the second event at step 0 is the producer;
+    # resolving by step number alone would name the first event instead.
+    assert top.span_id == 'evt_second'
+    assert top.step_index == 0
+
+
+def test_chain_membership_is_false_when_the_value_dies_at_a_bridging_step() -> None:
+    """A step that relays a different value onward is not a relay of this one."""
+
+    result = _run(
+        [
+            _step('evt_plan', 0, output='stale_code=old'),
+            _step(
+                'evt_relay',
+                1,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'code': 'stale_code'}},
+                output='issued token_ok',
+            ),
+            _step(
+                'evt_end',
+                2,
+                event_type=EventType.TOOL_CALL,
+                input={'args': {'token': 'token_ok'}},
+            ),
+        ],
+        [_finding(1, 'stale_code', event_id='evt_relay')],
+    )
+
+    top = result.hypotheses[0]
+    assert top.step_index == 0
+    # `stale_code` stops at the relay; only the unrelated `token_ok` reaches the end.
+    assert top.chain_membership is False

@@ -146,11 +146,17 @@ Attribution is then a graph walk, not a text scan. From the finding's step the
 walk follows incoming producer edges on the quoted value and keeps going through
 every earlier relay until it reaches the earliest producer in the chain, so
 `step 1 -> step 2 -> step 3` resolves to step 1 rather than to the relay at step
-2. The finding's fields are read in strict priority order --
-`wrong_content_quote`, then `reference_quote`, then `evidence` -- and the first
-field that reaches an upstream producer wins. The fields are never pooled: a
-passing mention in `evidence` prose must not outrank the verbatim span the
-detector blamed.
+2. Graph nodes are *events*, addressed by position in `trajectory.events`, since
+several events can share a `step_index`; `span_id` therefore names the exact
+event that produced the value, while `step_index` reporting stays an integer.
+
+The finding's fields are read in strict priority order and are never pooled. A
+non-empty `wrong_content_quote` is the only field traced: when no earlier step
+produced the value it quotes, the finding's own step is blamed with
+`no_upstream_producer`. It does not fall back, because `reference_quote` names
+the *correct* constraint the step failed to satisfy, and blaming it for a wrong
+value would convict the step that supplied the right answer. `reference_quote`,
+and then `evidence`, are read only when the quote is empty.
 
 - `sources=['dependency_graph', 'dependency_producer']`, with a verbatim excerpt
   around the matched value, so the edge can be checked against the trace instead
@@ -173,8 +179,10 @@ Limits, stated because the output is a `Blame`:
   called through `DiagnosePipeline` it always has findings.
 - `chain_membership` follows the same contract as the other attributors: does
   the traced value reach the trajectory's *terminal* step, not merely one step
-  later. `None` when there was nothing to track, `False` when the value dies
-  mid-chain -- an isolated intermediate error the run did not ultimately fail on.
+  later. Forward traversal only follows edges carrying the tracked value, so a
+  step that passes some *other* value onward does not drag the chain to the end.
+  `None` when there was nothing to track, `False` when the value dies mid-chain
+  -- an isolated intermediate error the run did not ultimately fail on.
 - With no model call there is nothing to ask what should have been done instead,
   so no corrected action is emitted (`reason='no_llm'`) -- the same report shape
   as `HeuristicAttributor`.

@@ -25,10 +25,16 @@ it reaches the earliest producer in the chain. That is what makes a two-hop hand
 step 2. ``candidate_steps()`` runs the same walk, so ``BinarySearchAttributor``'s pinned
 window inherits exactly the ranking that produced the blame.
 
-The finding's own fields are read in strict priority order -- ``wrong_content_quote``,
-then ``reference_quote``, then ``evidence`` -- and the first field that reaches an upstream
-producer wins. Pooling them would let a passing mention in prose outrank the verbatim span
-the detector actually blamed.
+Nodes are events, not step numbers. Several events can share a ``step_index`` (a plan and
+the tool call it spawns, a retry and its result), so the graph addresses each event by its
+position in ``trajectory.events``. That keeps ``Blame.span_id`` pointing at the exact event
+that produced the value instead of the first event that happens to share its step.
+
+The finding's own fields are read in strict priority order and never pooled. A non-empty
+``wrong_content_quote`` is the only field traced: if no earlier step produced the value it
+quotes, the finding's own step is blamed, because a ``reference_quote`` names the *correct*
+constraint the step failed to satisfy and must never be reported as the source of a wrong
+value. ``reference_quote``, and then ``evidence``, are read only when the quote is empty.
 
 Honest limits, stated because the output is a `Blame`:
 
@@ -39,9 +45,11 @@ Honest limits, stated because the output is a `Blame`:
 * When no producer edge reaches the finding's step, nothing is invented: the finding's own
   step is blamed and ``sources`` records ``no_upstream_producer``.
 * ``chain_membership`` follows the `Blame` contract in ``attribution.py``: does the traced
-  value reach the trajectory's *terminal* step, not merely a later one. It stays ``None``
-  when there were no values to track, and ``False`` when the value dies mid-chain -- an
-  isolated intermediate error the run did not ultimately fail on.
+  value reach the trajectory's *terminal* step, not merely a later one. Forward traversal
+  is scoped to the tracked value, so a step that passes some *other* value onward does not
+  drag the chain to the end. It stays ``None`` when there were no values to track, and
+  ``False`` when the value dies mid-chain -- an isolated intermediate error the run did not
+  ultimately fail on.
 """
 
 from __future__ import annotations
@@ -93,14 +101,20 @@ _MIN_VALUE_LEN = 4
 #: Width of the verbatim excerpt quoted as evidence.
 _EXCERPT_WIDTH = 90
 
-#: Which finding field to read, most authoritative first. The first field that reaches an
-#: upstream producer wins; they are never pooled.
+#: Which finding field to read, most authoritative first. A non-empty ``wrong_content_quote``
+#: is read alone -- no falling back to a field that describes the *correct* constraint -- and
+#: the weaker fields are consulted only when it is empty. They are never pooled.
 _FIELD_PRECEDENCE = ('wrong_content_quote', 'reference_quote', 'evidence')
 
 
 class _Step(NamedTuple):
-    """One candidate step, split into what it emitted and what it took in."""
+    """One event, split into what it emitted and what it took in.
 
+    ``pos`` is the event's index in ``trajectory.events`` and is the node identity: two
+    events can share a ``step_index``, so the step number alone cannot name a producer.
+    """
+
+    pos: int
     step: int
     event: AgentEvent
     produced: Set[str]
@@ -108,8 +122,14 @@ class _Step(NamedTuple):
 
 
 class _Edge(NamedTuple):
-    """``producer_step -> consumer_step`` carrying one shared value."""
+    """``producer_node -> consumer_node`` carrying one shared value.
 
+    Nodes are event positions; the step numbers are carried along only for reporting, so
+    external output keeps speaking in integer ``step_index`` values.
+    """
+
+    producer_node: int
+    consumer_node: int
     producer_step: int
     consumer_step: int
     token: str
@@ -121,10 +141,12 @@ class _Match(NamedTuple):
     """The producer the graph walk settled on, and how it got there."""
 
     field: str
+    producer_node: int
     producer_step: int
     producer_event: AgentEvent
     tokens: List[str]
-    chain: List[int]
+    chain_nodes: List[int]
+    chain_steps: List[int]
     alternates: List[Tuple[int, str]]
 
 
@@ -268,6 +290,7 @@ class DependencyGraphAttributor:
     ) -> Tuple[Blame, Dict[str, Any]]:
         step = finding.step_index
         match = _producer_for(finding, rows, incoming)
+        node = _node_for(rows, step, finding.event_id)
 
         if match is not None:
             producer_event = match.producer_event
@@ -279,12 +302,12 @@ class DependencyGraphAttributor:
                 rationale=(
                     f'Step {match.producer_step} produced {match.tokens[0]!r}, which the '
                     f'finding at step {step} consumes. Traced along producer -> consumer '
-                    f'edges ({_chain_text(match.chain)}), not step order.'
+                    f'edges ({_chain_text(match.chain_steps)}), not step order.'
                 ),
                 evidence=[_excerpt(_produced_text(producer_event), match.tokens[0])],
                 sources=[self.id, 'dependency_producer'],
                 chain_membership=_chain_membership(
-                    match.producer_step, match.tokens, rows, outgoing, terminal_step
+                    match.producer_node, match.tokens, rows, outgoing, terminal_step
                 ),
             )
             field = match.field
@@ -305,7 +328,7 @@ class DependencyGraphAttributor:
                 ],
                 sources=[self.id, 'no_upstream_producer'],
                 chain_membership=_chain_membership(
-                    step, _finding_tokens(finding), rows, outgoing, terminal_step
+                    node, _finding_tokens(finding), rows, outgoing, terminal_step
                 ),
             )
             field = None
@@ -317,7 +340,7 @@ class DependencyGraphAttributor:
             'producer_step': match.producer_step if match else None,
             'field': field,
             'values': match.tokens if match else _finding_tokens(finding),
-            'chain': list(match.chain) if match else [],
+            'chain': list(match.chain_steps) if match else [],
             'alternate_producers': [
                 {'step': alt_step, 'value': token} for alt_step, token in (match.alternates if match else [])
             ],
@@ -390,7 +413,7 @@ def _value_tokens(text: str) -> Set[str]:
 
 
 def _step_rows(events: Sequence[AgentEvent]) -> List[_Step]:
-    """``(step, event, produced, consumed)`` per event.
+    """``(pos, step, event, produced, consumed)`` per event.
 
     A user-origin event contributes to neither side: it is not a producer, and a value it
     repeats is not evidence that the run's dataflow passed through it.
@@ -400,10 +423,11 @@ def _step_rows(events: Sequence[AgentEvent]) -> List[_Step]:
     for position, event in enumerate(events):
         step = event.step_index if event.step_index is not None else position
         if _is_user_origin(event):
-            rows.append(_Step(step, event, set(), set()))
+            rows.append(_Step(position, step, event, set(), set()))
             continue
         rows.append(
             _Step(
+                position,
                 step,
                 event,
                 _value_tokens(_produced_text(event)),
@@ -421,31 +445,36 @@ def _step_rows(events: Sequence[AgentEvent]) -> List[_Step]:
 def _build_edges(rows: Sequence[_Step]) -> List[_Edge]:
     """Link each consumed value to the most recent earlier step that produced it."""
 
-    last_producer: Dict[str, Tuple[int, str]] = {}
+    # token -> (node, step, event_id) of the most recent event that emitted it.
+    last_producer: Dict[str, Tuple[int, int, str]] = {}
     edges: List[_Edge] = []
     seen: Set[Tuple[int, int, str]] = set()
     for row in rows:
         for token in sorted(row.consumed):
             producer = last_producer.get(token)
-            # Strictly earlier, and one relay per value: a step cannot consume from
-            # itself, and re-producing a value it already consumed does not add an edge.
-            if producer is None or producer[0] >= row.step:
+            # Strictly earlier by event position, and one relay per value: an event cannot
+            # consume from itself, and re-producing a value it already consumed adds no
+            # edge. Position rather than step order, so events sharing a ``step_index``
+            # stay distinct nodes.
+            if producer is None or producer[0] >= row.pos:
                 continue
-            key = (producer[0], row.step, token)
+            key = (producer[0], row.pos, token)
             if key in seen:
                 continue
             seen.add(key)
             edges.append(
                 _Edge(
-                    producer_step=producer[0],
+                    producer_node=producer[0],
+                    consumer_node=row.pos,
+                    producer_step=producer[1],
                     consumer_step=row.step,
                     token=token,
-                    producer_event_id=producer[1],
+                    producer_event_id=producer[2],
                     consumer_event_id=row.event.event_id,
                 )
             )
         for token in row.produced:
-            last_producer[token] = (row.step, row.event.event_id)
+            last_producer[token] = (row.pos, row.step, row.event.event_id)
     return edges
 
 
@@ -457,27 +486,27 @@ def _graph(
     incoming: Dict[Tuple[int, str], List[int]] = {}
     outgoing: Dict[int, List[_Edge]] = {}
     for edge in edges:
-        incoming.setdefault((edge.consumer_step, edge.token), []).append(edge.producer_step)
-        outgoing.setdefault(edge.producer_step, []).append(edge)
+        incoming.setdefault((edge.consumer_node, edge.token), []).append(edge.producer_node)
+        outgoing.setdefault(edge.producer_node, []).append(edge)
     for producers in incoming.values():
         producers.sort()
     return rows, edges, incoming, outgoing
 
 
 def _walk_back(
-    step: int,
+    node: int,
     token: str,
     incoming: Dict[Tuple[int, str], List[int]],
 ) -> List[int]:
     """Follow producer edges on one value back to its earliest origin.
 
-    Returns the path ``[earliest, ..., step]``. A single-element result means nothing
-    upstream produced the token for this step.
+    Returns the node path ``[earliest, ..., node]``. A single-element result means nothing
+    upstream produced the token for this event.
     """
 
-    chain = [step]
-    seen = {step}
-    current = step
+    chain = [node]
+    seen = {node}
+    current = node
     while True:
         producers = [p for p in incoming.get((current, token), []) if p not in seen]
         if not producers:
@@ -488,32 +517,59 @@ def _walk_back(
     return chain[::-1]
 
 
-def _forward_reachable(step: int, outgoing: Dict[int, List[_Edge]]) -> Set[int]:
-    """Steps reachable from ``step`` by following producer -> consumer edges."""
+def _forward_reachable(
+    node: int,
+    tokens: Sequence[str],
+    outgoing: Dict[int, List[_Edge]],
+) -> Set[int]:
+    """Nodes reachable from ``node`` by following edges that carry a tracked value.
 
+    Only the tracked tokens may be followed. A step that consumes token ``X`` and emits an
+    unrelated ``Y`` is a bridge between two different dataflows, not a relay of ``X``, so
+    traversal stops there rather than riding ``Y`` to the terminal step.
+    """
+
+    tracked = set(tokens)
     reachable: Set[int] = set()
-    frontier = [step]
+    frontier = [node]
     while frontier:
         current = frontier.pop()
         for edge in outgoing.get(current, []):
-            if edge.consumer_step in reachable:
+            if edge.token not in tracked or edge.consumer_node in reachable:
                 continue
-            reachable.add(edge.consumer_step)
-            frontier.append(edge.consumer_step)
+            reachable.add(edge.consumer_node)
+            frontier.append(edge.consumer_node)
     return reachable
 
 
-def _event_at(rows: Sequence[_Step], step: int) -> Optional[AgentEvent]:
+def _event_at(rows: Sequence[_Step], node: int) -> Optional[AgentEvent]:
+    """The event at graph node ``node`` -- its position in ``trajectory.events``."""
+
+    row = _row_at(rows, node)
+    return row.event if row is not None else None
+
+
+def _row_at(rows: Sequence[_Step], node: int) -> Optional[_Step]:
     for row in rows:
-        if row.step == step:
-            return row.event
+        if row.pos == node:
+            return row
     return None
 
 
-def _row_at(rows: Sequence[_Step], step: int) -> Optional[_Step]:
+def _node_for(
+    rows: Sequence[_Step], step: Optional[int], event_id: Optional[str] = None
+) -> Optional[int]:
+    """The node for a finding: its own event when known, else the first event at ``step``."""
+
+    if event_id:
+        for row in rows:
+            if row.event.event_id == event_id:
+                return row.pos
+    if step is None:
+        return None
     for row in rows:
         if row.step == step:
-            return row
+            return row.pos
     return None
 
 
@@ -534,18 +590,27 @@ def _tokens_in(texts: Sequence[Any]) -> List[str]:
 
 
 def _target_groups(finding: FailureFinding) -> List[Tuple[str, List[str]]]:
-    """The finding's evidence fields, in strict precedence order.
+    """The finding fields worth tracing, already narrowed by strict precedence.
 
-    They are returned separately rather than pooled: a token from ``evidence`` prose must
-    not be able to outrank the verbatim span in ``wrong_content_quote``.
+    A non-empty ``wrong_content_quote`` is read alone. Falling back from it to
+    ``reference_quote`` would blame the step that supplied a *correct* constraint for a
+    value the finding says is wrong, so when its tokens reach no producer the finding's own
+    step is blamed instead. The weaker fields are read only when that quote is empty.
     """
 
-    texts_by_field = {
-        'wrong_content_quote': [finding.wrong_content_quote],
-        'reference_quote': [finding.reference_quote],
-        'evidence': list(finding.evidence or []),
-    }
-    return [(field, _tokens_in(texts_by_field[field])) for field in _FIELD_PRECEDENCE]
+    wrong_content_quote = finding.wrong_content_quote
+    if wrong_content_quote and str(wrong_content_quote).strip():
+        return [(_FIELD_PRECEDENCE[0], _tokens_in([wrong_content_quote]))]
+
+    groups: List[Tuple[str, List[str]]] = []
+    for field, texts in (
+        ('reference_quote', [finding.reference_quote]),
+        ('evidence', list(finding.evidence or [])),
+    ):
+        tokens = _tokens_in(texts)
+        if tokens:
+            groups.append((field, tokens))
+    return groups
 
 
 def _finding_tokens(finding: FailureFinding) -> List[str]:
@@ -567,26 +632,37 @@ def _producer_for(
     step = finding.step_index
     if step is None:
         return None
+    node = _node_for(rows, step, finding.event_id)
+    if node is None:
+        return None
     for field, tokens in _target_groups(finding):
         found: List[Tuple[int, str, List[int]]] = []
         for token in tokens:
-            chain = _walk_back(step, token, incoming)
-            if len(chain) >= 2:
-                found.append((chain[0], token, chain))
+            chain_nodes = _walk_back(node, token, incoming)
+            if len(chain_nodes) >= 2:
+                found.append((chain_nodes[0], token, chain_nodes))
         if not found:
             continue
-        producer_step = min(entry[0] for entry in found)
-        chain = next(entry[2] for entry in found if entry[0] == producer_step)
-        event = _event_at(rows, producer_step)
-        if event is None:  # pragma: no cover - defensive
+        producer_node = min(entry[0] for entry in found)
+        chain_nodes = next(entry[2] for entry in found if entry[0] == producer_node)
+        row = _row_at(rows, producer_node)
+        if row is None:  # pragma: no cover - defensive
             continue
         return _Match(
             field=field,
-            producer_step=producer_step,
-            producer_event=event,
-            tokens=sorted(entry[1] for entry in found if entry[0] == producer_step),
-            chain=chain,
-            alternates=[entry[:2] for entry in found if entry[0] != producer_step],
+            producer_node=producer_node,
+            producer_step=row.step,
+            producer_event=row.event,
+            tokens=sorted(entry[1] for entry in found if entry[0] == producer_node),
+            chain_nodes=chain_nodes,
+            chain_steps=[
+                at.step for at in (_row_at(rows, pos) for pos in chain_nodes) if at
+            ],
+            alternates=[
+                (_row_at(rows, entry[0]).step, entry[1])
+                for entry in found
+                if entry[0] != producer_node and _row_at(rows, entry[0]) is not None
+            ],
         )
     return None
 
@@ -597,26 +673,31 @@ def _producer_for(
 
 
 def _chain_membership(
-    step: Optional[int],
+    node: Optional[int],
     tokens: Sequence[str],
     rows: Sequence[_Step],
     outgoing: Dict[int, List[_Edge]],
     terminal_step: Optional[int],
 ) -> Optional[bool]:
-    """Does this step's value reach the trajectory's terminal step?
+    """Does this event's value reach the trajectory's terminal step?
 
     Same contract as the rest of the library: ``None`` means unassessed (no tracked
     values), ``False`` means the run did not ultimately fail on this -- the value dies
-    before the ending, so the step is a distraction however wrong it was.
+    before the ending, so the step is a distraction however wrong it was. Propagation is
+    followed only along the tracked value, so an unrelated value continuing to the end does
+    not make this value in-chain.
     """
 
-    if step is None or not tokens or terminal_step is None:
+    if node is None or not tokens or terminal_step is None:
         return None
     tracked = set(tokens)
-    terminal = _row_at(rows, terminal_step)
-    if terminal is not None and tracked & (terminal.produced | terminal.consumed):
-        return True
-    return terminal_step in _forward_reachable(step, outgoing)
+    for row in rows:
+        if row.step == terminal_step and tracked & (row.produced | row.consumed):
+            return True
+    reachable = _forward_reachable(node, tokens, outgoing)
+    return any(
+        row.pos in reachable for row in rows if row.step == terminal_step
+    )
 
 
 # ---------------------------------------------------------------------------
