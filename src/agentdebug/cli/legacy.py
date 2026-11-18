@@ -34,6 +34,7 @@ from agentdebug.attribution import (
     HeuristicAttributor,
     StepByStepAttributor,
 )
+from agentdebug.diagnose.attribute.dependency import DependencyGraphAttributor
 from agentdebug.models import (
     AgentTrajectory,
     DiagnosticReport,
@@ -96,6 +97,10 @@ _ATTRIBUTOR_ALIASES = {
     'false': 'none',
     'heuristic': 'heuristic',
     'HeuristicAttributor': 'heuristic',
+    'dependency-graph': 'dependency_graph',
+    'dependency_graph': 'dependency_graph',
+    'dependencygraph': 'dependency_graph',
+    'DependencyGraphAttributor': 'dependency_graph',
     'all-at-once': 'all_at_once',
     'all_at_once': 'all_at_once',
     'allatonce': 'all_at_once',
@@ -209,7 +214,8 @@ def _add_diagnose_args(
         choices=sorted(_ATTRIBUTOR_ALIASES),
         help=(
             'Optional blame localization backend to attach under report.attribution: '
-            'heuristic, all-at-once, step-by-step, binary-search, or counterfactual.'
+            'heuristic, dependency-graph, all-at-once, step-by-step, binary-search, '
+            'or counterfactual.'
         ),
     )
     _add_hidden_const_flags(parser, dest='attributor_mode', flags=_ATTRIBUTOR_CLASS_FLAGS)
@@ -1720,6 +1726,11 @@ def _run_attributor(
 ) -> Any:
     if attributor_mode == 'heuristic':
         return HeuristicAttributor().attribute(trajectory, report.findings)
+
+    # Model-free, so it is dispatched above the LLM guard: selecting it must never
+    # require a configured endpoint.
+    if attributor_mode == 'dependency_graph':
+        return DependencyGraphAttributor().attribute(trajectory, report.findings)
 
     if llm is None:
         raise ValueError(f'{attributor_mode} attribution requires an LLM client')
